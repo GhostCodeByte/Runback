@@ -9,7 +9,7 @@ Produktdokumentation für eine Android-Lauf-App mit Wear-OS-Companion: lokale La
 - [Zielspezifikation V1 / V2](docs/zielspezifikation.md) — Ziele, Invarianten und Akzeptanzkriterien.
 - [Glossar](docs/glossar.md) — verständliche Bedeutungen neben englischen Fach- und Suchbegriffen.
 - [Änderungen zum ursprünglichen Entwurf](docs/aenderungen.md) — übernommene Klarstellungen und fachliche Verbesserungen.
-- [Bedienung und spätere Auslieferung](docs/bedienung-und-auslieferung.md) — flexible Funktionswahl, klare UI und Anforderungen an spätere Test-APKs.
+- [Bedienung und spätere Auslieferung](docs/bedienung-und-auslieferung.md) — flexible Funktionswahl, klare UI und Anforderungen an spätere Test-APKs.\n- [Interaktive Systemkarte](docs/runback-system-map.html) — visueller Datenfluss von Sensorsamples bis zur Handlungsempfehlung.
 
 Die Zielspezifikation ist fachlich maßgeblich. Das Glossar erklärt ihre Begriffe; ergänzende Dokumente konkretisieren Ziele, ohne die Invarianten abzuschwächen. Akzeptanzkriterien beschreiben gewünschtes Verhalten und sind keine Behauptung über bereits implementierte Funktionen.
 
