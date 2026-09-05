@@ -25,6 +25,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DeviceSettings } from './DeviceSettings';
+import { OnboardingFlow, shouldShowOnboarding } from './Onboarding';
 import { RunIntegrations } from './RunIntegrations';
 import { ProseExplanation, ProseSettings } from './ProseSettings';
 import {
@@ -33,11 +34,7 @@ import {
   evaluateExperiment,
   transitionExperiment,
 } from '../domain';
-import type {
-  ExperimentStatus,
-  Recommendation,
-  RunPurpose,
-} from '../domain/types';
+import type { ExperimentStatus, Recommendation } from '../domain/types';
 import {
   native,
   nativeCall,
@@ -55,30 +52,10 @@ import {
   Section,
   Stat,
   color,
+  purposeLabel,
+  purposes,
 } from './components';
 
-const purposes: { value: RunPurpose; label: string; description: string }[] = [
-  { value: 'free', label: 'Freier Lauf', description: 'Ohne feste Vorgabe' },
-  {
-    value: 'easy',
-    label: 'Locker',
-    description: 'Ein ruhiger, gleichmäßiger Lauf',
-  },
-  { value: 'long', label: 'Lang', description: 'Zeit auf den Beinen' },
-  {
-    value: 'intervals',
-    label: 'Intervalle',
-    description: 'Belastung und Erholung im Wechsel',
-  },
-  { value: 'race', label: 'Wettkampf', description: 'Laufen auf Leistung' },
-  {
-    value: 'unknown',
-    label: 'Noch offen',
-    description: 'Zweck später ergänzen',
-  },
-];
-const purposeLabel = (value: RunPurpose) =>
-  purposes.find(p => p.value === value)?.label || 'Lauf';
 const number = (value: number, digits = 1) =>
   Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '–';
 const distance = (run: Run) => number(run.distanceMeters / 1000, 2);
@@ -162,6 +139,7 @@ export function RunbackApp() {
   const [goalInput, setGoalInput] = useState('');
   const [minuteInput, setMinuteInput] = useState('30');
   const [presetName, setPresetName] = useState('');
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const settings = state.settings;
   const runs = state.runs;
   const recording = state.recording;
@@ -227,6 +205,16 @@ export function RunbackApp() {
       .finally(() => setLoading(false));
   }, [refresh]);
   useEffect(() => {
+    if (
+      shouldShowOnboarding(settings, {
+        loading,
+        recording: Boolean(recording),
+      })
+    ) {
+      setOnboardingOpen(true);
+    }
+  }, [loading, settings, recording]);
+  useEffect(() => {
     const subscription = AndroidAppState.addEventListener('change', value => {
       if (value === 'active' && !busyRef.current) {
         void refresh().catch(() => {});
@@ -249,6 +237,11 @@ export function RunbackApp() {
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
       () => {
+        // Während der Einrichtung fängt der Zurück-Button nichts ab:
+        // „Später" oder „Los geht's" beenden sie ausdrücklich.
+        if (onboardingOpen) {
+          return true;
+        }
         if (purposePicker) {
           setPurposePicker(false);
           return true;
@@ -270,7 +263,7 @@ export function RunbackApp() {
       },
     );
     return () => subscription.remove();
-  }, [selected, page, tab, purposePicker]);
+  }, [selected, page, tab, purposePicker, onboardingOpen]);
   useEffect(() => {
     setNote(selected?.note || '');
   }, [selected?.id, selected?.note]);
@@ -314,30 +307,33 @@ export function RunbackApp() {
     setError('');
     setMessage('');
   };
+  const requestTrackPermissions = useCallback(async () => {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'GPS für deinen Lauf',
+          message:
+            'Runback zeichnet deine Strecke auch bei gesperrtem Display auf. Die Laufdaten bleiben auf diesem Gerät.',
+          buttonPositive: 'Weiter',
+          buttonNegative: 'Abbrechen',
+        },
+      );
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        throw new Error(
+          'Für die Streckenaufzeichnung fehlt die genaue Standortfreigabe. Du kannst sie in den Android-App-Einstellungen ändern.',
+        );
+      }
+      if (Number(Platform.Version) >= 33) {
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+        );
+      }
+    }
+  }, []);
   const start = () => {
     void action(async () => {
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'GPS für deinen Lauf',
-            message:
-              'Runback zeichnet deine Strecke auch bei gesperrtem Display auf. Die Laufdaten bleiben auf diesem Gerät.',
-            buttonPositive: 'Weiter',
-            buttonNegative: 'Abbrechen',
-          },
-        );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          throw new Error(
-            'Für die Streckenaufzeichnung fehlt die genaue Standortfreigabe. Du kannst sie in den Android-App-Einstellungen ändern.',
-          );
-        }
-        if (Number(Platform.Version) >= 33) {
-          await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-          );
-        }
-      }
+      await requestTrackPermissions();
       await nativeCall('startRun', purpose);
       await refresh();
       setTab('Heute');
@@ -404,23 +400,29 @@ export function RunbackApp() {
       });
     });
   };
-  const runImport = () => {
-    void action(async () => {
+  const importFiles = async (navigate: boolean) => {
+    if (navigate) {
       setPage('data');
       setTab('Mehr');
-      const timer = setInterval(() => {
-        nativeCall<any>('getImportStatus')
-          .then(setImportStatus)
-          .catch(() => {});
-      }, 700);
-      try {
-        const result = await nativeCall<any>('importFiles');
-        setImportStatus(result.cancelled ? null : result);
-        await refresh();
-      } finally {
-        clearInterval(timer);
-      }
-    });
+    }
+    const timer = setInterval(() => {
+      nativeCall<any>('getImportStatus')
+        .then(setImportStatus)
+        .catch(() => {});
+    }, 700);
+    try {
+      const result = await nativeCall<any>('importFiles');
+      setImportStatus(result.cancelled ? null : result);
+      await refresh();
+    } finally {
+      clearInterval(timer);
+    }
+  };
+  const runImport = () => {
+    void action(() => importFiles(true));
+  };
+  const runImportSilent = () => {
+    void action(() => importFiles(false));
   };
   const importSummary = importStatus
     ? `Importiert: ${importStatus.imported ?? 0} · Doppelt: ${
@@ -1101,6 +1103,11 @@ export function RunbackApp() {
           subtitle="Grundlagen und verfügbare Aussagen"
           onPress={() => openPage('models')}
         />
+        <Row
+          title="Einrichtung"
+          subtitle="Ziele, Import und Berechtigungen erneut ansehen"
+          onPress={() => setOnboardingOpen(true)}
+        />
       </Section>
       <Section title="Während des Laufs">
         <Row
@@ -1469,7 +1476,7 @@ export function RunbackApp() {
   const content = selected
     ? renderDetail()
     : page === 'profile'
-    ? renderProfile()
+      ? renderProfile()
     : page === 'devices'
     ? renderDevices()
     : page === 'data'
@@ -1486,6 +1493,7 @@ export function RunbackApp() {
     ? renderFocus()
     : renderMore();
   const isHistory = !selected && page === 'main' && tab === 'Läufe';
+  const showOnboarding = onboardingOpen && !loading;
   return (
     <View style={[styles.app, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -1541,6 +1549,19 @@ export function RunbackApp() {
           <ActivityIndicator color={color.green} />
           <Copy muted>Läufe werden geladen …</Copy>
         </View>
+      ) : showOnboarding ? (
+        <OnboardingFlow
+          settings={settings}
+          capabilities={state.capabilities}
+          busy={busy}
+          importRunning={Boolean(importStatus?.running)}
+          importSummary={importSummary}
+          importErrorCount={(importStatus?.errors || []).length}
+          onPersist={persist}
+          onImport={runImportSilent}
+          onRequestPermissions={requestTrackPermissions}
+          onClose={() => setOnboardingOpen(false)}
+        />
       ) : isHistory ? (
         <FlatList
           data={runs}
@@ -1602,9 +1623,10 @@ export function RunbackApp() {
           {content}
         </ScrollView>
       )}
-      <View
-        style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
-      >
+      {!showOnboarding ? (
+        <View
+          style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
+        >
         {(['Heute', 'Läufe', 'Fokus', 'Mehr'] as Tab[]).map(name => (
           <Pressable
             key={name}
@@ -1622,7 +1644,8 @@ export function RunbackApp() {
             </Text>
           </Pressable>
         ))}
-      </View>
+        </View>
+      ) : null}
       <Modal
         visible={purposePicker}
         transparent

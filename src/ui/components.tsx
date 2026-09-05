@@ -2,6 +2,7 @@ import React, { memo, type PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path, Polyline } from 'react-native-svg';
 import type { RoutePoint } from '../native';
+import type { RunPurpose } from '../domain/types';
 export const color = {
   bg: '#101210',
   surface: '#1A1D1A',
@@ -12,6 +13,28 @@ export const color = {
   green: '#A5D879',
   ink: '#14200E',
 };
+export const purposes: { value: RunPurpose; label: string; description: string }[] = [
+  { value: 'free', label: 'Freier Lauf', description: 'Ohne feste Vorgabe' },
+  {
+    value: 'easy',
+    label: 'Locker',
+    description: 'Ein ruhiger, gleichmäßiger Lauf',
+  },
+  { value: 'long', label: 'Lang', description: 'Zeit auf den Beinen' },
+  {
+    value: 'intervals',
+    label: 'Intervalle',
+    description: 'Belastung und Erholung im Wechsel',
+  },
+  { value: 'race', label: 'Wettkampf', description: 'Laufen auf Leistung' },
+  {
+    value: 'unknown',
+    label: 'Noch offen',
+    description: 'Zweck später ergänzen',
+  },
+];
+export const purposeLabel = (value: RunPurpose) =>
+  purposes.find(p => p.value === value)?.label || 'Lauf';
 export function Button({
   title,
   onPress,

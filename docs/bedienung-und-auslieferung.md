@@ -21,6 +21,7 @@ Ein lokales Nutzerprofil kann Geräte, Ansichten, optionale Dienste und Hinweise
 **Fertig, wenn:**
 
 - Ohne Einrichtung ein einfacher Lauf aufgezeichnet und ausgewertet werden kann.
+- Eine optionale Ersteinrichtung Ziel, Zeitbudget, Lauftage, Standardzweck, Historienimport und Berechtigungen an einem Ort sammelt, jederzeit ganz oder schrittweise überspringbar bleibt und später unter „Mehr → Einrichtung" erneut geöffnet werden kann.
 - Sensoren, optionale Datenquellen, LLM-Formulierung und Live-Hinweise getrennt aktivierbar sind, soweit die jeweilige Produktstufe sie unterstützt.
 - Standardmäßig eine sinnvolle, reduzierte Oberfläche erscheint; zusätzliche Kennzahlen gezielt eingeblendet werden können.
 - „Ausgeschaltet“, „nicht unterstützt“, „Berechtigung fehlt“ und „Daten reichen nicht“ unterscheidbar sind.

@@ -26,6 +26,8 @@ export interface Settings {
   dismissedRecommendations?: string[];
   adherence?: Record<string, Adherence>;
   postponedUntil?: number;
+  onboardedAt?: number;
+  onboardingSkipped?: boolean;
   [key: string]: unknown;
 }
 export interface RoutePoint {
