@@ -1,0 +1,123 @@
+name: Android test releases
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keep main builds in order; a later push must not interrupt a publication.
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check and build phone + Wear OS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.version.outputs.artifact }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Assign a unique test version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          echo "version=0.1.${RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "tag=test-0.1.${RUN_NUMBER}-${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "artifact=runback-apks-${RUN_NUMBER}-${RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Install JavaScript dependencies
+        run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: JavaScript tests
+        run: npm test -- --runInBand
+      - name: Install Android build tools
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+      - name: Build standalone test APKs, native tests and Android lint
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ steps.version.outputs.version }}
+        run: |
+          bash ./gradlew --no-daemon --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError' \
+            -PversionCode="$VERSION_CODE" -PversionName="$VERSION_NAME" \
+            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64 \
+            :core:testDebugUnitTest :app:lintRelease :wear:lintRelease \
+            :app:assembleRelease :wear:assembleRelease
+      - name: Verify and package APKs
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ steps.version.outputs.version }}
+        run: python3 scripts/package-release.py
+      - name: Upload verified APKs and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: checks-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            android/core/build/reports/tests/
+            android/app/build/reports/lint-results-release.*
+            android/wear/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    name: Publish downloadable test release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: dist
+      - name: Verify downloaded checksums
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+      - name: Publish prerelease for the exact checked commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo "This run already published $RELEASE_TAG; keeping its existing assets."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" dist/*.apk dist/SHA256SUMS dist/BUILD-METADATA.json \
+            --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Runback ${RELEASE_VERSION} · Android + Wear OS test" \
+            --notes-file dist/RELEASE-NOTES.md
