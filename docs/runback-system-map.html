@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Runback – Datenfluss und Entscheidungslogik</title>
+  <style>
+    :root {
+      --bg: #f5f7f4;
+      --surface: #ffffff;
+      --surface-2: #edf2ee;
+      --ink: #13231d;
+      --muted: #617068;
+      --line: #ccd6cf;
+      --green: #145f45;
+      --green-2: #dceee5;
+      --blue: #27627d;
+      --blue-2: #e0eff5;
+      --amber: #8a5a17;
+      --amber-2: #f7ead3;
+      --violet: #64517e;
+      --violet-2: #eee8f5;
+      --red: #9a4138;
+      --shadow: 0 16px 40px rgba(18, 38, 29, .08);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1713;
+        --surface: #17211c;
+        --surface-2: #1d2a23;
+        --ink: #edf6f0;
+        --muted: #a7b6ad;
+        --line: #35463d;
+        --green: #78d2a9;
+        --green-2: #193b2c;
+        --blue: #8bc7e2;
+        --blue-2: #173646;
+        --amber: #e6bd78;
+        --amber-2: #42331e;
+        --violet: #c1addd;
+        --violet-2: #342a40;
+        --red: #f0a29a;
+        --shadow: 0 16px 40px rgba(0, 0, 0, .2);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% -8%, color-mix(in srgb, var(--green) 12%, transparent), transparent 28rem),
+        var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    button { font: inherit; }
+
+    .page {
+      width: min(1500px, 100%);
+      margin: 0 auto;
+      padding: 34px clamp(16px, 3vw, 48px) 56px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 820px;
+      font-size: clamp(30px, 4vw, 54px);
+      line-height: 1.02;
+      letter-spacing: -.035em;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: clamp(15px, 1.5vw, 18px);
+    }
+
+    .version-switch {
+      display: inline-flex;
+      flex: none;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 82%, transparent);
+    }
+
+    .version-switch button {
+      min-height: 38px;
+      padding: 0 13px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .version-switch button[aria-pressed="true"] {
+      background: var(--ink);
+      color: var(--bg);
+    }
+
+    .invariants {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--line);
+      margin-bottom: 24px;
+    }
+
+    .invariant {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      min-height: 64px;
+      padding: 12px 14px;
+      background: var(--surface);
+      font-size: 13px;
+    }
+
+    .icon {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .flow-shell {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .flow-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .flow-head h2,
+    .section-title {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -.01em;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .dot { width: 9px; height: 9px; border-radius: 99px; background: var(--green); }
+    .dot.v2 { background: var(--violet); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1.05fr 1.08fr 1.18fr 1.18fr 1.05fr;
+      min-width: 1100px;
+    }
+
+    .flow-wrap { overflow-x: auto; }
+
+    .lane {
+      position: relative;
+      padding: 18px 14px 20px;
+      border-right: 1px solid var(--line);
+    }
+
+    .lane:last-child { border-right: 0; }
+
+    .lane:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      z-index: 3;
+      top: 48px;
+      right: -12px;
+      width: 24px;
+      height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      background: var(--surface);
+      color: var(--green);
+      text-align: center;
+      line-height: 21px;
+      font-weight: 700;
+    }
+
+    .lane-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .lane-label strong {
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      background: var(--surface-2);
+      color: var(--ink);
+      font-size: 11px;
+    }
+
+    .node {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      margin: 0 0 9px;
+      padding: 11px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background: var(--surface-2);
+      color: var(--ink);
+      text-align: left;
+      cursor: pointer;
+      transition: transform .15s ease, border-color .15s ease, background .15s ease;
+    }
+
+    .node:hover { transform: translateY(-1px); border-color: var(--green); }
+    .node:focus-visible { outline: 3px solid color-mix(in srgb, var(--green) 36%, transparent); outline-offset: 2px; }
+    .node[aria-pressed="true"] { border-color: var(--green); background: var(--green-2); }
+    .node[data-stage="v2"] { background: var(--violet-2); }
+    .node[data-stage="v2"][aria-pressed="true"] { border-color: var(--violet); }
+
+    .node-icon {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--surface) 75%, transparent);
+      color: var(--green);
+    }
+
+    .node[data-stage="v2"] .node-icon { color: var(--violet); }
+    .node-icon .icon { width: 16px; height: 16px; }
+
+    .node strong { display: block; margin: 0 0 2px; font-size: 13px; line-height: 1.25; }
+    .node small { display: block; color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+    .feedback {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 14px;
+      padding: 13px 20px;
+      border-top: 1px solid var(--line);
+      background: var(--green-2);
+      color: color-mix(in srgb, var(--green) 88%, var(--ink));
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .feedback::before,
+    .feedback::after { content: ""; height: 1px; background: currentColor; opacity: .35; }
+
+    .detail {
+      display: grid;
+      grid-template-columns: .85fr 1.2fr 1fr 1fr;
+      gap: 1px;
+      border-top: 1px solid var(--line);
+      background: var(--line);
+    }
+
+    .detail > div {
+      min-height: 132px;
+      padding: 16px 18px;
+      background: var(--surface);
+    }
+
+    .detail-kicker {
+      margin: 0 0 5px;
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .detail h3 { margin: 0; font-size: 20px; line-height: 1.16; }
+    .detail-label { margin: 0 0 5px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .detail-value { margin: 0; font-size: 13px; }
+    .formula { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--blue); }
+
+    .privacy-band {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr;
+      gap: 1px;
+      margin-top: 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--line);
+    }
+
+    .privacy-band article { padding: 16px; background: var(--surface); }
+    .privacy-band h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 14px; }
+    .privacy-band p { margin: 0; color: var(--muted); font-size: 12px; }
+
+    .metrics-section { margin-top: 28px; }
+
+    .metrics-intro {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 12px;
+    }
+
+    .metrics-intro p { max-width: 690px; margin: 0; color: var(--muted); font-size: 13px; }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      padding: 15px;
+      border-top: 2px solid var(--blue);
+      background: var(--surface);
+      box-shadow: 0 5px 18px rgba(18, 38, 29, .045);
+    }
+
+    .metric:nth-child(n+5) { border-top-color: var(--amber); }
+    .metric-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .metric-head .icon { width: 17px; height: 17px; color: var(--blue); }
+    .metric:nth-child(n+5) .metric-head .icon { color: var(--amber); }
+    .metric h3 { margin: 0; font-size: 14px; }
+    .metric p { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+    .metric dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; font-size: 11px; }
+    .metric dt { color: var(--muted); }
+    .metric dd { margin: 0; }
+
+    .output-contract {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .contract,
+    .phone {
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+
+    .contract h2,
+    .phone h2 { margin: 0 0 14px; font-size: 18px; }
+
+    .contract-list { display: grid; gap: 12px; }
+    .contract-row { display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+    .contract-row strong { display: block; font-size: 13px; }
+    .contract-row span { color: var(--muted); font-size: 12px; }
+    .contract-row .step { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--blue-2); color: var(--blue); font-size: 12px; font-weight: 800; }
+
+    .phone-screen {
+      width: min(350px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--bg);
+    }
+
+    .phone-status { display: flex; justify-content: space-between; margin-bottom: 12px; color: var(--muted); font-size: 10px; }
+    .ui-title { margin: 0 0 3px; font-size: 17px; }
+    .ui-meta { margin: 0 0 12px; color: var(--muted); font-size: 11px; }
+    .ui-row { display: grid; grid-template-columns: 24px 1fr; gap: 9px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .ui-row .icon { width: 17px; height: 17px; margin-top: 2px; }
+    .ui-row.good .icon { color: var(--green); }
+    .ui-row.improve .icon { color: var(--amber); }
+    .ui-row.next .icon { color: var(--blue); }
+    .ui-row strong { display: block; font-size: 12px; }
+    .ui-row span { display: block; color: var(--muted); font-size: 11px; }
+    .ui-test { margin-top: 11px; padding: 10px; border-radius: 10px; background: var(--blue-2); font-size: 11px; }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    [hidden] { display: none !important; }
+
+    @media (max-width: 900px) {
+      .topbar { flex-direction: column; }
+      .version-switch { align-self: stretch; }
+      .version-switch button { flex: 1; }
+      .invariants { grid-template-columns: 1fr 1fr; }
+      .metric-grid { grid-template-columns: 1fr 1fr; }
+      .output-contract { grid-template-columns: 1fr; }
+      .detail { grid-template-columns: 1fr 1fr; }
+      .privacy-band { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 580px) {
+      .page { padding-top: 22px; }
+      .invariants, .metric-grid, .detail { grid-template-columns: 1fr; }
+      .flow-head, .metrics-intro, .footer { align-items: flex-start; flex-direction: column; }
+      .flow-wrap { overflow: visible; }
+      .flow { min-width: 0; grid-template-columns: 1fr; }
+      .lane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .lane:last-child { border-bottom: 0; }
+      .lane:not(:last-child)::after { content: "↓"; top: auto; right: 50%; bottom: -12px; transform: translateX(50%); }
+      .feedback { grid-template-columns: auto 1fr; }
+      .feedback::before { display: none; }
+      .feedback::after { opacity: .25; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></symbol>
+    <symbol id="i-watch" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2h6l1 4H8l1-4Zm0 20h6l1-4H8l1 4Z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M5 17h13a4 4 0 0 0 .5-8 6 6 0 0 0-11.4-1.7A5 5 0 0 0 5 17Z"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5.2 3.4 9 8 11 4.6-2 8-5.8 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-5"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></symbol>
+    <symbol id="i-route" viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M7 19h4a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h8"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 14 4-4M7 18h10"/></symbol>
+    <symbol id="i-wind" viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h16a2 2 0 1 1-2 2M3 16h8"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-9"/><path d="M16 6h5v5"/></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9.5 4A3.5 3.5 0 0 0 6 7.5v.7a3.5 3.5 0 0 0-1 6.7A3.5 3.5 0 0 0 9.5 20H12V4H9.5ZM14.5 4A3.5 3.5 0 0 1 18 7.5v.7a3.5 3.5 0 0 1 1 6.7 3.5 3.5 0 0 1-4.5 5.1H12V4h2.5Z"/><path d="M8 10h4M12 14h4"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4Z"/><path d="M8 8h8M8 12h5"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="m7 16 4-5 3 2 5-7"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-2 5-5 2 2-5 5-2Z"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M9 2h6M12 5v2M12 13l3-2"/></symbol>
+    <symbol id="i-scales" viewBox="0 0 24 24"><path d="M12 3v18M5 6h14M5 6l-3 6h6L5 6Zm14 0-3 6h6l-3-6ZM8 21h8"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M5 14v7h14v-7"/></symbol>
+  </svg>
+
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Runback · Systemkarte</p>
+        <h1>Vom Rohsignal zur überprüften Trainingsentscheidung</h1>
+        <p class="lede">Die Karte zeigt, welche Daten eingehen, welche Verarbeitung lokal stattfindet, wie Modelle daraus Aussagen bilden und wie Runback später prüft, ob die Empfehlung geholfen hat.</p>
+      </div>
+      <div class="version-switch" role="group" aria-label="Umfang anzeigen">
+        <button type="button" data-view="v1" aria-pressed="false">nur V1</button>
+        <button type="button" data-view="all" aria-pressed="true">V1 + V2</button>
+      </div>
+    </header>
+
+    <section class="invariants" aria-label="Technische Grenzen">
+      <div class="invariant"><svg class="icon"><use href="#i-database"/></svg><span><strong>Rohdaten bleiben unverändert.</strong><br>Ableitungen sind versioniert.</span></div>
+      <div class="invariant"><svg class="icon"><use href="#i-phone"/></svg><span><strong>Native verarbeitet Samples.</strong><br>JS sieht nur Aggregate.</span></div>
+      <div class="invariant"><svg class="icon"><use href="#i-lock"/></svg><span><strong>Keine Route nach außen.</strong><br>Nur grober Wetterort.</span></div>
+      <div class="invariant"><svg class="icon"><use href="#i-target"/></svg><span><strong>Kein Insight ohne Test.</strong><br>Aktion und Prüfkriterium gehören zusammen.</span></div>
+    </section>
+
+    <section class="flow-shell" aria-labelledby="flow-title">
+      <div class="flow-head">
+        <h2 id="flow-title">Daten- und Entscheidungsfluss</h2>
+        <div class="legend"><span><i class="dot"></i>V1</span><span><i class="dot v2"></i>V2-Erweiterung</span><span>Karte anklicken für Details</span></div>
+      </div>
+
+      <div class="flow-wrap">
+        <div class="flow">
+          <section class="lane" aria-label="Datenquellen">
+            <p class="lane-label"><strong>1</strong>Datenquellen</p>
+            <button class="node" data-detail="recording" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-phone"/></svg></span><span><strong>Phone-Aufzeichnung</strong><small>GPS, Barometer, Beschleunigung</small></span></button>
+            <button class="node" data-detail="imports" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-file"/></svg></span><span><strong>Importierte Historie</strong><small>FIT, GPX, TCX, Strava ZIP</small></span></button>
+            <button class="node" data-detail="health" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-heart"/></svg></span><span><strong>Health Connect</strong><small>HR, HRV, Schlaf, Ruhepuls, Masse</small></span></button>
+            <button class="node" data-detail="subjective" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-message"/></svg></span><span><strong>Subjektiver Kontext</strong><small>Bein-RPE, Atem-RPE, Notiz, Intent</small></span></button>
+            <button class="node" data-detail="weather" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-cloud"/></svg></span><span><strong>Umwelt</strong><small>Wetter, Wind, Höhenmodell</small></span></button>
+            <button class="node" data-detail="sensors" data-stage="v2" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-watch"/></svg></span><span><strong>Wear OS + BLE</strong><small>HR, Speed/Cadence, Geräteakku</small></span></button>
+          </section>
+
+          <section class="lane" aria-label="Lokale Datenebene">
+            <p class="lane-label"><strong>2</strong>Native Datenebene</p>
+            <button class="node" data-detail="rawstore" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-database"/></svg></span><span><strong>Unveränderliche Originale</strong><small>Quellformat, Zeit, Sensorherkunft</small></span></button>
+            <button class="node" data-detail="normalize" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-layers"/></svg></span><span><strong>Normalisieren & synchronisieren</strong><small>Einheiten, Zeitachsen, Geräteversatz</small></span></button>
+            <button class="node" data-detail="quality" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-shield"/></svg></span><span><strong>Qualitätsprüfung</strong><small>GPS-Sprünge, HR-Lock, Implausibles</small></span></button>
+            <button class="node" data-detail="retention" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-box"/></svg></span><span><strong>Retention & Reprocessing</strong><small>Inputs, Modellversion, Löschstatus</small></span></button>
+            <button class="node" data-detail="bridge" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-filter"/></svg></span><span><strong>Segment-Aggregate</strong><small>Nur verdichtete Daten über die Bridge</small></span></button>
+            <button class="node" data-detail="fusion" data-stage="v2" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-layers"/></svg></span><span><strong>Multi-Device-Fusion</strong><small>Duplikate, Drift, abgeleitete Streams</small></span></button>
+          </section>
+
+          <section class="lane" aria-label="Modelle und Features">
+            <p class="lane-label"><strong>3</strong>Modelle & Features</p>
+            <button class="node" data-detail="segments" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-route"/></svg></span><span><strong>Strecke segmentieren</strong><small>Kilometer, Anstieg, Belastungsabschnitt</small></span></button>
+            <button class="node" data-detail="environment" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-wind"/></svg></span><span><strong>Umwelt korrigieren</strong><small>Höhe, Windrichtung, Wärme</small></span></button>
+            <button class="node" data-detail="effort" data-stage="v1" aria-pressed="true"><span class="node-icon"><svg class="icon"><use href="#i-gauge"/></svg></span><span><strong>Effort-Modell</strong><small>GAP, Drift, Steigung, Wind, Hitze</small></span></button>
+            <button class="node" data-detail="compare" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-scales"/></svg></span><span><strong>Normalisierte Vergleichsskala</strong><small>Route und Wetter herausrechnen</small></span></button>
+            <button class="node" data-detail="physiology" data-stage="v2" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-trend"/></svg></span><span><strong>Physiologische Modelle</strong><small>Critical Speed, D′, Durability</small></span></button>
+            <button class="node" data-detail="personal" data-stage="v2" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-brain"/></svg></span><span><strong>Persönliche Parameter</strong><small>Bayes-Fit, Wirkungsverzug, Change-points</small></span></button>
+          </section>
+
+          <section class="lane" aria-label="Entscheidungsmaschine">
+            <p class="lane-label"><strong>4</strong>Decision Engine</p>
+            <button class="node" data-detail="intent" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-compass"/></svg></span><span><strong>Session Intent</strong><small>Locker, lang, Qualität, Test, Rennen, frei</small></span></button>
+            <button class="node" data-detail="hypotheses" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-brain"/></svg></span><span><strong>Hypothesen bilden</strong><small>Deterministische Kandidaten aus Features</small></span></button>
+            <button class="node" data-detail="eligibility" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-check"/></svg></span><span><strong>Ausspiel-Gate</strong><small>Aktion + vorab fixierter Test nötig</small></span></button>
+            <button class="node" data-detail="ranking" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-target"/></svg></span><span><strong>Priorisieren</strong><small>Effekt, Konfidenz, Machbarkeit, Neuheit</small></span></button>
+            <button class="node" data-detail="prescription" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-timer"/></svg></span><span><strong>Nächste Einheit festlegen</strong><small>Zielband, Fokus, Test, Ausweichoption</small></span></button>
+            <button class="node" data-detail="evaluation" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-chart"/></svg></span><span><strong>Ausführung & Wirkung prüfen</strong><small>Erfüllt, teilweise, nicht, unklar</small></span></button>
+          </section>
+
+          <section class="lane" aria-label="Ausgaben">
+            <p class="lane-label"><strong>5</strong>Was der Nutzer sieht</p>
+            <button class="node" data-detail="summary" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-message"/></svg></span><span><strong>Drei Aussagen</strong><small>Gut · verbessern · nächster Lauf</small></span></button>
+            <button class="node" data-detail="metrics" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-chart"/></svg></span><span><strong>Messwerte mit Datenbasis</strong><small>Intervall, Qualität, Läufe, Version</small></span></button>
+            <button class="node" data-detail="overlays" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-route"/></svg></span><span><strong>Karte & Verlauf</strong><small>Pace, GAP, HR, Kadenz, Effort, Qualität</small></span></button>
+            <button class="node" data-detail="verdict" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-check"/></svg></span><span><strong>Späteres Urteil</strong><small>Hilfreich, nicht hilfreich, inconclusive</small></span></button>
+            <button class="node" data-detail="scorecard" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-shield"/></svg></span><span><strong>Engine-Scorecard</strong><small>Trefferquote und Intervallkalibrierung</small></span></button>
+            <button class="node" data-detail="race" data-stage="v2" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-compass"/></svg></span><span><strong>Live & Race</strong><small>Cues, Effort-Plan, Race Envelope, Fuel</small></span></button>
+          </section>
+        </div>
+      </div>
+
+      <div class="feedback">Urteil verändert Hypothesengewicht und nächste Entscheidung</div>
+
+      <div class="detail" aria-live="polite">
+        <div><p class="detail-kicker">Ausgewählt</p><h3 id="d-title">Effort-Modell</h3></div>
+        <div><p class="detail-label">Eingaben</p><p class="detail-value" id="d-input">Segmentpace, Steigung, Windkomponente, Temperatur, Herzfrequenz und Datenqualität.</p></div>
+        <div><p class="detail-label">Methode</p><p class="detail-value formula" id="d-method">Baseline + Steigung + Wind + Wärme + Tempo + Interaktion</p></div>
+        <div><p class="detail-label">Ergebnis und Grenze</p><p class="detail-value" id="d-output">Effort je Segment mit Intervall und Beiträgen. Beiträge sind Modellanteile, keine direkt gemessenen Ursachen.</p></div>
+      </div>
+    </section>
+
+    <section class="privacy-band" aria-label="Datengrenzen">
+      <article><h3><svg class="icon"><use href="#i-lock"/></svg>Bleibt auf dem Gerät</h3><p>Rohsamples, genaue Route, Sensorzeitreihen, API-Key und vollständige Historie.</p></article>
+      <article><h3><svg class="icon"><use href="#i-filter"/></svg>JS-Schicht</h3><p>Segmentaggregate, Qualitätsstatus, Engine-Objekte, Kartenlinien für die lokale Anzeige.</p></article>
+      <article><h3><svg class="icon"><use href="#i-cloud"/></svg>Optional extern</h3><p>Grober Wetterort. Für LLM-Text nur fertige Objekte und Aggregate, nie Koordinaten oder Rohsamples.</p></article>
+    </section>
+
+    <section class="metrics-section" aria-labelledby="metrics-title">
+      <div class="metrics-intro">
+        <h2 class="section-title" id="metrics-title">Was die wichtigsten Werte aussagen</h2>
+        <p>Jeder numerische Wert braucht Intervall, Datenabdeckung, Qualitätsstatus und <code>model_version</code>. Fehlt die Datenlage, zeigt Runback den Grund statt eines Ersatzwerts.</p>
+      </div>
+      <div class="metric-grid">
+        <article class="metric"><div class="metric-head"><svg class="icon"><use href="#i-shield"/></svg><h3>Datenqualität</h3></div><p>Bewertet die Verwendbarkeit der Messung, nicht die Qualität des Laufes.</p><dl><dt>Basis</dt><dd>GPS, HR, Höhe, Lücken</dd><dt>Folge</dt><dd>freigeben, abwerten oder ausschließen</dd></dl></article>
+        <article class="metric"><div class="metric-head"><svg class="icon"><use href="#i-route"/></svg><h3>GAP</h3></div><p>Modellierte Flachpace für denselben Aufwand. Hilft, Anstiege mit flachen Abschnitten zu vergleichen.</p><dl><dt>Basis</dt><dd>Pace + korrigierte Steigung</dd><dt>Grenze</dt><dd>kein direkt gemessener Wert</dd></dl></article>
+        <article class="metric"><div class="metric-head"><svg class="icon"><use href="#i-heart"/></svg><h3>Decoupling</h3></div><p>Zeigt, ob sich das Verhältnis aus äußerer Leistung und Herzfrequenz im Lauf verschiebt.</p><dl><dt>Basis</dt><dd>vergleichbare frühe/späte Segmente</dd><dt>Aussage</dt><dd>kardiovaskuläre Drift unter Kontext</dd></dl></article>
+        <article class="metric"><div class="metric-head"><svg class="icon"><use href="#i-gauge"/></svg><h3>Normalisierter Effort</h3></div><p>Bringt unterschiedliche Strecken und Bedingungen auf eine gemeinsame persönliche Skala.</p><dl><dt>Basis</dt><dd>Tempo, Steigung, Wind, Wärme</dd><dt>Nutzen</dt><dd>Härte zweier Läufe vergleichen</dd></dl></article>
+        <article class="metric"><div class="metric-head"><svg class="icon"><use href="#i-layers"/></svg><h3>Effort-Beiträge</h3></div><p>Schätzt, welcher Modellfaktor den Effort wie stark verändert hat.</p><dl><dt>Ausgabe</dt><dd>Steigung, Wind, Wärme, Tempo</dd><dt>Pflicht</dt><dd>Interaktion + unerklärter Rest</dd></dl></article>
+        <article class="metric" data-stage="v2"><div class="metric-head"><svg class="icon"><use href="#i-trend"/></svg><h3>Critical Speed & D′</h3></div><p>CS beschreibt den modellierten Dauerleistungs-Grenzbereich, D′ die endliche Kapazität darüber.</p><dl><dt>Basis</dt><dd>mehrere harte Dauerbereiche</dd><dt>Ausgabe</dt><dd>Bereich, nie exakte Batterie</dd></dl></article>
+        <article class="metric" data-stage="v2"><div class="metric-head"><svg class="icon"><use href="#i-chart"/></svg><h3>Durability</h3></div><p>Beschreibt, wie Leistung oder Effizienz mit kumulierter Arbeit im langen Lauf nachlassen.</p><dl><dt>Basis</dt><dd>lange, geeignete Einheiten</dd><dt>Nutzen</dt><dd>späten Einbruch modellieren</dd></dl></article>
+        <article class="metric"><div class="metric-head"><svg class="icon"><use href="#i-target"/></svg><h3>Konfidenz & Intervall</h3></div><p>Konfidenz steuert, wie stark eine Aussage sein darf. Das Intervall zeigt den plausiblen Bereich.</p><dl><dt>Basis</dt><dd>Abdeckung + Modellkalibrierung</dd><dt>Prüfung</dt><dd>spätere Ergebnisse im Intervall?</dd></dl></article>
+      </div>
+    </section>
+
+    <section class="output-contract">
+      <article class="contract">
+        <h2>Vertrag einer Empfehlung</h2>
+        <div class="contract-list">
+          <div class="contract-row"><span class="step">1</span><div><strong>Absicht</strong><span>Welchen Zweck hat die nächste Einheit?</span></div></div>
+          <div class="contract-row"><span class="step">2</span><div><strong>Konkrete Handlung</strong><span>Zielband und messbarer Fokus statt allgemeinem Rat.</span></div></div>
+          <div class="contract-row"><span class="step">3</span><div><strong>Prüfbedingung vor dem Start</strong><span>Geeignete Läufe, Zielwert, Vergleichsbasis und Ausschlussgründe.</span></div></div>
+          <div class="contract-row"><span class="step">4</span><div><strong>Adherence</strong><span>Ausgeführt, teilweise, nicht ausgeführt oder nicht beurteilbar.</span></div></div>
+          <div class="contract-row"><span class="step">5</span><div><strong>Urteil</strong><span>Hilfreich, nicht hilfreich oder unklar. Danach wird neu priorisiert.</span></div></div>
+        </div>
+      </article>
+
+      <article class="phone">
+        <h2>Schmale Post-Run-Ausgabe</h2>
+        <div class="phone-screen" aria-label="Beispielhafte Runback-Zusammenfassung">
+          <div class="phone-status"><span>RUNBACK</span><span>10,2 km · Datenqualität: hoch</span></div>
+          <h3 class="ui-title">Lauf abgeschlossen</h3>
+          <p class="ui-meta">Beispielstruktur, keine echten Messwerte</p>
+          <div class="ui-row good"><svg class="icon"><use href="#i-check"/></svg><div><strong>Gut</strong><span>Der Effort blieb in den gleichmäßigen Segmenten stabil.</span></div></div>
+          <div class="ui-row improve"><svg class="icon"><use href="#i-trend"/></svg><div><strong>Verbessern</strong><span>Nach Anstiegen war die Erholung langsamer als erwartet.</span></div></div>
+          <div class="ui-row next"><svg class="icon"><use href="#i-target"/></svg><div><strong>Nächster Lauf</strong><span>Effort auf den ersten zwei Anstiegen deckeln.</span></div></div>
+          <div class="ui-test"><strong>Prüfung:</strong> In den nächsten geeigneten Läufen soll der späte Effort-Abfall kleiner sein. Bis genug Daten vorliegen, bleibt das Urteil unklar.</div>
+        </div>
+      </article>
+    </section>
+
+    <footer class="footer">
+      <span>Export: FIT · GPX · JSON · Ableitungen · Modellversionen · Prüfverlauf</span>
+      <span>LLM formuliert optional. Die Engine entscheidet deterministisch.</span>
+    </footer>
+  </main>
+
+  <script>
+    const details = {
+      recording: ["Phone-Aufzeichnung", "GPS-Punkte, barometrische Höhe und Beschleunigung mit Zeitstempeln.", "Foreground Service + häufiges lokales Journal", "Vollständiger Lauf bis zum letzten Commit. Ein bewusster Android-Stop kann die Aufzeichnung beenden."],
+      imports: ["Importierte Historie", "FIT-, GPX-, TCX-Dateien oder Strava-Bulk-Export.", "Parser pro Datei → kanonisches Aktivitätsmodell", "Importierte Läufe nutzen dieselbe Pipeline. Analysen richten sich nach tatsächlich vorhandenen Feldern."],
+      health: ["Health Connect", "Herzfrequenz, HRV, Ruhepuls, Schlaf, Körpermasse und externe Läufe.", "Berechtigungsgebundener Import mit Quellenkennung", "Zusätzlicher Kontext. Fehlende Berechtigung senkt nur die Datenabdeckung."],
+      subjective: ["Subjektiver Kontext", "Bein-RPE, Atem-RPE, Notiz, Tageszustand, Zeitbudget und Session Intent.", "Explizite Nutzerangabe; keine Ableitung aus Sensoren", "Trennt muskuläre von kardiorespiratorischer Belastung und verhindert falsche Zielbewertungen."],
+      weather: ["Umweltanreicherung", "Grober Ort, Laufzeit, Wetterdaten, Wind und digitales Höhenmodell.", "Nachträglicher Job; Windprojektion auf Laufrichtung", "Temperatur-, Wind- und Höhenkontext. Offline bleibt die Anreicherung offen und wird später nachgeholt."],
+      sensors: ["Wear OS und BLE", "Uhrensensoren, standardisierte HR- und Running-Speed/Cadence-Profile.", "Zeitabgleich, Reconnect und Quellenpriorität", "Bessere Live-Daten und Gerätevergleich, ohne Originalstreams zu überschreiben."],
+      rawstore: ["Unveränderliche Originale", "Originaldatei oder native Sensorsamples plus Herkunft.", "Append-only Speicherung mit Inhaltskennung", "Auditierbare Basis. Jede Ableitung verweist auf ihre Inputs und Modellversion."],
+      normalize: ["Normalisieren und synchronisieren", "Herstellerspezifische Felder, Einheiten, Abtastraten und Zeitachsen.", "Schema-Mapping + Interpolation nur in abgeleiteten Streams", "Vergleichbare Einheiten und ausgerichtete Zeitachsen. Originalwerte bleiben erhalten."],
+      quality: ["Qualitätsprüfung", "GPS-Geschwindigkeit, Beschleunigung, HR, Kadenz, Höhe und Signal-Lücken.", "Plausibilitätsregeln + HR/Kadenz-Kopplung + Sprungdetektion", "Qualitätsstatus je Kanal und Abschnitt. Defekte HR-Daten sperren Physiologie, nicht den ganzen Lauf."],
+      retention: ["Retention und Reprocessing", "Rohdatenstatus, abgeleitete Features und Modellversionen.", "Abhängigkeitsgraph: Ableitung → benötigte Input-Artefakte", "Zeigt, was neu berechenbar ist. Gelöschte Hochfrequenzsamples begrenzen späteres Reprocessing sichtbar."],
+      bridge: ["Segment-Aggregate", "Bereinigte Zeitfenster und Kilometersegmente.", "Verdichten: Mittelwerte, Verteilungen, Intervalle, Qualitätsanteile", "Kleine JS-Objekte für UI und optionale LLM-Formulierung. Keine Rohsamples über die Bridge."],
+      fusion: ["Multi-Device-Fusion", "Mehrere Aufzeichnungen desselben Laufs und überlappende Sensorstreams.", "Duplikaterkennung + Uhrendrift-Schätzung + qualitätsgewichtete Fusion", "Ein abgeleiteter Best-Estimate-Stream. Alle Originale bleiben getrennt erhalten."],
+      segments: ["Streckensegmentierung", "Zeit, Distanz, Höhe und Pausen.", "Kilometergrenzen + Gradientwechsel + Belastungsphasen", "Vergleichbare Abschnitte für Effort, Qualität, Karte und spätere Tests."],
+      environment: ["Umweltkorrektur", "Barometer, Höhenmodell, Kursrichtung, Windvektor, Temperatur und Feuchte.", "Höhen-Fusion; Gegenwind = Windgeschwindigkeit × cos(Winkeldifferenz)", "Korrigierte Steigung, Gegenwindanteil und thermischer Kontext je Segment."],
+      effort: ["Effort-Modell", "Segmentpace, Steigung, Windkomponente, Temperatur, Herzfrequenz und Datenqualität.", "Baseline + Steigung + Wind + Wärme + Tempo + Interaktion", "Effort je Segment mit Intervall und Beiträgen. Beiträge sind Modellanteile, keine direkt gemessenen Ursachen."],
+      compare: ["Normalisierte Vergleichsskala", "Effort-Features mehrerer Läufe und persönliche Referenzbereiche.", "Robuste persönliche Normierung unter Datenqualitäts-Gewichtung", "Beantwortet, welcher unterschiedliche Lauf härter war und welche Faktoren den Unterschied erklären."],
+      physiology: ["Physiologische Modelle", "Geeignete harte Belastungen verschiedener Dauer und lange Läufe.", "Critical-Speed/D′-Fit + Durability gegen kumulierte Arbeit", "Parameter mit Intervallen. Fehlende Dauerbereiche werden konkret als Datenlücke benannt."],
+      personal: ["Persönliche Modelle", "Historie, Umwelt, Trainingstypen, Folgetage und subjektive Rückmeldung.", "Bayes-Update + Change-point-Erkennung + N-of-1 nur bei geeigneten Experimenten", "Persönliche Parameter und Wirkungsverzug. Beobachtung bleibt als Zusammenhang beschriftet."],
+      intent: ["Session Intent", "Nutzerwahl oder bestätigter deterministischer Vorschlag.", "Zielklasse legt zulässige Bewertungsregeln fest", "Verhindert, dass ein Fartlek wie ein misslungener lockerer Lauf bewertet wird."],
+      hypotheses: ["Hypothesen bilden", "Qualitätsgeprüfte Features, Intent, Historie und Nutzer-Constraints.", "Versionierte Wenn-dann-Regeln und Modellschwellen", "Kandidaten mit erwarteter Wirkung, Datenbasis, Konfidenz und möglicher Handlung."],
+      eligibility: ["Ausspiel-Gate", "Hypothesenkandidat, mögliche Aktion und messbarer Endpunkt.", "Harte Regel: ohne konkrete Aktion und unveränderliche Prüfbedingung keine UI-Ausgabe", "Nur testbare Insights gelangen in die Standardansicht."],
+      ranking: ["Priorisieren", "Alle zulässigen Kandidaten plus aktives Arbeitsthema.", "Rangfunktion aus erwartetem Effekt, Konfidenz, Machbarkeit und Neuheit", "Genau ein aktives Thema. „Nichts ändern“ kann gewinnen, wenn kein Eingriff genug Nutzen hat."],
+      prescription: ["Nächste Einheit", "Gewählte Hypothese, Zeitbudget, Trainingstage, Ziel und aktueller Zustand.", "Deterministische Session-Vorlage + Pre-run-Neubewertung", "Startbare Einheit mit Zielband, Fokus, Prüfkriterium und leichterer Ausweichoption."],
+      evaluation: ["Ausführung und Wirkung prüfen", "Tatsächlicher Lauf, Adherence, Ausschlussgründe und vorab fixiertes Kriterium.", "Vergleich nur geeigneter, tatsächlich ausgeführter Versuche", "Hilfreich, nicht hilfreich oder inconclusive. Nichtausführung widerlegt die Hypothese nicht."],
+      summary: ["Drei Aussagen", "Engine-Ergebnisobjekte nach dem Lauf.", "Feste UI-Struktur: gut → verbessern → nächste Handlung", "Passt auf einen Bildschirm. Alle weiteren Befunde liegen unter Details."],
+      metrics: ["Messwerte mit Datenbasis", "Wert, Intervall, Datenqualität, Stichprobe und Modellversion.", "Gemeinsamer Output-Vertrag für alle numerischen Modelle", "Keine nackten Punktschätzungen. Die UI zeigt, worauf eine Zahl beruht."],
+      overlays: ["Karte und Verlauf", "Segmentaggregate für Pace, GAP, Steigung, HR, Kadenz, Effort und Qualität.", "Viewport-Downsampling + qualitätsabhängige Overlays", "Flüssige Darstellung auch bei langen Läufen. Keine Rohsamples in JavaScript."],
+      verdict: ["Späteres Urteil", "Mehrere geeignete Versuche und das unveränderte Prüfkriterium.", "Vorher/nachher oder kontrollierter persönlicher Vergleich mit Intervall", "Hilfreich, nicht hilfreich oder unklar. Ein widerlegtes Ergebnis senkt das Hypothesengewicht."],
+      scorecard: ["Engine-Scorecard", "Historische Vorhersageintervalle und später beobachtete Ergebnisse.", "Out-of-sample-Abdeckung gegen einfachen Baseline-Prädiktor", "Schlecht kalibrierte Modelle dürfen keine hohe Konfidenz ausgeben."],
+      race: ["Live- und Race-System", "Streckenprofil, Wetter, persönliches Modell, Fuel-Grenzen und Live-Segmente.", "Segmentweiser Effort-Plan + Restprofil-Neuverteilung + Cue-Budget", "Pacing-Bereich, Fuel-Plan und wenige messbare Cues. Prognosen bleiben Intervalle."],
+      summaryFallback: ["Systemschritt", "Qualitätsgeprüfte Eingaben.", "Deterministische Verarbeitung", "Versioniertes Ergebnis mit sichtbarer Datenbasis."]
+    };
+
+    const nodes = [...document.querySelectorAll('.node')];
+    const title = document.getElementById('d-title');
+    const input = document.getElementById('d-input');
+    const method = document.getElementById('d-method');
+    const output = document.getElementById('d-output');
+
+    function selectNode(node) {
+      nodes.forEach(n => n.setAttribute('aria-pressed', String(n === node)));
+      const item = details[node.dataset.detail] || details.summaryFallback;
+      [title.textContent, input.textContent, method.textContent, output.textContent] = item;
+    }
+
+    nodes.forEach(node => node.addEventListener('click', () => selectNode(node)));
+
+    const viewButtons = [...document.querySelectorAll('[data-view]')];
+    function setView(view) {
+      viewButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
+      document.querySelectorAll('[data-stage="v2"]').forEach(item => item.hidden = view === 'v1');
+      const selected = document.querySelector('.node[aria-pressed="true"]');
+      if (selected && selected.hidden) selectNode(document.querySelector('.node[data-stage="v1"]'));
+    }
+    viewButtons.forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
+  </script>
+</body>
+</html>
+
