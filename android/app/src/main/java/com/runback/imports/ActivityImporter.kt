@@ -8,11 +8,13 @@ import com.garmin.fit.Decode
 import com.garmin.fit.MesgBroadcaster
 import com.garmin.fit.RecordMesgListener
 import com.garmin.fit.SessionMesgListener
+import com.runback.core.ActivityKind
 import com.runback.core.RunMath
 import com.runback.core.RunStore
 import org.json.JSONArray
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -50,6 +52,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
 
     fun cancel() { cancelled.set(true) }
     fun status(): JSONObject = synchronized(lock) { JSONObject(progress.toString()) }
+    private var csvIndex: Map<String, ActivityKind.CsvEntry> = emptyMap()
     private fun update(block: (JSONObject) -> Unit) = synchronized(lock) { block(progress) }
     private fun checkCancelled() { if (cancelled.get()) throw CancellationException("Import abgebrochen") }
 
@@ -57,9 +60,10 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         check(running.compareAndSet(false, true)) { "Ein Import läuft bereits" }
         cancelled.set(false)
         expandedBytes = 0
+        csvIndex = ActivityKind.fromJson(runCatching { store.getDocument(CSV_DOC) }.getOrNull())
         update { progress = JSONObject().put("state", "running").put("totalFiles", uris.size)
             .put("processed", 0).put("imported", 0).put("duplicates", 0).put("deleted", 0)
-            .put("failed", 0).put("skipped", 0).put("errors", JSONArray()) }
+            .put("failed", 0).put("skipped", 0).put("kinds", JSONObject()).put("errors", JSONArray()) }
         try {
             require(uris.size <= MAX_ENTRIES) { "Zu viele Dateien (maximal $MAX_ENTRIES)" }
             for (uri in uris) {
@@ -95,6 +99,11 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     }
 
     private fun importZip(file: File) {
+        // Zwei Phasen: erst alle Einträge einsammeln (activities.csv kann überall
+        // im Archiv stehen), dann verarbeiten. Alles bleibt größenbegrenzt.
+        data class Entry(val name: String, val file: File)
+        val pending = ArrayList<Entry>()
+        var csvText: String? = null
         ZipInputStream(file.inputStream().buffered()).use { zip ->
             var entries = 0
             while (true) {
@@ -104,14 +113,25 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 // Entry names are labels only; no archive path is ever used on the filesystem.
                 if (!entry.isDirectory) {
                     val name = entry.name.substringAfterLast('/').substringAfterLast('\\')
-                    if (supported(name)) {
+                    if (isActivitiesCsv(name)) {
+                        if (csvText == null) {
+                            val temp = File.createTempFile("runback-csv-", ".tmp", context.cacheDir)
+                            try {
+                                copyBounded(zip, temp, CSV_MAX_BYTES, true)
+                                csvText = temp.readText(Charsets.UTF_8)
+                            } finally { temp.delete() }
+                        } else {
+                            drainBounded(zip)
+                        }
+                    } else if (supported(name)) {
                         val temp = File.createTempFile("runback-entry-", ".tmp", context.cacheDir)
                         try {
                             copyBounded(zip, temp, MAX_FILE_BYTES, true)
-                            try { processFile(temp, name) }
-                            catch (e: CancellationException) { throw e }
-                            catch (e: Exception) { recordError(name, e) }
-                        } finally { temp.delete() }
+                            pending.add(Entry(name, temp))
+                        } catch (e: Exception) {
+                            temp.delete()
+                            throw e
+                        }
                     } else {
                         // Drain through the same limit so an ignored ZIP bomb cannot bypass the budget.
                         drainBounded(zip)
@@ -121,6 +141,26 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 zip.closeEntry()
             }
         }
+        csvText?.let { csvIndex = capCsvIndex(csvIndex + ActivityKind.parseActivitiesCsv(it)) }
+        persistCsvIndex()
+        for ((name, temp) in pending) {
+            try {
+                checkCancelled()
+                processFile(temp, name)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { recordError(name, e) }
+            finally { temp.delete() }
+        }
+    }
+
+    private fun isActivitiesCsv(name: String) = name.equals("activities.csv", ignoreCase = true)
+
+    private fun capCsvIndex(index: Map<String, ActivityKind.CsvEntry>): Map<String, ActivityKind.CsvEntry> =
+        if (index.size <= MAX_CSV_ENTRIES) index
+        else index.entries.take(MAX_CSV_ENTRIES).associate { it.key to it.value }
+
+    private fun persistCsvIndex() {
+        runCatching { store.putDocument(CSV_DOC, ActivityKind.toJson(csvIndex)) }
     }
 
     private fun supported(name: String) = name.lowercase(Locale.ROOT).removeSuffix(".gz").let {
@@ -141,6 +181,12 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 }
             } else original
             val builder = ActivityBuilder(name)
+            builder.expectGpxType = name.lowercase(Locale.ROOT).removeSuffix(".gz").endsWith(".gpx")
+            ActivityKind.lookupCsv(csvIndex, name)?.let { entry ->
+                val kind = ActivityKind.fromStravaType(entry.type)
+                if (kind != ActivityKind.UNKNOWN) builder.csvKind = kind
+                if (entry.name.isNotBlank()) builder.csvName = entry.name
+            }
             if (name.lowercase(Locale.ROOT).removeSuffix(".gz").endsWith(".fit")) parseFit(file, builder)
             else file.inputStream().buffered().use { parseXml(it, builder) }
             checkCancelled()
@@ -149,6 +195,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 "imported" -> {
                     val id = result.optString("id", result.optJSONObject("run")?.optString("id") ?: "")
                     if (id.isNotBlank()) store.storeImportedSource(id, original, name)
+                    countKind(builder.resolvedKind())
                     increment("imported")
                 }
                 "duplicate" -> increment("duplicates")
@@ -160,6 +207,10 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     }
 
     private fun increment(key: String) = update { it.put(key, it.optInt(key) + 1) }
+    private fun countKind(kind: String) = update {
+        val kinds = it.optJSONObject("kinds") ?: JSONObject().also { created -> it.put("kinds", created) }
+        kinds.put(kind, kinds.optInt(kind) + 1)
+    }
     private fun recordError(name: String, error: Exception) = update {
         it.put("failed", it.optInt("failed") + 1)
         val errors = it.getJSONArray("errors")
@@ -215,6 +266,11 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                     require(++depth <= 64) { "XML ist zu tief verschachtelt" }
                     leaf = parser.name.lowercase(Locale.ROOT)
                     text.setLength(0)
+                    if (leaf == "activity") {
+                        parser.getAttributeValue(null, "Sport")?.let {
+                            builder.noteFileKind(ActivityKind.fromTcxSport(it), "tcx-sport")
+                        }
+                    }
                     if (leaf == "trkpt" || leaf == "rtept" || leaf == "trackpoint") {
                         point = mutableMapOf()
                         parser.getAttributeValue(null, "lat")?.let { point?.put("lat", it) }
@@ -228,6 +284,9 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 XmlPullParser.END_TAG -> {
                     val tag = parser.name.lowercase(Locale.ROOT)
                     if (tag == leaf && point != null) point[tag] = text.toString().trim()
+                    if (tag == "type" && point == null && builder.expectGpxType) {
+                        builder.noteFileKind(ActivityKind.fromGpxType(text.toString()), "gpx-type")
+                    }
                     if (tag == "trkpt" || tag == "rtept" || tag == "trackpoint") {
                         val p = point ?: emptyMap()
                         val time = parseTime(p["time"])
@@ -264,6 +323,8 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         broadcaster.addListener(SessionMesgListener { session ->
             session.totalDistance?.toDouble()?.let { builder.reportedDistance = maxOf(builder.reportedDistance, it) }
             session.totalTimerTime?.toDouble()?.let { builder.reportedDuration = it }
+            val sportName = runCatching { session.sport?.name }.getOrNull()
+            builder.noteFileKind(ActivityKind.fromFitSport(sportName), "fit-sport")
         })
         file.inputStream().buffered().use { require(decode.read(it, broadcaster, broadcaster)) { "FIT-Datei ist beschädigt" } }
     }
@@ -282,7 +343,16 @@ class ActivityImporter(private val context: Context, private val store: RunStore
 
     private fun writeGpx(run: JSONObject, samples: JSONArray, output: OutputStream) {
         val b = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Runback\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"><trk><name>")
-        b.append(xml(run.optString("name", "Runback activity"))).append("</name><trkseg>")
+        b.append(xml(run.optString("name", "Runback activity"))).append("</name>")
+        when (run.optString("activityKind", "")) {
+            ActivityKind.RUN -> b.append("<type>Running</type>")
+            ActivityKind.HIKE -> b.append("<type>Hiking</type>")
+            ActivityKind.WALK -> b.append("<type>Walking</type>")
+            ActivityKind.RIDE -> b.append("<type>Cycling</type>")
+            ActivityKind.SWIM -> b.append("<type>Swimming</type>")
+            ActivityKind.OTHER -> b.append("<type>Other</type>")
+        }
+        b.append("<trkseg>")
         var previous = Long.MIN_VALUE
         for (i in 0 until samples.length()) {
             val sample = samples.optJSONObject(i) ?: continue
@@ -328,7 +398,13 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 val session = SessionMesg().apply {
                     startTime = DateTime(Date(start)); timestamp = DateTime(Date(end))
                     event = Event.SESSION; eventType = EventType.STOP
-                    sport = Sport.RUNNING; subSport = SubSport.GENERIC
+                    sport = when (run.optString("activityKind", ActivityKind.RUN)) {
+                        ActivityKind.HIKE -> Sport.HIKING
+                        ActivityKind.WALK -> Sport.WALKING
+                        ActivityKind.RIDE -> Sport.CYCLING
+                        ActivityKind.SWIM -> Sport.SWIMMING
+                        else -> Sport.RUNNING
+                    }; subSport = SubSport.GENERIC
                     val duration = run.optDouble("durationSeconds", ((end - start) / 1000.0)).toFloat()
                     totalElapsedTime = duration; totalTimerTime = duration
                     run.optDouble("distanceMeters", Double.NaN).takeIf { it.isFinite() }?.let { totalDistance = it.toFloat() }
@@ -348,10 +424,150 @@ class ActivityImporter(private val context: Context, private val store: RunStore
 
     private fun xml(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
 
+    /**
+     * Erkennt nachträglich die Art bereits importierter Läufe anhand der
+     * gespeicherten Originaldateien. Schreibt nur activityKind/activityKindSource
+     * in die Zusammenfassung; Samples, Feedback und Prüfungen bleiben unberührt.
+     */
+    fun reclassifyStored(): JSONObject {
+        check(running.compareAndSet(false, true)) { "Ein Import läuft bereits" }
+        try {
+            val csv = ActivityKind.fromJson(runCatching { store.getDocument(CSV_DOC) }.getOrNull())
+            val sources = runCatching { store.storedSources() }.getOrDefault(emptyList())
+                .groupBy({ it.runId }, { it })
+            var total = 0
+            var updated = 0
+            val kinds = JSONObject()
+            val runs = store.listRuns(10000)
+            for (i in 0 until runs.length()) {
+                checkCancelled()
+                if (total >= MAX_RECLASSIFY) break
+                val run = runs.optJSONObject(i) ?: continue
+                if (run.has("activityKind")) continue
+                val id = run.optString("id")
+                if (id.isBlank()) continue
+                total++
+                val source = sources[id]?.firstOrNull() ?: continue
+                val resolved = sniffKind(source.name, source.data, csv)
+                if (resolved != null) {
+                    store.patchSummary(id, JSONObject()
+                        .put("activityKind", resolved.first)
+                        .put("activityKindSource", resolved.second))
+                    updated++
+                    kinds.put(resolved.first, kinds.optInt(resolved.first) + 1)
+                }
+            }
+            return JSONObject().put("total", total).put("updated", updated).put("kinds", kinds)
+        } finally { running.set(false) }
+    }
+
+    private fun sniffKind(
+        name: String,
+        data: ByteArray,
+        csv: Map<String, ActivityKind.CsvEntry>,
+    ): Pair<String, String>? {
+        ActivityKind.lookupCsv(csv, name)?.let { entry ->
+            val kind = ActivityKind.fromStravaType(entry.type)
+            if (kind != ActivityKind.UNKNOWN) return kind to "strava-csv"
+        }
+        val bytes = runCatching {
+            if (name.lowercase(Locale.ROOT).endsWith(".gz")) {
+                val out = java.io.ByteArrayOutputStream()
+                GZIPInputStream(ByteArrayInputStream(data)).use { it.copyTo(out, 32 * 1024) }
+                require(out.size() <= MAX_FILE_BYTES) { "Entpackte Datei zu groß" }
+                out.toByteArray()
+            } else data
+        }.getOrNull() ?: return null
+        val plain = name.lowercase(Locale.ROOT).removeSuffix(".gz")
+        if (plain.endsWith(".fit")) {
+            val kind = sniffFitKind(bytes)
+            if (kind != ActivityKind.UNKNOWN) return kind to "fit-sport"
+            return null
+        }
+        val kind = sniffXmlKind(bytes, plain.endsWith(".gpx"))
+        if (kind != ActivityKind.UNKNOWN) return kind to if (plain.endsWith(".gpx")) "gpx-type" else "tcx-sport"
+        return null
+    }
+
+    private fun sniffFitKind(data: ByteArray): String {
+        var kind = ActivityKind.UNKNOWN
+        return try {
+            val decode = Decode()
+            val broadcaster = MesgBroadcaster(decode)
+            broadcaster.addListener(SessionMesgListener { session ->
+                if (kind == ActivityKind.UNKNOWN) {
+                    val sportName = runCatching { session.sport?.name }.getOrNull()
+                    val mapped = ActivityKind.fromFitSport(sportName)
+                    if (mapped != ActivityKind.UNKNOWN) kind = mapped
+                }
+            })
+            ByteArrayInputStream(data).buffered().use {
+                if (!decode.read(it, broadcaster, broadcaster)) return kind
+            }
+            kind
+        } catch (_: Exception) { kind }
+    }
+
+    private fun sniffXmlKind(data: ByteArray, isGpx: Boolean): String {
+        return try {
+            val parser = Xml.newPullParser()
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            parser.setInput(ByteArrayInputStream(data), null)
+            var inPoint = false
+            var depth = 0
+            val text = StringBuilder()
+            while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+                checkCancelled()
+                when (parser.eventType) {
+                    XmlPullParser.DOCDECL -> error("XML-Dokumenttypen werden nicht unterstützt")
+                    XmlPullParser.START_TAG -> {
+                        require(++depth <= 64) { "XML ist zu tief verschachtelt" }
+                        val tag = parser.name.lowercase(Locale.ROOT)
+                        if (tag == "activity") {
+                            val mapped = ActivityKind.fromTcxSport(parser.getAttributeValue(null, "Sport"))
+                            if (mapped != ActivityKind.UNKNOWN) return mapped
+                        }
+                        if (tag == "trkpt" || tag == "rtept" || tag == "trackpoint") inPoint = true
+                        text.setLength(0)
+                    }
+                    XmlPullParser.TEXT -> {
+                        if (text.length < 256) text.append(parser.text)
+                    }
+                    XmlPullParser.END_TAG -> {
+                        val tag = parser.name.lowercase(Locale.ROOT)
+                        if (tag == "type" && !inPoint && isGpx) {
+                            val mapped = ActivityKind.fromGpxType(text.toString())
+                            if (mapped != ActivityKind.UNKNOWN) return mapped
+                        }
+                        if (tag == "trkpt" || tag == "rtept" || tag == "trackpoint") inPoint = false
+                        depth--
+                        text.setLength(0)
+                    }
+                }
+                parser.nextToken()
+            }
+            ActivityKind.UNKNOWN
+        } catch (_: Exception) { ActivityKind.UNKNOWN }
+    }
+
     private inner class ActivityBuilder(private val name: String) {
         val samples = JSONArray()
         var reportedDistance = 0.0
         var reportedDuration: Double? = null
+        var expectGpxType = false
+        var csvKind: String? = null
+        var csvName: String? = null
+        private var fileKind = ActivityKind.UNKNOWN
+        private var fileKindSource = "none"
+        /** Erste belastbare Angabe gewinnt; Strava-CSV schlägt sie später in summary(). */
+        fun noteFileKind(kind: String, source: String) {
+            if (fileKind == ActivityKind.UNKNOWN && kind != ActivityKind.UNKNOWN) {
+                fileKind = kind
+                fileKindSource = source
+            }
+        }
+        fun resolvedKind(): String = csvKind ?: fileKind
+        fun resolvedKindSource(): String = if (csvKind != null) "strava-csv" else fileKindSource
         private var start = Long.MAX_VALUE
         private var end = 0L
         private var distance = 0.0
@@ -383,11 +599,14 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         }
         fun summary(): JSONObject {
             require(samples.length() > 0 && start != Long.MAX_VALUE) { "Keine zeitgestempelten Aktivitätsdaten gefunden" }
-            return JSONObject().put("name", name.removeSuffix(".gz").substringBeforeLast('.').take(120))
+            val displayName = (csvName?.takeIf { it.isNotBlank() }
+                ?: name.removeSuffix(".gz").substringBeforeLast('.')).take(120)
+            return JSONObject().put("name", displayName)
                 .put("startTime", start).put("endTime", end)
                 .put("durationSeconds", reportedDuration?.takeIf { it.isFinite() && it >= 0 } ?: ((end - start) / 1000.0))
                 .put("distanceMeters", if (reportedDistance.isFinite() && reportedDistance > 0) reportedDistance else distance)
                 .put("purpose", "unknown").put("source", "import")
+                .put("activityKind", resolvedKind()).put("activityKindSource", resolvedKindSource())
                 .put("avgHeartRate", if (hrCount > 0) hrTotal / hrCount else JSONObject.NULL)
                 .put("avgCadence", if (cadenceCount > 0) cadenceTotal / cadenceCount else JSONObject.NULL)
         }
@@ -398,6 +617,10 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         private const val MAX_ARCHIVE_BYTES = 512L * 1024 * 1024
         private const val MAX_ENTRIES = 2000
         private const val MAX_SAMPLES = 150000
+        private const val CSV_MAX_BYTES = 8L * 1024 * 1024
+        private const val MAX_CSV_ENTRIES = 6000
+        private const val CSV_DOC = "strava_activities"
+        private const val MAX_RECLASSIFY = 2000
         internal fun parseTime(value: String?): Long? = value?.let {
             try { Instant.parse(it).toEpochMilli() }
             catch (_: Exception) { try { OffsetDateTime.parse(it).toInstant().toEpochMilli() } catch (_: Exception) { null } }

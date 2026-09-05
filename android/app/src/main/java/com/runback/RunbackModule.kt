@@ -178,6 +178,12 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
     @ReactMethod fun getImportStatus(promise: Promise) { promise.resolve(importer.status().toString()) }
     @ReactMethod fun cancelImport(promise: Promise) { importer.cancel(); promise.resolve(importer.status().toString()) }
+    @ReactMethod fun reclassifyActivities(promise: Promise) {
+        importWorker.execute {
+            try { promise.resolve(importer.reclassifyStored().toString()) }
+            catch (error: Exception) { promise.reject("IMPORT_ERROR", error.message, error) }
+        }
+    }
 
     @ReactMethod fun exportBackup(promise: Promise) {
         launch(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip")

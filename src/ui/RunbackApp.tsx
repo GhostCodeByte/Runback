@@ -31,8 +31,10 @@ import { StatsPage } from './Stats';
 import { ProseExplanation, ProseSettings } from './ProseSettings';
 import {
   acceptRecommendation,
+  activityKindLabel,
   analyzeRun,
   evaluateExperiment,
+  isRunActivity,
   suggestPurpose,
   transitionExperiment,
 } from '../domain';
@@ -89,6 +91,8 @@ const initial: AppState = {
 type Tab = 'Heute' | 'Läufe' | 'Fokus' | 'Statistik' | 'Mehr';
 type Page = 'main' | 'profile' | 'devices' | 'data' | 'presets' | 'models';
 
+const runTitle = (run: Run) =>
+  isRunActivity(run) ? purposeLabel(run.purpose) : activityKindLabel(run.activityKind);
 const RunRow = memo(function RunRow({
   run,
   open,
@@ -99,14 +103,14 @@ const RunRow = memo(function RunRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${purposeLabel(run.purpose)}, ${date(
+      accessibilityLabel={`${runTitle(run)}, ${date(
         run.startTime,
       )}, ${distance(run)} Kilometer`}
       onPress={() => open(run.id)}
       style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}
     >
       <View style={styles.runTop}>
-        <Text style={styles.runTitle}>{purposeLabel(run.purpose)}</Text>
+        <Text style={styles.runTitle}>{runTitle(run)}</Text>
         <Text style={styles.muted}>{date(run.startTime)}</Text>
       </View>
       <View style={styles.runBottom}>
@@ -142,6 +146,7 @@ export function RunbackApp() {
   const [minuteInput, setMinuteInput] = useState('30');
   const [presetName, setPresetName] = useState('');
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [mapLocked, setMapLocked] = useState(false);
   const settings = state.settings;
   const runs = state.runs;
   const recording = state.recording;
@@ -426,10 +431,28 @@ export function RunbackApp() {
   const runImportSilent = () => {
     void action(() => importFiles(false));
   };
+  const kindBreakdown = (kinds: any): string => {
+    if (!kinds || typeof kinds !== 'object') {
+      return '';
+    }
+    const plurals: Record<string, string> = {
+      run: 'Läufe',
+      hike: 'Wanderungen',
+      walk: 'Spaziergänge',
+      ride: 'Radfahrten',
+      swim: 'Schwimmeinheiten',
+      other: 'Sonstige',
+      unknown: 'Unbekannte',
+    };
+    const parts = Object.entries(kinds)
+      .filter(([, count]) => typeof count === 'number' && (count as number) > 0)
+      .map(([kind, count]) => `${count} ${plurals[kind] || kind}`);
+    return parts.length ? ` · ${parts.join(' · ')}` : '';
+  };
   const importSummary = importStatus
     ? `Importiert: ${importStatus.imported ?? 0} · Doppelt: ${
         importStatus.duplicates ?? 0
-      } · Übersprungen: ${importStatus.skipped ?? 0}`
+      } · Übersprungen: ${importStatus.skipped ?? 0}${kindBreakdown(importStatus.kinds)}`
     : '';
   const snapshot = selected ? analyzeRun(selected, experiment) : null;
 
@@ -840,7 +863,7 @@ export function RunbackApp() {
     return (
       selected && snapshot ? (
       <>
-        <Text style={styles.title}>{purposeLabel(selected.purpose)}</Text>
+        <Text style={styles.title}>{runTitle(selected)}</Text>
         <Copy muted>{date(selected.startTime)}</Copy>
         <View style={styles.metrics}>
           <Stat value={distance(selected)} label="Kilometer" />
@@ -960,7 +983,7 @@ export function RunbackApp() {
           </Section>
         ) : null}
         <Section title="Strecke">
-          <Route points={selected.route || []} />
+          <Route points={selected.route || []} onLockScroll={setMapLocked} />
           <Copy muted>Vereinfachte GPS-Geometrie. Keine Hintergrundkarte.</Copy>
         </Section>
         <Button
@@ -1104,7 +1127,12 @@ export function RunbackApp() {
     />
   );
   const renderStats = () => (
-    <StatsPage runs={runs} busy={busy} onOpenRun={openRun} />
+    <StatsPage
+      runs={runs}
+      busy={busy}
+      onOpenRun={openRun}
+      onLockScroll={setMapLocked}
+    />
   );
 
   const renderMore = () => (
@@ -1301,6 +1329,30 @@ export function RunbackApp() {
               ))}
           </>
         ) : null}
+      </Section>
+      <Section title="Aktivitätsarten">
+        <Copy muted>
+          Lauf, Wanderung, Spaziergang & Co. werden beim Import erkannt.
+          Nur Läufe fließen in Trainingsempfehlungen ein; alles andere zählt
+          zur Gesamtbelastung. Für bereits importierte Läufe lässt sich die
+          Erkennung nachholen.
+        </Copy>
+        <Button
+          secondary
+          title="Arten für vorhandene Läufe erkennen"
+          disabled={busy}
+          onPress={() => {
+            void action(async () => {
+              const result = await nativeCall<any>('reclassifyActivities');
+              await refresh();
+              setMessage(
+                result.updated > 0
+                  ? `${result.updated} von ${result.total} Läufen zugeordnet.`
+                  : 'Keine neuen Zuordnungen möglich.',
+              );
+            });
+          }}
+        />
       </Section>
       <Section title="Vollständiges Backup">
         <Copy muted>
@@ -1655,6 +1707,7 @@ export function RunbackApp() {
           key={`${tab}-${page}-${selected?.id || ''}-${Boolean(recording)}`}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={!mapLocked}
         >
           {content}
         </ScrollView>

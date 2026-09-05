@@ -1,7 +1,6 @@
 import {
   highlights,
   paceTrend,
-  projectTracks,
   purposeStats,
   rpeStat,
   totals,
@@ -109,26 +108,22 @@ describe('stats', () => {
     expect(highlights([])).toEqual({});
   });
 
-  it('projects tracks into the target rectangle', () => {
-    const projected = projectTracks(
-      [
-        [
-          { latitude: 50, longitude: 8 },
-          { latitude: 51, longitude: 9 },
-        ],
-      ],
-      320,
-      220,
-      14,
-    );
-    expect(projected.trackCount).toBe(1);
-    expect(projected.lines).toHaveLength(1);
-    for (const [x, y] of projected.lines[0]) {
-      expect(x).toBeGreaterThanOrEqual(14);
-      expect(x).toBeLessThanOrEqual(306);
-      expect(y).toBeGreaterThanOrEqual(14);
-      expect(y).toBeLessThanOrEqual(206);
-    }
-    expect(projectTracks([], 320, 220, 14).lines).toEqual([]);
+  it('counts every movement in totals but trains only on runs', () => {
+    const mixed = [
+      run({ id: 'run', startTime: MONDAY, distanceMeters: 5000, durationSeconds: 1800 }),
+      run({
+        id: 'hike',
+        startTime: MONDAY,
+        distanceMeters: 12000,
+        durationSeconds: 7200,
+        activityKind: 'hike',
+      }),
+    ];
+    expect(totals(mixed).km).toBeCloseTo(17, 5);
+    expect(weekBuckets(mixed, 1, MONDAY).at(0)?.km).toBeCloseTo(17, 5);
+    expect(paceTrend(mixed, 20).map(p => p.id)).toEqual(['run']);
+    const best = highlights(mixed);
+    expect(best.longest?.id).toBe('run');
+    expect(best.fastest?.id).toBe('run');
   });
 });

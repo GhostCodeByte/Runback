@@ -249,6 +249,21 @@ class RunStore(context: Context) {
         require(file.length()<=64L*1024*1024);read(id)
         db.insertOrThrow("sources",null,ContentValues().apply {put("run_id",id);put("name",name.take(200));put("data",file.readBytes())});Unit
     }
+    data class StoredSource(val runId: String, val name: String, val data: ByteArray)
+    fun storedSources(): List<StoredSource> = locked {
+        db.rawQuery("SELECT run_id,name,data FROM sources",null).use { c ->
+            val result = ArrayList<StoredSource>()
+            while (c.moveToNext()) result.add(StoredSource(c.getString(0), c.getString(1), c.getBlob(2)))
+            result
+        }
+    }
+    /** Ergänzt abgeleitete Zusammenfassungsfelder; Originalsamples bleiben unberührt. */
+    fun patchSummary(id: String, patch: JSONObject): JSONObject = locked {
+        val current = read(id)
+        patch.keys().forEach { current.put(it, patch.get(it)) }
+        transaction { write(current) }
+        present(read(id))
+    }
     fun deleteRun(id: String) = locked {
         check(activeId()!=id){"Beende zuerst die Aufzeichnung."}
         transaction {

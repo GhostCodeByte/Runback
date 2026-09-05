@@ -1,7 +1,9 @@
 import {
   acceptRecommendation,
+  activityKindLabel,
   analyzeRun,
   evaluateExperiment,
+  isRunActivity,
   scheduleCue,
   suggestPurpose,
   transitionExperiment,
@@ -185,5 +187,29 @@ describe('domain rules', () => {
     expect(
       suggestPurpose(run({purpose: 'unknown', durationSeconds: NaN})),
     ).toBeUndefined();
+  });
+
+  it('labels activity kinds in German', () => {
+    expect(activityKindLabel('run')).toBe('Lauf');
+    expect(activityKindLabel('hike')).toBe('Wanderung');
+    expect(activityKindLabel('walk')).toBe('Spaziergang');
+    expect(activityKindLabel('ride')).toBe('Radfahrt');
+    expect(activityKindLabel('swim')).toBe('Schwimmen');
+    expect(activityKindLabel('other')).toBe('Andere Aktivität');
+    expect(activityKindLabel(undefined)).toBe('Lauf');
+    expect(isRunActivity(run({}))).toBe(true);
+    expect(isRunActivity(run({activityKind: 'unknown'}))).toBe(true);
+    expect(isRunActivity(run({activityKind: 'hike'}))).toBe(false);
+  });
+
+  it('keeps non-run activities neutral without inventing training advice', () => {
+    const result = analyzeRun(
+      run({purpose: 'easy', activityKind: 'hike', distanceMeters: 12000}),
+    );
+    expect(result.state).toBe('insufficient');
+    expect(result.recommendation).toBeUndefined();
+    expect(result.classification).toMatch(/Wanderung/);
+    expect(result.focus).toMatch(/Gesamtbelastung/);
+    expect(result.quality.paceUsable).toBe(true);
   });
 });

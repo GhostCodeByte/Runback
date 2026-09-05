@@ -1,5 +1,28 @@
 import {EffortEstimate, Experiment, PacingAnalysis, Provenance, QualityIssue, QualityReport, Recommendation, RunAnalysis, RunSummary, SegmentAggregate} from './types';
 
+export const ACTIVITY_KIND_LABELS: Record<string, string> = {
+  run: 'Lauf',
+  hike: 'Wanderung',
+  walk: 'Spaziergang',
+  ride: 'Radfahrt',
+  swim: 'Schwimmen',
+  other: 'Andere Aktivität',
+  unknown: 'Unbekannte Art',
+};
+
+/** Anzeigename der erkannten Aktivitätsart; unbekannte Werte bleiben sichtbar. */
+export function activityKindLabel(kind: string | undefined): string {
+  if (!kind) {
+    return 'Lauf';
+  }
+  return ACTIVITY_KIND_LABELS[kind] || kind;
+}
+
+/** Wahre Trainingsauswertung gibt es nur für Läufe. */
+export function isRunActivity(run: RunSummary): boolean {
+  return !run.activityKind || run.activityKind === 'run' || run.activityKind === 'unknown';
+}
+
 export const MODEL_VERSION = 'runback-rules-1.0.0';
 export const MAX_SEGMENTS = 500;
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
@@ -110,6 +133,16 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
   const result: RunAnalysis = {...provenance([run], pacing?.segmentIds ?? []), classification: quality.paceUsable ? 'Zeit und Distanz sind für eine einfache Tempoauswertung nutzbar.' : 'Dieser Lauf ist gespeichert; Zeit oder Distanz reichen für eine Tempoauswertung nicht aus.', focus: 'Noch nicht ausreichend beurteilbar.', nextAction: 'Beim nächsten Lauf den Zweck angeben und geeignete Abschnitte aufzeichnen.', state: 'insufficient', quality, effort, pacing};
   if (active && (active.status === 'active' || active.status === 'paused')) {
     return {...result, focus: active.status === 'paused' ? 'Dein Arbeitsthema ist pausiert.' : 'Dein Arbeitsthema bleibt: ruhiger beginnen.', nextAction: active.status === 'paused' ? 'Setze den Versuch fort, wenn er wieder in deinen Alltag passt.' : active.recommendation.action, state: 'active'};
+  }
+  if (!isRunActivity(run)) {
+    const label = activityKindLabel(run.activityKind);
+    const extent = finite(run.distanceMeters) && run.distanceMeters > 0
+      ? ` (${(run.distanceMeters / 1000).toFixed(1).replace('.', ',')} km)`
+      : '';
+    return {...result,
+      classification: `Als ${label} erkannt${extent}.`,
+      focus: 'Zählt zu deiner Gesamtbelastung, wird aber nicht als Lauftraining bewertet.',
+      nextAction: 'Für Lauf-Empfehlungen zählen nur Läufe. Diese Aktivität bleibt als Belastung sichtbar.'};
   }
   if (run.purpose === 'unknown' || run.purpose === 'free') {
     result.focus = 'Ohne beabsichtigten Laufzweck bewerten wir wechselndes Tempo nicht als Fehler.';

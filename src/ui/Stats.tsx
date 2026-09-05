@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from 'react-native-svg';
+import { isRunActivity } from '../domain';
 import type { RunPurpose } from '../domain/types';
 import { nativeCall, type RoutePoint, type Run } from '../native';
 import {
   Button,
   Copy,
   Row,
+  RunMap,
   Section,
   Stat,
   color,
@@ -101,11 +103,12 @@ export interface TrendPoint {
   secPerKm: number;
 }
 
-/** Ø-Tempo pro Lauf, älteste zuerst, höchstens die letzten `limit`. */
+/** Ø-Tempo pro Lauf, älteste zuerst, höchstens die letzten `limit`. Nur Läufe. */
 export function paceTrend(runs: Run[], limit: number): TrendPoint[] {
   return runs
     .filter(
       r =>
+        isRunActivity(r) &&
         Number.isFinite(r.durationSeconds) &&
         r.durationSeconds > 0 &&
         Number.isFinite(r.distanceMeters) &&
@@ -181,6 +184,9 @@ export function highlights(runs: Run[]): { longest?: Highlight; fastest?: Highli
   let longest: Run | undefined;
   let fastest: Run | undefined;
   for (const run of runs) {
+    if (!isRunActivity(run)) {
+      continue;
+    }
     if (!Number.isFinite(run.distanceMeters) || run.distanceMeters <= 0) {
       continue;
     }
@@ -206,63 +212,10 @@ export function highlights(runs: Run[]): { longest?: Highlight; fastest?: Highli
   };
 }
 
-export interface ProjectedTracks {
-  lines: [number, number][][];
-  trackCount: number;
-  pointCount: number;
-}
-
-/**
- * Projiziert mehrere GPS-Spuren in ein Rechteck (W×H). Reine Darstellung aus
- * bereits reduzierten Geometrien; keine Hintergrundkarte nötig (offlinefähig).
- */
-export function projectTracks(
-  tracks: RoutePoint[][],
-  width: number,
-  height: number,
-  pad: number,
-): ProjectedTracks {
-  const valid = tracks
-    .map(track =>
-      track.filter(
-        p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
-      ),
-    )
-    .filter(track => track.length >= 2);
-  const all = valid.flat();
-  if (!all.length) {
-    return { lines: [], trackCount: 0, pointCount: 0 };
-  }
-  const lats = all.map(p => p.latitude);
-  const lons = all.map(p => p.longitude);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons);
-  const maxLon = Math.max(...lons);
-  const correction = Math.max(0.01, Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180));
-  const spanX = Math.max((maxLon - minLon) * correction, 0.000001);
-  const spanY = Math.max(maxLat - minLat, 0.000001);
-  const scale = Math.min(
-    (width - 2 * pad) / spanX,
-    (height - 2 * pad) / spanY,
-  );
-  const project = (p: RoutePoint): [number, number] => [
-    pad + (width - 2 * pad - spanX * scale) / 2 + (p.longitude - minLon) * correction * scale,
-    pad + (height - 2 * pad - spanY * scale) / 2 + (maxLat - p.latitude) * scale,
-  ];
-  return {
-    lines: valid.map(track => track.map(project)),
-    trackCount: valid.length,
-    pointCount: all.length,
-  };
-}
-
 /* ------------------------------------------------------------------ */
 /* Seite.                                                               */
 /* ------------------------------------------------------------------ */
 
-const HEATMAP_WIDTH = 320;
-const HEATMAP_HEIGHT = 220;
 const MAX_TRACKS = 25;
 const TRACK_POINTS = 96;
 
@@ -281,10 +234,12 @@ export function StatsPage({
   runs,
   busy,
   onOpenRun,
+  onLockScroll,
 }: {
   runs: Run[];
   busy: boolean;
   onOpenRun: (id: string) => void;
+  onLockScroll?: (locked: boolean) => void;
 }) {
   const [tracks, setTracks] = useState<RoutePoint[][] | null>(null);
   const [loadingTracks, setLoadingTracks] = useState(false);
@@ -297,7 +252,6 @@ export function StatsPage({
   const rpe = rpeStat(runs);
   const best = highlights(runs);
   const maxWeekKm = Math.max(1, ...weeks.map(w => w.km));
-  const heat = tracks ? projectTracks(tracks, HEATMAP_WIDTH, HEATMAP_HEIGHT, 14) : null;
 
   const trendMin = trend.length ? Math.min(...trend.map(p => p.secPerKm)) : 0;
   const trendMax = trend.length ? Math.max(...trend.map(p => p.secPerKm)) : 0;
@@ -375,24 +329,11 @@ export function StatsPage({
           <Section title="Strecken-Heatmap">
             <Copy muted>
               Alle GPS-Spuren übereinander — wo du oft läufst, leuchtet es
-              heller. Bleibt auf dem Gerät, keine Karte nötig.
+              heller. Die Spuren bleiben auf dem Gerät; nur grobe
+              Kartenkacheln (ohne Beschriftungen) werden geladen.
             </Copy>
-            {heat && heat.lines.length > 0 ? (
-              <View style={styles.map}>
-                <Svg width="100%" height={HEATMAP_HEIGHT} viewBox={`0 0 ${HEATMAP_WIDTH} ${HEATMAP_HEIGHT}`}>
-                  {heat.lines.map((line, i) => (
-                    <Polyline
-                      key={i}
-                      points={line.map(p => p.join(',')).join(' ')}
-                      stroke={color.green}
-                      strokeOpacity={0.22}
-                      strokeWidth={2.5}
-                      strokeLinejoin="round"
-                      fill="none"
-                    />
-                  ))}
-                </Svg>
-              </View>
+            {tracks && tracks.length > 0 ? (
+              <RunMap tracks={tracks} heat onLockScroll={onLockScroll} />
             ) : null}
             {trackInfo ? <Copy muted>{trackInfo}</Copy> : null}
             <Button
@@ -400,7 +341,7 @@ export function StatsPage({
               title={
                 loadingTracks
                   ? 'Spuren werden geladen …'
-                  : heat
+                  : tracks
                     ? 'Heatmap neu laden'
                     : 'Heatmap laden'
               }
@@ -436,7 +377,8 @@ export function StatsPage({
                 </Svg>
               </View>
               <Copy muted>
-                {trend.length} Läufe, älteste links. Tempo allein sagt nichts
+                {trend.length} Läufe, älteste links. Nur Läufe — Wanderungen
+                & Co. zählen zu den Wochenkilometern. Tempo allein sagt nichts
                 über Zweck oder Anstrengung.
               </Copy>
             </Section>
@@ -529,7 +471,7 @@ export function StatsPage({
             ) : null}
             <Copy muted>
               Reine Messwerte aus deinen Läufen — kein Urteil über Form oder
-              Gesundheit.
+              Gesundheit. Nur Läufe; Wanderungen & Co. bleiben außen vor.
             </Copy>
           </Section>
         </>

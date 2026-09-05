@@ -1,5 +1,15 @@
 export type RunPurpose = 'easy' | 'long' | 'intervals' | 'race' | 'free' | 'unknown';
 
+/** Erkannte Aktivitätsart aus dem Import. Nur Läufe werden trainiert. */
+export type ActivityKind =
+  | 'run'
+  | 'hike'
+  | 'walk'
+  | 'ride'
+  | 'swim'
+  | 'other'
+  | 'unknown';
+
 /** Native, bounded derived splits, never a raw sensor stream. */
 export interface SegmentAggregate {
   id?: string;
@@ -21,6 +31,8 @@ export interface RunSummary {
   purpose: RunPurpose;
   source: string;
   status: string;
+  activityKind?: ActivityKind;
+  activityKindSource?: string;
   avgHeartRate?: number;
   avgCadence?: number;
   segments?: SegmentAggregate[];

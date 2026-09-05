@@ -59,4 +59,4 @@ Für die spätere Implementierung sind automatische, mit Debug-Schlüsseln signi
 
 ## Vor Umsetzung zu entscheiden
 
-Referenzgeräte und unterstützte Android-/Wear-OS-Versionen, Speicherstandardbudget, konkrete Datenanbieter, Effort-Modell und freigegebene Handlungsklassen bleiben festzulegen. Die Entscheidung wird jeweils vor der zugehörigen Abnahme dokumentiert; sie wird nicht durch einen UI-Platzhalter ersetzt.
+Referenzgeräte und unterstützte Android-/Wear-OS-Versionen, Speicherstandardbudget, konkrete Datenanbieter, Effort-Modell und freigegebene Handlungsklassen bleiben festzulegen. Die Entscheidung wird jeweils vor der zugehörigen Abnahme dokumentiert; sie wird nicht durch einen UI-Platzhalter ersetzt. Vorläufige Kartenwahl (keine Abnahme): grobe CARTO-Kacheln ohne Beschriftungen auf OSM-Daten, mit Quellenangabe in der App und Darstellung ohne Hintergrundkarte bei fehlendem Netz.
