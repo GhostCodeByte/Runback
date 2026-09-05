@@ -27,11 +27,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DeviceSettings } from './DeviceSettings';
 import { OnboardingFlow, shouldShowOnboarding } from './Onboarding';
 import { RunIntegrations } from './RunIntegrations';
+import { StatsPage } from './Stats';
 import { ProseExplanation, ProseSettings } from './ProseSettings';
 import {
   acceptRecommendation,
   analyzeRun,
   evaluateExperiment,
+  suggestPurpose,
   transitionExperiment,
 } from '../domain';
 import type { ExperimentStatus, Recommendation } from '../domain/types';
@@ -84,7 +86,7 @@ const initial: AppState = {
   settings: {},
   capabilities: {},
 };
-type Tab = 'Heute' | 'Läufe' | 'Fokus' | 'Mehr';
+type Tab = 'Heute' | 'Läufe' | 'Fokus' | 'Statistik' | 'Mehr';
 type Page = 'main' | 'profile' | 'devices' | 'data' | 'presets' | 'models';
 
 const RunRow = memo(function RunRow({
@@ -830,8 +832,13 @@ export function RunbackApp() {
     </View>
   );
 
-  const renderDetail = () =>
-    selected && snapshot ? (
+  const renderDetail = () => {
+    const purposeSuggestion =
+      selected && selected.purpose === 'unknown'
+        ? suggestPurpose(selected)
+        : undefined;
+    return (
+      selected && snapshot ? (
       <>
         <Text style={styles.title}>{purposeLabel(selected.purpose)}</Text>
         <Copy muted>{date(selected.startTime)}</Copy>
@@ -914,6 +921,27 @@ export function RunbackApp() {
                 </View>
               ))}
             </View>
+          </Section>
+        ) : null}
+        {purposeSuggestion ? (
+          <Section title="Vermuteter Zweck">
+            <Copy>
+              {purposeSuggestion.reason} Stimmt das? Die Angabe ist
+              freiwillig und lässt sich jederzeit ändern.
+            </Copy>
+            <Button
+              title={`Als ${purposeLabel(purposeSuggestion.purpose)} übernehmen`}
+              onPress={() =>
+                updateFeedback({ purpose: purposeSuggestion.purpose })
+              }
+              disabled={busy}
+            />
+            <Button
+              secondary
+              title="Anderen Zweck wählen"
+              onPress={() => setPurposePicker(true)}
+              disabled={busy}
+            />
           </Section>
         ) : null}
         {snapshot.question ? (
@@ -1063,7 +1091,9 @@ export function RunbackApp() {
           </>
         ) : null}
       </>
-    ) : null;
+    ) : null
+    );
+  };
 
   const toggle = (value: boolean, onValueChange: (value: boolean) => void) => (
     <Switch
@@ -1073,6 +1103,10 @@ export function RunbackApp() {
       thumbColor={value ? color.ink : color.muted}
     />
   );
+  const renderStats = () => (
+    <StatsPage runs={runs} busy={busy} onOpenRun={openRun} />
+  );
+
   const renderMore = () => (
     <>
       <Text style={styles.title}>Mehr</Text>
@@ -1491,6 +1525,8 @@ export function RunbackApp() {
       : renderHome()
     : tab === 'Fokus'
     ? renderFocus()
+    : tab === 'Statistik'
+    ? renderStats()
     : renderMore();
   const isHistory = !selected && page === 'main' && tab === 'Läufe';
   const showOnboarding = onboardingOpen && !loading;
@@ -1627,7 +1663,7 @@ export function RunbackApp() {
         <View
           style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
         >
-        {(['Heute', 'Läufe', 'Fokus', 'Mehr'] as Tab[]).map(name => (
+        {(['Heute', 'Läufe', 'Fokus', 'Statistik', 'Mehr'] as Tab[]).map(name => (
           <Pressable
             key={name}
             accessibilityRole="tab"
