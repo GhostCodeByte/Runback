@@ -3,6 +3,7 @@ import {
   analyzeRun,
   evaluateExperiment,
   scheduleCue,
+  suggestPurpose,
   transitionExperiment,
 } from '../src/domain';
 import type {Recommendation, RunSummary} from '../src/domain';
@@ -167,5 +168,22 @@ describe('domain rules', () => {
     expect(result.verdict).toBe('insufficient_evidence');
     expect(result.adherence.every(a => a.value === 'unknown')).toBe(true);
     expect(result.causalClaim).toBe(false);
+  });
+
+  it('suggests a cautious purpose for runs without one', () => {
+    expect(suggestPurpose(run({purpose: 'unknown'}))?.purpose).toBe('easy');
+    expect(
+      suggestPurpose(run({purpose: 'unknown', durationSeconds: 5400}))
+        ?.purpose,
+    ).toBe('long');
+    expect(
+      suggestPurpose(run({purpose: 'unknown', distanceMeters: 16000}))
+        ?.purpose,
+    ).toBe('long');
+    expect(suggestPurpose(run({purpose: 'easy'}))).toBeUndefined();
+    expect(suggestPurpose(run({purpose: 'intervals'}))).toBeUndefined();
+    expect(
+      suggestPurpose(run({purpose: 'unknown', durationSeconds: NaN})),
+    ).toBeUndefined();
   });
 });

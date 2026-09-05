@@ -84,6 +84,25 @@ export function flatPacingContext(run: RunSummary, pacing: PacingAnalysis): bool
   return (run.segments ?? []).filter((s, i) => ids.has(segmentId(s, i))).every(s => finite(s.gradePercent) && Math.abs(s.gradePercent) <= 2);
 }
 
+/**
+ * Vorsichtige Zweckvermutung für Läufe ohne Zweck (z. B. alte Importe).
+ * Nur easy/long — Intervalle und Wettkampf lassen sich aus Dauer und Distanz
+ * nicht belastbar erkennen. Die Vermutung wirkt sich erst aus, wenn der Nutzer
+ * sie bestätigt; bis dahin bleibt die Auswertung neutral.
+ */
+export function suggestPurpose(run: RunSummary): { purpose: 'easy' | 'long'; reason: string } | undefined {
+  if (run.purpose !== 'unknown') {
+    return undefined;
+  }
+  if (!finite(run.durationSeconds) || !finite(run.distanceMeters)) {
+    return undefined;
+  }
+  if (run.durationSeconds >= 75 * 60 || run.distanceMeters >= 15000) {
+    return { purpose: 'long', reason: 'Dauer oder Distanz sprechen für einen langen Lauf.' };
+  }
+  return { purpose: 'easy', reason: 'Für kürzere Läufe ist „Locker" die zurückhaltende Annahme.' };
+}
+
 export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
   const quality = assessQuality(run);
   const pacing = pacingFor(run, quality);

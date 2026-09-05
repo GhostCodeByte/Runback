@@ -37,14 +37,13 @@ class OpenRouterProse(context: Context) {
             .put("dailyRequestLimit", prefs.getInt("daily_limit", 0))
             .put("maxOutputTokens", prefs.getInt("max_tokens", 40))
             .put("requestsToday", if (prefs.getLong("usage_day", -1) == day()) prefs.getInt("usage_count", 0) else 0)
-            .put("freeModelsOnly", true)
             .put("formulationVersion", FORMULATION_VERSION)
     }
 
     /** Limits are attempts, including failed requests. Zero means no network requests. */
     fun configure(enabled: Boolean, model: String, dailyRequestLimit: Int, maxOutputTokens: Int, apiKey: String? = null): JSONObject = synchronized(lock) {
         require(model.length in 1..120 && model.matches(Regex("[A-Za-z0-9._:/-]+"))) { "Ungültige Modellkennung." }
-        require(model == DEFAULT_MODEL || model.endsWith(":free")) { "Nur kostenlose Modelle sind freigeschaltet." }
+        // Der nutzereigene Key darf jedes Modell wählen; Kosten trägt der Nutzer (Spec §2).
         require(dailyRequestLimit in 0..100 && maxOutputTokens in 16..128) { "Anfragelimit 0–100, Ausgabelimit 16–128 Tokens." }
         val edit = prefs.edit()
         if (apiKey != null && apiKey.isNotBlank()) {
@@ -143,9 +142,8 @@ class OpenRouterProse(context: Context) {
                     .put("required", JSONArray(listOf("variant"))))
             val body = JSONObject().put("model", snapshot.model).put("max_completion_tokens", snapshot.tokens)
                 .put("temperature", 0).put("stream", false)
-                // Both model selection and provider caps prevent accidental paid routing.
-                .put("provider", JSONObject().put("require_parameters", true).put("data_collection", "deny")
-                    .put("max_price", JSONObject().put("prompt", 0).put("completion", 0)))
+                // Das Tageslimit begrenzt die Anfragen; die Modellwahl (ggf. kostenpflichtig) liegt beim nutzereigenen Key.
+                .put("provider", JSONObject().put("require_parameters", true).put("data_collection", "deny"))
                 .put("response_format", JSONObject().put("type", "json_schema").put("json_schema", schema))
                 .put("messages", JSONArray().put(JSONObject().put("role", "system").put("content",
                     "Choose an approved display layout for a running analysis. Return only JSON with variant observation_first or action_first. " +
