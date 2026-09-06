@@ -65,9 +65,9 @@ class RunStore(context: Context) {
         run.remove("_tick")
         return run
     }
-    fun listRuns(limit: Int = 1000): JSONArray = locked {
+    fun listRuns(limit: Int = 1000, offset: Int = 0): JSONArray = locked {
         val result = JSONArray()
-        db.rawQuery("SELECT json FROM runs ORDER BY start DESC LIMIT ?", arrayOf(limit.coerceIn(1,10000).toString())).use {
+        db.rawQuery("SELECT json FROM runs ORDER BY start DESC LIMIT ? OFFSET ?", arrayOf(limit.coerceIn(1,10000).toString(), offset.coerceAtLeast(0).toString())).use {
             while (it.moveToNext()) result.put(present(JSONObject(it.getString(0))))
         }; result
     }

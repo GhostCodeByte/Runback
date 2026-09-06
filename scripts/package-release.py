@@ -105,7 +105,9 @@ Commit: `{commit}` · Version: `{version_name}` · Version code: `{version_code}
 - Beide Apps verwenden `com.runback` und denselben öffentlichen Debug-Testschlüssel. Updates mit `adb install -r` sind möglich.
 - `SHA256SUMS` und `BUILD-METADATA.json` dokumentieren Dateien, Versionen und Signatur.
 
-Der Workflow prüft TypeScript, JavaScript-Tests, native Core-Unit-Tests, Android-Lint, beide Release-Builds sowie APK-Inhalte und Signaturen. {ci_line}
+Enthält eine freiwillige Einrichtung mit Import, Statistik unter „Mehr“ und einen optionalen OpenRouter-Trainingschat. `openrouter/free` bleibt Standard; andere Modelle sind erlaubt, ohne Runback-Tageslimit. Den eigenen Schlüssel unter „Mehr → Auswertung & Modelle“ speichern.
+
+Der Workflow prüft TypeScript, JavaScript-Tests, native Core- und Chat-Unit-Tests, Android-Lint, beide Release-Builds sowie APK-Inhalte und Signaturen. {ci_line}
 
 [Installation und Testschlüssel]({source_url}/docs/release.md) · [Tatsächliche Gerätetests und bekannte Grenzen]({source_url}/docs/testing.md) · [V1/V2-Akzeptanzkriterien]({source_url}/docs/zielspezifikation.md)
 

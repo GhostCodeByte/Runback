@@ -1,6 +1,6 @@
 # Testbericht
 
-Stand: 6. September 2026 (Emulatortests am 5. September). Dieser Bericht dokumentiert Testsoftware, keine vollständige Abnahme aller V1-/V2-Ziele.
+Stand: 6. September 2026 (Emulatortests am 5. und 6. September). Dieser Bericht dokumentiert Testsoftware, keine vollständige Abnahme aller V1-/V2-Ziele.
 
 ## Referenzumgebung
 
@@ -38,3 +38,11 @@ Synthetische Daten entstehen reproduzierbar mit `python scripts/generate_test_fi
 - Langfristige Trainingswirkung oder Validierung persönlicher V2-Prognosemodelle.
 
 Die offene Funktionsliste und Grenzen stehen in [implementation.md](implementation.md), die unveränderten Zielkriterien in [zielspezifikation.md](zielspezifikation.md).
+
+## Ergänzung: Einrichtung, Statistik und Trainingschat (6. September 2026)
+
+- 21 JavaScript-Tests: bisherige Engine sowie Einrichtung (Minutenvalidierung, Überspringen, Importabbruch, Berechtigungszustände) und Statistik (Filter, Duplikate, gewichtetes Tempo, RPE, Kalenderwochen einschließlich Zeitumstellung).
+- Fünf native Chat-Protokolltests mit simulierten Modellantworten: Datenfreigabe, Ausschluss von Geometrie/Rohsamples/geheimen Feldern, unbekannte Werkzeuge ohne Schreibzugriff, unveränderter Verlauf bei Netzwerkfehler und keine Wiederherstellung gelöschter Daten durch eine verspätete Antwort. Kein bezahlter oder kostenloser Live-Modellaufruf: Es ist kein OpenRouter-Schlüssel eingerichtet.
+- TypeScript, native Core-Tests, Android-Lint und Release-Builds für Telefon/Uhr erfolgreich. Neue native Tests sind auch Teil der GitHub-CI und ihrer Berichte.
+- Telefon-Emulator Pixel 8, API 36: vorhandene Testdaten beim APK-Update erhalten; Einrichtung durchlaufen, Trainingstag gewählt, bestehende synthetische GPX im Onboarding importiert und korrekt als Duplikat erkannt, Berechtigungsstatus angezeigt, Einrichtung beendet. Statistik mit vorhandenen Läufen und Chat-Einstieg visuell geprüft. OpenRouter-Einstellungen zeigen den kostenlosen Standard und kein Tageslimit. Keine AndroidRuntime-/ReactNativeJS-Fehler bei diesen Schritten.
+- Wear-OS-Emulator Pixel Watch 2, API 35: aktualisierte APK installiert und Startansicht geprüft. Onboarding, Statistik und Chat sind Telefonfunktionen. Keine neue komplexe Sensor-/Synchronisations-Testserie; kein physisches Telefon angeschlossen.

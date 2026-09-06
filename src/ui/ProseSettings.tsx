@@ -8,7 +8,6 @@ export function ProseSettings() {
   const [settings, setSettings] = useState<any>(null);
   const [key, setKey] = useState('');
   const [model, setModel] = useState('openrouter/free');
-  const [limit, setLimit] = useState('0');
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -19,7 +18,6 @@ export function ProseSettings() {
         if (mounted) {
           setSettings(value);
           setModel(value.model);
-          setLimit(String(value.dailyRequestLimit));
           setEnabled(value.enabled);
         }
       })
@@ -44,11 +42,11 @@ export function ProseSettings() {
     }
   };
   return (
-    <Section title="Optionale Textdarstellung">
+    <Section title="OpenRouter & Chat">
       <Copy muted>
-        OpenRouter kann die Darstellung bestehender Engine-Aussagen auswählen.
-        Die Entscheidung und ihre Inhalte bleiben unverändert. Keine
-        Koordinaten, Notizen oder Rohsamples werden übermittelt.
+        Hier verbindest du deinen eigenen OpenRouter-Schlüssel. Im Trainingschat
+        kannst du Fragen stellen und lokale Trainingsdaten einbeziehen. Die
+        Laufanalyse und Experimente werden weiterhin unabhängig lokal berechnet.
       </Copy>
       <Row
         title="OpenRouter verwenden"
@@ -93,38 +91,22 @@ export function ProseSettings() {
         style={styles.input}
       />
       <Copy muted>
-        Nur openrouter/free oder Modelle mit :free werden unterstützt.
-      </Copy>
-      <Copy>Maximale Anfragen pro Tag</Copy>
-      <TextInput
-        accessibilityLabel="OpenRouter Tageslimit"
-        keyboardType="number-pad"
-        maxLength={3}
-        value={limit}
-        onChangeText={setLimit}
-        style={styles.input}
-      />
-      <Copy muted>
-        0 deaktiviert Anfragen. Heute verwendet: {settings?.requestsToday ?? 0}.
-        Maximal 40 Ausgabetokens je Anfrage.
+        Standard: openrouter/free. Auch andere gültige
+        OpenRouter-Modellkennungen sind erlaubt; kostenpflichtige Modelle nutzen
+        dein OpenRouter-Guthaben. Runback hat kein tägliches Token- oder
+        Anfragelimit. Die Limits des Anbieters gelten weiterhin.
       </Copy>
       <Button
         secondary
-        title="Textdarstellung speichern"
+        title="OpenRouter speichern"
         disabled={busy}
         onPress={() => {
           void act(async () => {
-            const value = Number(limit);
-            if (!Number.isInteger(value) || value < 0 || value > 100) {
-              throw new Error('Das Tageslimit muss zwischen 0 und 100 liegen.');
-            }
             setSettings(
               await nativeCall(
                 'configureProse',
                 enabled,
                 model.trim(),
-                value,
-                40,
                 key.trim() || null,
               ),
             );
