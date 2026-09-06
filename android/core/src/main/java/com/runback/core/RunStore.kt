@@ -1,0 +1,336 @@
+package com.runback.core
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import android.os.SystemClock
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.*
+import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
+import kotlin.math.abs
+
+data class RawSample(val time: Long, val kind: String, val values: JSONObject)
+
+/** One serialized SQLite owner per process. Raw rows are append-only, corrections are separate. */
+class RunStore(context: Context) {
+    private val app = context.applicationContext
+    private val db: SQLiteDatabase
+    init {
+        synchronized(lock) {
+            if (helper == null) {
+                helper = Database(app)
+                val first = helper!!.writableDatabase
+                first.rawQuery("SELECT id,json FROM runs", null).use { rows ->
+                    while (rows.moveToNext()) {
+                        val run = JSONObject(rows.getString(1))
+                        if (run.optString("status") == "recording") {
+                            run.put("status", "interrupted").remove("_tick")
+                            first.update("runs", ContentValues().apply { put("json", run.toString()) }, "id=?", arrayOf(rows.getString(0)))
+                        }
+                    }
+                }
+            }
+            db = helper!!.writableDatabase
+        }
+    }
+    private fun <T> locked(block: () -> T): T = synchronized(lock, block)
+    private fun <T> transaction(block: () -> T): T {
+        db.beginTransaction()
+        try { val result = block(); db.setTransactionSuccessful(); return result } finally { db.endTransaction() }
+    }
+    private fun read(id: String): JSONObject = db.rawQuery("SELECT json FROM runs WHERE id=?", arrayOf(id)).use {
+        require(it.moveToFirst()) { "Lauf nicht gefunden" }; JSONObject(it.getString(0))
+    }
+    private fun write(run: JSONObject) { db.insertWithOnConflict("runs", null, ContentValues().apply {
+        put("id", run.getString("id")); put("start", run.getLong("startTime")); put("json", run.toString())
+    }, SQLiteDatabase.CONFLICT_REPLACE) }
+    private fun activeId(): String? = db.rawQuery("SELECT id,json FROM runs ORDER BY start DESC", null).use {
+        while (it.moveToNext()) if (JSONObject(it.getString(1)).optString("status") in listOf("recording", "paused", "interrupted")) return@use it.getString(0)
+        null
+    }
+    private fun present(run: JSONObject): JSONObject {
+        val ms = run.optLong("durationMs") + if (run.optString("status") == "recording")
+            (SystemClock.elapsedRealtime() - run.optLong("_tick", SystemClock.elapsedRealtime())).coerceAtLeast(0) else 0
+        run.put("durationSeconds", ms / 1000.0).put("durationSec", ms / 1000.0).put("elapsedMs", ms)
+            .put("startedAt", run.optLong("startTime")).put("endedAt", run.optLong("endTime"))
+            .put("distanceM", run.optDouble("distanceMeters", 0.0))
+        val feedback = getDocument("feedback_${run.getString("id")}") ?: JSONObject()
+        run.put("feedback", feedback)
+        if (feedback.has("purpose")) run.put("purpose", feedback.getString("purpose"))
+        run.remove("_tick")
+        return run
+    }
+    fun listRuns(limit: Int = 1000): JSONArray = locked {
+        val result = JSONArray()
+        db.rawQuery("SELECT json FROM runs ORDER BY start DESC LIMIT ?", arrayOf(limit.coerceIn(1,10000).toString())).use {
+            while (it.moveToNext()) result.put(present(JSONObject(it.getString(0))))
+        }; result
+    }
+    fun active(): JSONObject? = locked { activeId()?.let { present(read(it)) } }
+    fun start(purpose: String = "easy", source: String = "phone"): JSONObject = locked {
+        activeId()?.let { return@locked present(read(it)) }
+        check(app.filesDir.usableSpace > 32L * 1024 * 1024) { "Zu wenig freier Speicher. Bitte zuerst Daten sichern und Speicher freigeben." }
+        val now = System.currentTimeMillis()
+        val run = JSONObject().put("id", UUID.randomUUID().toString()).put("startTime", now).put("endTime", now)
+            .put("purpose", purpose).put("source", source).put("status", "recording").put("durationMs", 0L)
+            .put("_tick", SystemClock.elapsedRealtime()).put("distanceMeters", 0.0).put("rawSampleCount", 0)
+            .put("model_version", RunMath.MODEL_VERSION).put("sourceVersion", "raw-v1")
+        transaction { write(run); addEvent(run.getString("id"), "start", JSONObject()) }
+        present(JSONObject(run.toString()))
+    }
+    fun checkpoint(id: String) = locked {
+        val run = read(id)
+        if (run.optString("status") == "recording") {
+            val tick = SystemClock.elapsedRealtime()
+            run.put("durationMs", run.optLong("durationMs") + (tick - run.optLong("_tick", tick)).coerceAtLeast(0))
+            run.put("_tick", tick).put("endTime", System.currentTimeMillis())
+        }
+        write(run)
+    }
+    fun pause(): JSONObject? = setStatus("paused", "pause")
+    fun finish(): JSONObject? = setStatus("completed", "finish")
+    private fun setStatus(status: String, event: String): JSONObject? = locked {
+        val id = activeId() ?: return@locked null
+        transaction {
+            checkpoint(id); val run = read(id); run.put("status", status); run.remove("_tick"); write(run)
+            addEvent(id, event, JSONObject()); if (status == "completed") derive(id)
+            present(read(id))
+        }
+    }
+    fun resume(): JSONObject? = locked {
+        val id = activeId() ?: return@locked null
+        val run = read(id)
+        if (run.optString("status") != "recording") {
+            transaction { addEvent(id, "resume", JSONObject().put("previousStatus", run.optString("status")))
+                run.put("status", "recording").put("_tick", SystemClock.elapsedRealtime()); write(run) }
+        }; present(JSONObject(run.toString()))
+    }
+    fun markInterrupted(reason: String) = locked {
+        activeId()?.let { id -> val run = read(id); run.put("status", "interrupted"); run.remove("_tick"); write(run)
+            addEvent(id, "interrupted", JSONObject().put("message", reason)) }
+    }
+    fun addEvent(id: String, type: String, data: JSONObject) = locked {
+        db.insertOrThrow("events", null, ContentValues().apply { put("run_id", id); put("json", JSONObject()
+            .put("type", type).put("at", System.currentTimeMillis()).put("data", data).toString()) })
+    }
+    fun appendSamples(id: String, samples: List<RawSample>) = locked {
+        if (samples.isEmpty()) return@locked
+        transaction {
+            val run = read(id)
+            var previous: JSONObject? = db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY seq DESC LIMIT 1", arrayOf(id)).use {
+                if (it.moveToFirst()) JSONObject(it.getString(1)).put("time", it.getLong(0)) else null }
+            val lastBoundary = db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq DESC LIMIT 1", arrayOf(id)).use {
+                if (it.moveToFirst()) JSONObject(it.getString(0)) else null }
+            if (lastBoundary?.optString("type") in listOf("pause", "resume", "interrupted") && (previous?.optLong("time") ?: 0) < lastBoundary!!.optLong("at")) previous = null
+            var distance = run.optDouble("distanceMeters", 0.0)
+            samples.forEach { sample ->
+                require(sample.time > 0 && sample.kind.length <= 40) { "Ungültiger Messwert" }
+                db.insertOrThrow("samples", null, ContentValues().apply {
+                    put("run_id", id); put("time", sample.time); put("kind", sample.kind); put("json", sample.values.toString()) })
+                if (sample.kind == "gps") {
+                    val v = sample.values
+                    previous?.let { p -> RunMath.acceptedDistance(p.optDouble("latitude"),p.optDouble("longitude"),p.optLong("time"),p.optDouble("accuracyM",0.0),
+                        v.optDouble("latitude"),v.optDouble("longitude"),sample.time,v.optDouble("accuracyM",0.0))?.let { distance += it } }
+                    previous = JSONObject(v.toString()).put("time", sample.time)
+                }
+                if (sample.kind == "heartRate") {
+                    val bpm = sample.values.optDouble("bpm")
+                    if (bpm.isFinite() && bpm in 30.0..240.0) run.put("lastHeartRate", bpm)
+                }
+            }
+            run.put("distanceMeters", distance).put("rawSampleCount", run.optInt("rawSampleCount") + samples.size); write(run)
+        }
+    }
+    fun rawSamples(id: String): JSONArray = locked {
+        val result = JSONArray()
+        db.rawQuery("SELECT time,kind,json FROM samples WHERE run_id=? ORDER BY time,seq", arrayOf(id)).use {
+            while (it.moveToNext()) result.put(JSONObject().put("time", it.getLong(0)).put("kind", it.getString(1)).put("values", JSONObject(it.getString(2))))
+        }; result
+    }
+    private fun events(id: String): JSONArray {
+        val result = JSONArray(); db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq", arrayOf(id)).use {
+            while(it.moveToNext()) result.put(JSONObject(it.getString(0))) }; return result
+    }
+    /** Derive only from GPS rows, not high-frequency accelerometer history. */
+    private fun derive(id: String): JSONObject {
+        val geometry = JSONArray(); val segments = JSONArray(); val series = JSONArray()
+        val points = ArrayList<JSONObject>()
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY time,seq", arrayOf(id)).use {
+            while(it.moveToNext()) points.add(JSONObject(it.getString(1)).put("time",it.getLong(0))) }
+        val boundaries = events(id); val cuts = (0 until boundaries.length()).map { boundaries.getJSONObject(it) }
+            .filter { it.optString("type") in listOf("pause","resume","interrupted") }.map { it.optLong("at") }
+        var distance = 0.0; var segmentDistance = 0.0; var segmentDuration = 0.0; var segmentRise = 0.0; var allAltitude = true
+        var gaps = 0; var previous: JSONObject? = null
+        fun split() {
+            if (segmentDistance > 0) {
+                val s = JSONObject().put("id", "${id}:${segments.length()}").put("distanceMeters",segmentDistance)
+                    .put("durationSeconds",segmentDuration).put("sourceVersion",RunMath.MODEL_VERSION)
+                if (allAltitude) s.put("gradePercent",100 * segmentRise / segmentDistance)
+                segments.put(s)
+            }; segmentDistance=0.0;segmentDuration=0.0;segmentRise=0.0;allAltitude=true
+        }
+        points.forEachIndexed { index, p ->
+            var gap = false
+            previous?.let { before ->
+                val crossing = cuts.any { it > before.optLong("time") && it <= p.optLong("time") }
+                val d = if(crossing) null else RunMath.acceptedDistance(before.optDouble("latitude"),before.optDouble("longitude"),before.optLong("time"),before.optDouble("accuracyM",0.0),
+                    p.optDouble("latitude"),p.optDouble("longitude"),p.optLong("time"),p.optDouble("accuracyM",0.0))
+                if(d == null) { gap=true; gaps++; split() } else {
+                    distance += d; segmentDistance += d; segmentDuration += (p.optLong("time")-before.optLong("time"))/1000.0
+                    if(before.has("altitudeM") && p.has("altitudeM")) segmentRise += p.optDouble("altitudeM")-before.optDouble("altitudeM") else allAltitude=false
+                    if(segmentDistance >= 1000) split()
+                }
+            }
+            if (gap || index == 0 || index == points.lastIndex || index % maxOf(1, (points.size+399)/400) == 0) {
+                if(geometry.length()<512) geometry.put(JSONObject().put("latitude",p.optDouble("latitude")).put("longitude",p.optDouble("longitude")).put("time",p.optLong("time")).put("gap",gap))
+            }; previous=p
+        }; split()
+        val run = read(id)
+        if(points.size>1) run.put("distanceMeters",distance)
+        for ((kind,key,output) in listOf(Triple("heartRate","bpm","avgHeartRate"),Triple("cadence","rpm","avgCadence"))) {
+            var total=0.0;var count=0
+            db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind=? ORDER BY time", arrayOf(id,kind)).use {
+                while(it.moveToNext()) { val v=JSONObject(it.getString(1)).optDouble(key)
+                    if(v.isFinite() && v>0 && v<=300) { total+=v;count++;if(series.length()<256) series.put(JSONObject().put("time",it.getLong(0)).put("kind",kind).put("value",v)) } }
+            }; if(count>0)run.put(output,total/count)
+        }
+        run.put("segments",segments).put("gapCount",gaps).put("model_version",RunMath.MODEL_VERSION)
+        run.put("dataRetention",JSONObject().put("originals","retained").put("recomputable",true))
+        write(run)
+        return JSONObject().put("geometry",geometry).put("series",series)
+    }
+    fun detail(id: String): JSONObject = locked {
+        val derived = derive(id)
+        present(read(id)).put("geometry",derived.getJSONArray("geometry")).put("series",derived.getJSONArray("series")).put("events",events(id))
+    }
+    fun getDocument(key: String): JSONObject? = locked { db.rawQuery("SELECT json FROM documents WHERE key=?",arrayOf(key)).use {
+        if(it.moveToFirst()) JSONObject(it.getString(0)) else null } }
+    fun putDocument(key: String, value: JSONObject) = locked {
+        require(key.length<=200)
+        db.insertWithOnConflict("documents",null,ContentValues().apply { put("key",key);put("json",value.toString()) },SQLiteDatabase.CONFLICT_REPLACE); Unit
+    }
+    fun settings(): JSONObject = getDocument("settings") ?: JSONObject().put("rawBudgetMb",512).put("weatherEnabled",false)
+    fun saveSettings(value: JSONObject) { putDocument("settings",value) }
+    fun saveFeedback(id: String, value: JSONObject) = locked {
+        read(id); val feedback = getDocument("feedback_$id") ?: JSONObject()
+        value.keys().forEach { feedback.put(it,value.get(it)) }; feedback.put("updatedAt",System.currentTimeMillis())
+        transaction { putDocument("feedback_$id",feedback); addEvent(id,"feedback",value) }
+    }
+    fun addImportedRun(summary: JSONObject, samples: JSONArray, sourceHash: String): JSONObject = locked {
+        val start = summary.optLong("startTime",summary.optLong("startedAt"));require(start>0){"Startzeit fehlt"}
+        val fingerprint = "start:${start/1000}"
+        db.rawQuery("SELECT id FROM tombstones WHERE id IN (?,?)",arrayOf(sourceHash,fingerprint)).use { if(it.moveToFirst())return@locked JSONObject().put("status","deleted") }
+        var duplicate: String? = null
+        db.rawQuery("SELECT run_id FROM hashes WHERE hash=?",arrayOf(sourceHash)).use { if(it.moveToFirst())duplicate=it.getString(0) }
+        if(duplicate==null) db.rawQuery("SELECT id,json FROM runs WHERE abs(start-?)<=10000",arrayOf(start.toString())).use { rows ->
+            while(rows.moveToNext()) { val other=JSONObject(rows.getString(1));val duration=summary.optDouble("durationSeconds",0.0)
+                if(abs(other.optLong("durationMs")/1000.0-duration)<=maxOf(30.0,duration*.05)) {duplicate=rows.getString(0);break} } }
+        if(duplicate!=null) { db.insertWithOnConflict("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",duplicate)},SQLiteDatabase.CONFLICT_IGNORE)
+            return@locked JSONObject().put("status","duplicate").put("id",duplicate) }
+        transaction {
+            val run=JSONObject(summary.toString());val id=run.optString("id").takeIf{it.matches(Regex("[A-Za-z0-9_-]{1,100}"))}?:UUID.randomUUID().toString()
+            run.put("id",id).put("startTime",start).put("durationMs",(summary.optDouble("durationSeconds",0.0)*1000).toLong())
+                .put("status","completed").put("rawSampleCount",0).put("sourceVersion",sourceHash).put("reportedDistanceMeters",summary.optDouble("distanceMeters",0.0)).put("distanceMeters",0.0)
+            write(run)
+            val batch=ArrayList<RawSample>()
+            for(i in 0 until samples.length()){val s=samples.getJSONObject(i);batch.add(RawSample(s.getLong("time"),s.getString("kind"),s.getJSONObject("values")))
+                if(batch.size==500){appendSamples(id,batch);batch.clear()} }
+            appendSamples(id,batch);derive(id)
+            db.insertOrThrow("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",id)})
+            JSONObject().put("status","imported").put("id",id)
+        }
+    }
+    fun storeImportedSource(id: String, file: File, name: String) = locked {
+        require(file.length()<=64L*1024*1024);read(id)
+        db.insertOrThrow("sources",null,ContentValues().apply {put("run_id",id);put("name",name.take(200));put("data",file.readBytes())});Unit
+    }
+    fun deleteRun(id: String) = locked {
+        check(activeId()!=id){"Beende zuerst die Aufzeichnung."}
+        transaction {
+            val run=read(id)
+            db.execSQL("INSERT OR IGNORE INTO tombstones(id) SELECT hash FROM hashes WHERE run_id=?",arrayOf(id))
+            db.execSQL("INSERT OR IGNORE INTO tombstones(id) VALUES(?)",arrayOf("start:${run.getLong("startTime")/1000}"))
+            for(table in listOf("samples","events","sources","hashes"))db.delete(table,"run_id=?",arrayOf(id))
+            db.delete("runs","id=?",arrayOf(id));db.delete("documents","key=?",arrayOf("feedback_$id"))
+            addDocumentDeletionNotice(id)
+        }
+    }
+    private fun addDocumentDeletionNotice(id:String){putDocument("deleted_$id",JSONObject().put("at",System.currentTimeMillis()).put("reason","Vom Nutzer gelöscht; frühere Auswertungen nicht mehr vollständig berechenbar."))}
+    fun clearAllData() = locked { check(activeId()==null);transaction { tables.forEach {db.delete(it,null,null)} } }
+    fun backup(output: OutputStream) = locked {
+        ZipOutputStream(BufferedOutputStream(output)).use { zip ->
+            zip.putNextEntry(ZipEntry("manifest.json"));zip.write(JSONObject().put("schemaVersion",1).put("app","Runback").put("createdAt",System.currentTimeMillis()).toString().toByteArray());zip.closeEntry()
+            tables.forEach { table ->
+                zip.putNextEntry(ZipEntry("$table.ndjson"))
+                db.rawQuery("SELECT * FROM $table",null).use { c ->while(c.moveToNext()){
+                    val row=JSONObject(); for(i in 0 until c.columnCount) when(c.getType(i)){
+                        android.database.Cursor.FIELD_TYPE_BLOB -> row.put(c.getColumnName(i),android.util.Base64.encodeToString(c.getBlob(i),android.util.Base64.NO_WRAP))
+                        android.database.Cursor.FIELD_TYPE_INTEGER -> row.put(c.getColumnName(i),c.getLong(i))
+                        else -> row.put(c.getColumnName(i),if(c.isNull(i))JSONObject.NULL else c.getString(i)) }
+                    zip.write((row.toString()+"\n").toByteArray()) } };zip.closeEntry()
+            }
+        }
+    }
+    fun restore(input: InputStream): JSONObject = locked {
+        check(activeId()==null){"Beende zuerst die Aufzeichnung."}
+        transaction {
+            ZipInputStream(BufferedInputStream(input)).use { zip ->
+                require(zip.nextEntry?.name=="manifest.json"){"Kein Runback-Backup"}
+                val manifest=JSONObject(readEntry(zip,65536).toString(Charsets.UTF_8));require(manifest.getInt("schemaVersion")==1){"Backup-Version wird nicht unterstützt"}
+                tables.forEach {db.delete(it,null,null)}
+                var total=0L; val seen=HashSet<String>()
+                while(true){val entry=zip.nextEntry?:break;val table=entry.name.removeSuffix(".ndjson");require(table in tables && seen.add(table)){"Ungültiger Backup-Inhalt"}
+                    val bytes=readEntry(zip,512L*1024*1024-total);total+=bytes.size
+                    bytes.inputStream().bufferedReader().forEachLine { line -> if(line.isNotBlank()){
+                        val row=JSONObject(line);val values=ContentValues();row.keys().forEach { key ->
+                            when { key=="data" && table=="sources" -> values.put(key,android.util.Base64.decode(row.getString(key),android.util.Base64.NO_WRAP))
+                                row.isNull(key)->values.putNull(key)
+                                row.get(key) is Number ->values.put(key,row.getLong(key))
+                                else->values.put(key,row.getString(key)) }
+                        };db.insertOrThrow(table,null,values)
+                    } }
+                };require(seen==tables.toSet()){ "Backup ist unvollständig" }
+                db.rawQuery("SELECT id,json FROM runs",null).use { c->while(c.moveToNext()){val run=JSONObject(c.getString(1));if(run.optString("status")=="recording"){run.put("status","interrupted");run.remove("_tick");write(run)}} }
+            };JSONObject().put("restored",true).put("count",listRuns(10000).length())
+        }
+    }
+    fun exportSession(id: String): File = locked {
+        val file=File.createTempFile("runback-session-",".zip",app.cacheDir)
+        ZipOutputStream(file.outputStream().buffered()).use { zip ->
+            zip.putNextEntry(ZipEntry("session.json"));zip.write(JSONObject().put("schemaVersion",1).put("run",detail(id))
+                .put("samples",rawSamples(id)).put("events",events(id)).toString().toByteArray());zip.closeEntry()
+        };file
+    }
+    fun importSession(file: File): String = locked {
+        ZipInputStream(file.inputStream().buffered()).use { zip ->
+            require(zip.nextEntry?.name=="session.json");val session=JSONObject(readEntry(zip,256L*1024*1024).toString(Charsets.UTF_8))
+            require(session.getInt("schemaVersion")==1);val run=session.getJSONObject("run");val id=run.getString("id")
+            require(id.matches(Regex("[A-Za-z0-9_-]{1,100}")));val result=addImportedRun(run,session.getJSONArray("samples"),"wear:$id")
+            require(result.optString("status")!="deleted"){"Der Lauf wurde auf dem Handy gelöscht"}
+            if(result.optString("status")=="imported")run.optJSONObject("feedback")?.let {saveFeedback(id,it)}
+            id
+        }
+    }
+    private fun readEntry(input:InputStream,limit:Long):ByteArray {val out=ByteArrayOutputStream();val buffer=ByteArray(32768);var total=0L
+        while(true){val n=input.read(buffer);if(n<0)break;total+=n;require(total<=limit){"Backup überschreitet das Größenlimit"};out.write(buffer,0,n)};return out.toByteArray()}
+    private class Database(context:Context):SQLiteOpenHelper(context,"runback.db",null,1){
+        override fun onConfigure(db:SQLiteDatabase){db.execSQL("PRAGMA synchronous=FULL")}
+        override fun onCreate(db:SQLiteDatabase){
+            db.execSQL("CREATE TABLE runs(id TEXT PRIMARY KEY,start INTEGER NOT NULL,json TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE samples(seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,time INTEGER NOT NULL,kind TEXT NOT NULL,json TEXT NOT NULL)")
+            db.execSQL("CREATE INDEX sample_run_time ON samples(run_id,kind,time)")
+            db.execSQL("CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,json TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE documents(key TEXT PRIMARY KEY,json TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE hashes(hash TEXT PRIMARY KEY,run_id TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE tombstones(id TEXT PRIMARY KEY)")
+            db.execSQL("CREATE TABLE sources(seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,name TEXT NOT NULL,data BLOB NOT NULL)")
+        }
+        override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){error("Datenbankversion wird nicht unterstützt")}
+    }
+    companion object {private val lock=Any();private var helper:Database?=null;private val tables=listOf("runs","samples","events","documents","hashes","tombstones","sources")}
+}

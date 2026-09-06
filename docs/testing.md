@@ -1,0 +1,40 @@
+# Testbericht
+
+Stand: 6. September 2026 (Emulatortests am 5. September). Dieser Bericht dokumentiert Testsoftware, keine vollständige Abnahme aller V1-/V2-Ziele.
+
+## Referenzumgebung
+
+- Windows 11, Node 20.20, JDK 21, Android SDK 36; Release-Varianten mit eingebettetem Hermes-JavaScript und gemeinsamem öffentlichen Debug-Schlüssel.
+- Pixel-8-AVD: Android 16 / API 36, x86_64, 1080 × 2400, Dichte 420.
+- Pixel-Watch-2-AVD: Wear OS 5.1 / API 35, x86_64, rund 454 × 454, Dichte 320. Software-Grafikmodus nach schwarzem Bild beim ursprünglichen GPU-Modus.
+- Deutsche App-Oberfläche, Europe/Berlin, Dark Mode. Die System-Berechtigungsdialoge der Images sind teilweise englisch.
+- Kein echtes Telefon, keine echte Uhr und keine BLE-Sensorhardware per ADB verfügbar.
+
+## Tatsächlich geprüft
+
+| Prüfung | Ergebnis |
+|---|---|
+| Telefon- und Wear-Release erstellen | Erfolgreich lokal, zunächst x86_64 |
+| TypeScript und Jest | Typecheck und 12 Tests bestanden |
+| Native Mathematik-/BLE-Parser-Unit-Tests | Bestanden |
+| SQLite-Instrumentation | 5 Tests auf beiden Emulatoren bestanden: Lebenszyklus, GPS-Ausreißer bei erhaltenen Rohdaten, Duplikat/Löschmarkierung, Backup-Roundtrip, Rollback beschädigter Sicherung |
+| APK ohne Metro starten | Auf beiden Emulatoren erfolgreich |
+| Phone-Aufzeichnung | Berechtigungen, Start, Pause, Fortsetzen, kurzer Display-Lock, simulierte GPS-Punkte, Bestätigung beim Beenden, gespeicherte Detailansicht geprüft |
+| Wear-Aufzeichnung ohne Telefon | Berechtigungen, Start, Pause, Speichern und Historie geprüft; Übertragung zeigt „Handy verbinden“ statt unbestätigten Erfolg |
+| ZIP-Import | Synthetisches Archiv: 1 importierter Lauf, 1 erkannte Kopie, 1 übersprungene Datei, 1 fehlerhafte GPX; andere Dateien werden trotzdem verarbeitet |
+| RPE | Beine und Atmung getrennt per Tap an synthetischem Importlauf eingegeben |
+| Entscheidungsablauf | Importlauf: Zweck „Locker“ ergänzt, Pacing-Vorschlag angezeigt und als Arbeitsthema angenommen; Folgeläufe korrekt noch ausstehend |
+| Visuelle Kontrolle | Startseite, Aufzeichnung, Post-Run, Historie und rundes Uhrenlayout anhand echter Emulator-Screenshots geprüft |
+
+Synthetische Daten entstehen reproduzierbar mit `python scripts/generate_test_fixtures.py`. Sie sind technische Testdaten und keine Wirksamkeitsvalidierung. `scripts/device_ui.py` unterstützt beobachtungsbasierte ADB-Interaktionen; lokale Screenshots liegen unter `test-results/` und werden nicht als Nutzerdaten veröffentlicht.
+
+## Noch nicht nachgewiesen
+
+- 90-Minuten-Lauf auf physischem Referenzgerät, Akkuverbrauch, GPS-/Pulsgenauigkeit und aggressive OEM-Energiesparzustände.
+- Echte Pixel-Watch → Quell-App → Health-Connect-Kette und Sichtbarkeit exportierter Datensätze in einer fremden Ziel-App.
+- Gekoppelte Uhr-Telefon-Data-Layer-Übertragung mit Funkabbrüchen; autonome lokale Aufzeichnung ist davon unabhängig.
+- Echte BLE-Mehrsensorverbindung, Reconnect und Gerätevergleich; Parser-Tests ersetzen keine Hardwaretests.
+- Belastungstest mit 1.000 Aktivitäten, großen Sicherungen und vollständiger Barrierefreiheitsprüfung.
+- Langfristige Trainingswirkung oder Validierung persönlicher V2-Prognosemodelle.
+
+Die offene Funktionsliste und Grenzen stehen in [implementation.md](implementation.md), die unveränderten Zielkriterien in [zielspezifikation.md](zielspezifikation.md).
