@@ -26,6 +26,7 @@ import { Onboarding } from './Onboarding';
 import { Statistics } from './Statistics';
 import { TrainingChat } from './TrainingChat';
 import { DeviceSettings } from './DeviceSettings';
+import { VendorImport } from './VendorImport';
 import { RunIntegrations } from './RunIntegrations';
 import { ProseSettings, ProseExplanation } from './ProseSettings';
 import {
@@ -114,6 +115,7 @@ type Page =
   | 'profile'
   | 'devices'
   | 'data'
+  | 'vendor-import'
   | 'presets'
   | 'models'
   | 'statistics'
@@ -1246,6 +1248,16 @@ export function RunbackApp() {
   const renderData = () => (
     <>
       <Text style={styles.title}>Daten & Speicher</Text>
+      <Section title="App-Importe">
+        <Copy muted>
+          Fitbit, Google Fit, Strong, Mi Fitness, Apple Health, Samsung, Garmin
+          und mehr: Export dort sichern, hier importieren. Alles optional.
+        </Copy>
+        <Button
+          title="App-Importe öffnen"
+          onPress={() => openPage('vendor-import')}
+        />
+      </Section>
       <Section title="Historie mitnehmen">
         <Copy muted>
           FIT, GPX, TCX oder ein Strava-Export als ZIP. Bereits vorhandene Läufe
@@ -1365,6 +1377,14 @@ export function RunbackApp() {
         />
       </Section>
     </>
+  );
+
+  const renderVendorImport = () => (
+    <VendorImport
+      busy={busy}
+      importStatus={importStatus}
+      onImport={runImport}
+    />
   );
 
   const renderPresets = () => (
@@ -1499,6 +1519,8 @@ export function RunbackApp() {
     renderDevices()
   ) : page === 'data' ? (
     renderData()
+  ) : page === 'vendor-import' ? (
+    renderVendorImport()
   ) : page === 'presets' ? (
     renderPresets()
   ) : page === 'models' ? (
