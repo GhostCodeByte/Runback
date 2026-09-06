@@ -20,9 +20,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Optional wording only: every displayed assertion remains verbatim engine output.
- * The service selects one of two approved arrangements, never writes a new claim.
- * Neither keys nor engine text, notes, coordinates, run IDs or raw samples are sent.
+/** Shared encrypted OpenRouter configuration and transport. request() only selects a
+ * layout for unchanged engine text. complete() powers the separate, read-only chat.
  */
 class OpenRouterProse(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("openrouter_private", Context.MODE_PRIVATE)
@@ -34,18 +33,14 @@ class OpenRouterProse(context: Context) {
         JSONObject().put("enabled", prefs.getBoolean("enabled", false))
             .put("hasKey", prefs.contains("key_ciphertext"))
             .put("model", prefs.getString("model", DEFAULT_MODEL))
-            .put("dailyRequestLimit", prefs.getInt("daily_limit", 0))
             .put("maxOutputTokens", prefs.getInt("max_tokens", 40))
-            .put("requestsToday", if (prefs.getLong("usage_day", -1) == day()) prefs.getInt("usage_count", 0) else 0)
-            .put("freeModelsOnly", true)
+            .put("freeModelsOnly", false)
             .put("formulationVersion", FORMULATION_VERSION)
     }
 
-    /** Limits are attempts, including failed requests. Zero means no network requests. */
-    fun configure(enabled: Boolean, model: String, dailyRequestLimit: Int, maxOutputTokens: Int, apiKey: String? = null): JSONObject = synchronized(lock) {
+    /** No app-level daily budget. Provider quotas still apply. */
+    fun configure(enabled: Boolean, model: String, apiKey: String? = null): JSONObject = synchronized(lock) {
         require(model.length in 1..120 && model.matches(Regex("[A-Za-z0-9._:/-]+"))) { "Ungültige Modellkennung." }
-        require(model == DEFAULT_MODEL || model.endsWith(":free")) { "Nur kostenlose Modelle sind freigeschaltet." }
-        require(dailyRequestLimit in 0..100 && maxOutputTokens in 16..128) { "Anfragelimit 0–100, Ausgabelimit 16–128 Tokens." }
         val edit = prefs.edit()
         if (apiKey != null && apiKey.isNotBlank()) {
             require(apiKey.length in 8..512 && apiKey.all { it.code in 33..126 }) { "Ungültiger API-Key." }
@@ -55,7 +50,7 @@ class OpenRouterProse(context: Context) {
             edit.putString("key_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
         }
         edit.putBoolean("enabled", enabled).putString("model", model)
-            .putInt("daily_limit", dailyRequestLimit).putInt("max_tokens", maxOutputTokens).commit()
+            .remove("daily_limit").remove("usage_day").remove("usage_count").putInt("max_tokens", 40).commit()
         revision++
         settings()
     }
@@ -86,20 +81,14 @@ class OpenRouterProse(context: Context) {
                 if (!prefs.getBoolean("enabled", false)) return@withLock fallback("disabled")
                 val key = runCatching { decryptKey() }.getOrNull() ?: return@withLock fallback("no_key")
                 Snapshot(key, prefs.getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL,
-                    prefs.getInt("daily_limit", 0), prefs.getInt("max_tokens", 40), revision)
+                    40, revision)
             }
             val cacheKey = digest("$inputHash|${snapshot.model}|$FORMULATION_VERSION")
             synchronized(lock) {
                 val cache = readCache()
                 val cached = cache.optString(cacheKey)
                 if (cached in VARIANTS) return@withLock render(engine, inputHash, cached, "cache", null)
-                val today = day()
-                val used = if (prefs.getLong("usage_day", -1) == today) prefs.getInt("usage_count", 0) else 0
-                if (snapshot.limit <= 0 || used >= snapshot.limit) return@withLock fallback("budget_limit")
-                // Reserve before sending; retries and failed requests cannot bypass limits.
-                if (!prefs.edit().putLong("usage_day", today).putInt("usage_count", used + 1).commit()) {
-                    return@withLock fallback("storage_unavailable")
-                }
+
             }
             val variant = runCatching { fetchVariant(snapshot, boundedPayload(engine)) }.getOrNull()
                 ?: return@withLock fallback("unavailable_or_invalid")
@@ -143,9 +132,8 @@ class OpenRouterProse(context: Context) {
                     .put("required", JSONArray(listOf("variant"))))
             val body = JSONObject().put("model", snapshot.model).put("max_completion_tokens", snapshot.tokens)
                 .put("temperature", 0).put("stream", false)
-                // Both model selection and provider caps prevent accidental paid routing.
-                .put("provider", JSONObject().put("require_parameters", true).put("data_collection", "deny")
-                    .put("max_price", JSONObject().put("prompt", 0).put("completion", 0)))
+                // Free routes retain zero-price caps; explicitly selected paid models are allowed.
+                .put("provider", provider(snapshot.model))
                 .put("response_format", JSONObject().put("type", "json_schema").put("json_schema", schema))
                 .put("messages", JSONArray().put(JSONObject().put("role", "system").put("content",
                     "Choose an approved display layout for a running analysis. Return only JSON with variant observation_first or action_first. " +
@@ -177,6 +165,64 @@ class OpenRouterProse(context: Context) {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun provider(model: String) = JSONObject().put("require_parameters", true).put("data_collection", "deny").apply {
+        if (model == DEFAULT_MODEL || model.endsWith(":free")) {
+            put("max_price", JSONObject().put("prompt", 0).put("completion", 0))
+        }
+    }
+
+    /** A single completion, on the dedicated AI worker. Never log request bodies or keys. */
+    fun complete(messages: JSONArray, tools: JSONArray?, finalAnswer: Boolean = false): JSONObject {
+        val snapshot = synchronized(lock) {
+            check(prefs.getBoolean("enabled", false)) { "Aktiviere OpenRouter unter Auswertung & Modelle." }
+            val key = decryptKey() ?: error("Bitte hinterlege deinen OpenRouter API-Schlüssel.")
+            Snapshot(key, prefs.getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL, 4096, revision)
+        }
+        val body = JSONObject().put("model", snapshot.model).put("messages", messages)
+            .put("stream", false).put("max_completion_tokens", snapshot.tokens).put("provider", provider(snapshot.model))
+        if (tools != null) body.put("tools", tools).put("tool_choice", if (finalAnswer) "none" else "auto")
+        val connection = URL("https://openrouter.ai/api/v1/chat/completions").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 45_000
+            connection.instanceFollowRedirects = false
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Authorization", "Bearer ${snapshot.key}")
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            check(code == 200) {
+                when(code) {
+                    401, 403 -> "OpenRouter hat den Zugriff abgelehnt. Schlüssel und Berechtigungen prüfen."
+                    402 -> "Das OpenRouter-Guthaben reicht für dieses Modell nicht aus."
+                    429 -> "OpenRouter begrenzt gerade Anfragen. Bitte später erneut versuchen."
+                    else -> "OpenRouter ist nicht verfügbar (HTTP $code). Modell und Anbieter-Einstellungen prüfen."
+                }
+            }
+            val output = java.io.ByteArrayOutputStream()
+            val deadline = SystemClock.elapsedRealtime() + 60_000
+            connection.inputStream.use { stream ->
+                val buffer = ByteArray(4096)
+                while (true) {
+                    check(SystemClock.elapsedRealtime() < deadline) { "OpenRouter antwortet zu langsam. Bitte erneut versuchen." }
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    check(output.size() + count <= 262144) { "Die Modellantwort ist zu groß." }
+                    output.write(buffer, 0, count)
+                }
+            }
+            val response = JSONObject(output.toString("UTF-8"))
+            val choice = response.optJSONArray("choices")?.optJSONObject(0)
+                ?: error("OpenRouter hat keine Antwort geliefert.")
+            check(choice.optString("finish_reason") !in listOf("length", "error", "content_filter")) {
+                "Das Modell hat keine vollständige Antwort geliefert. Bitte die Frage eingrenzen."
+            }
+            synchronized(lock) { check(revision == snapshot.revision) { "KI-Einstellungen wurden geändert. Bitte erneut senden." } }
+            return choice.getJSONObject("message")
+        } finally { connection.disconnect() }
     }
 
     private fun render(engine: JSONObject, hash: String, variant: String, source: String, reason: String?): JSONObject {
@@ -211,7 +257,6 @@ class OpenRouterProse(context: Context) {
     }
 
     private fun readCache() = runCatching { JSONObject(prefs.getString("cache", "{}") ?: "{}") }.getOrElse { JSONObject() }
-    private fun day() = System.currentTimeMillis() / 86_400_000L
     private fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun canonical(value: Any?): String = when (value) {
         is JSONObject -> value.keys().asSequence().sorted().joinToString(",", "{", "}") { "${JSONObject.quote(it)}:${canonical(value.opt(it))}" }
@@ -221,7 +266,7 @@ class OpenRouterProse(context: Context) {
         else -> value.toString()
     }
 
-    private data class Snapshot(val key: String, val model: String, val limit: Int, val tokens: Int, val revision: Long)
+    private data class Snapshot(val key: String, val model: String, val tokens: Int, val revision: Long)
     companion object {
         private const val KEY_ALIAS = "runback.openrouter.aes.v1"
         private const val DEFAULT_MODEL = "openrouter/free"

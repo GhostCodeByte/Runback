@@ -16,6 +16,7 @@ import com.runback.core.RecordingService
 import com.runback.core.BleSensors
 import com.runback.imports.ActivityImporter
 import com.runback.integrations.HealthConnectIntegration
+import com.runback.integrations.TrainingChat
 import com.runback.integrations.OpenRouterProse
 import com.runback.integrations.WeatherIntegration
 import com.google.android.gms.tasks.Tasks
@@ -29,10 +30,12 @@ import java.util.concurrent.Executors
 class RunbackModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
     private val store = RunStore(context)
     private val worker = Executors.newSingleThreadExecutor()
+    private val aiWorker = Executors.newSingleThreadExecutor()
     private val importWorker = Executors.newSingleThreadExecutor()
     private val importer = ActivityImporter(context, store)
     private val health = HealthConnectIntegration(context)
     private val prose = OpenRouterProse(context)
+    private val chat = TrainingChat(store, prose)
     private var pending: Pair<Promise, (Int, Intent?) -> Unit>? = null
 
     init {
@@ -96,19 +99,30 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun deleteRun(id: String, promise: Promise) = task(promise) { store.deleteRun(id); state() }
     @ReactMethod fun clearAllData(promise: Promise) = task(promise) {
         check(store.active() == null) { "Beende zuerst die laufende Aufzeichnung." }
-        importer.cancel(); store.clearAllData(); state()
+        importer.cancel(); chat.resetData { store.clearAllData() }; state()
     }
     @ReactMethod fun deleteAllData(promise: Promise) = clearAllData(promise)
 
     @ReactMethod fun getProseSettings(promise: Promise) = task(promise) { prose.settings() }
-    @ReactMethod fun configureProse(enabled: Boolean, model: String, dailyRequestLimit: Int, maxOutputTokens: Int, apiKey: String?, promise: Promise) = task(promise) {
-        prose.configure(enabled, model, dailyRequestLimit, maxOutputTokens, apiKey)
+    @ReactMethod fun configureProse(enabled: Boolean, model: String, apiKey: String?, promise: Promise) = task(promise) {
+        prose.configure(enabled, model, apiKey)
     }
     @ReactMethod fun clearProseKey(promise: Promise) = task(promise) { prose.clearKey() }
     @ReactMethod fun clearProseCache(promise: Promise) = task(promise) { prose.clearCache() }
-    @ReactMethod fun requestProse(engineJson: String, promise: Promise) = task(promise) {
+    @ReactMethod fun requestProse(engineJson: String, promise: Promise) = aiTask(promise) {
         runBlocking { prose.request(JSONObject(engineJson)) }
     }
+
+    private fun aiTask(promise: Promise, block: () -> Any?) {
+        aiWorker.execute {
+            try { promise.resolve((block() ?: JSONObject.NULL).toString()) }
+            catch (error: Exception) { promise.reject("CHAT_ERROR", error.message ?: "KI-Anfrage fehlgeschlagen", error) }
+        }
+    }
+    @ReactMethod fun getChatHistory(promise: Promise) = aiTask(promise) { chat.history() }
+    @ReactMethod fun clearChatHistory(promise: Promise) = aiTask(promise) { chat.clear() }
+    @ReactMethod fun setChatTrainingAccess(includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.clear(includeTraining) }
+    @ReactMethod fun sendChat(text: String, includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.send(text, includeTraining) }
 
     private fun recording(action: String, purpose: String, promise: Promise) {
         if (action == RecordingService.START && !granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
@@ -207,7 +221,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
             if (code != Activity.RESULT_OK || uri == null) promise.resolve("{\"cancelled\":true}")
             else task(promise) {
                 check(store.active() == null) { "Beende zuerst die Aufzeichnung." }
-                context.contentResolver.openInputStream(uri)!!.use(store::restore)
+                chat.resetData { context.contentResolver.openInputStream(uri)!!.use(store::restore) }
             }
         }
     }
@@ -284,6 +298,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         importer.cancel()
         pending?.first?.reject("APP_CLOSED", "Die App wurde geschlossen.")
         pending = null
+        chat.resetData {}
+        aiWorker.shutdown()
         worker.shutdown()
         importWorker.shutdown()
         super.invalidate()

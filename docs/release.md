@@ -49,7 +49,7 @@ npm ci
 npx tsc --noEmit
 npm test -- --runInBand
 cd android
-./gradlew :core:testDebugUnitTest :app:lintRelease :wear:lintRelease :app:assembleRelease :wear:assembleRelease -PversionCode=1 -PversionName=0.1.1 -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64
+./gradlew :core:testDebugUnitTest :app:testDebugUnitTest :app:lintRelease :wear:lintRelease :app:assembleRelease :wear:assembleRelease -PversionCode=1 -PversionName=0.1.1 -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64
 ```
 
 Unter Windows `gradlew.bat` verwenden und das Argument mit der Architekturliste in Anführungszeichen setzen. APKs liegen unter `android/app/build/outputs/apk/release/app-release.apk` beziehungsweise `android/wear/build/outputs/apk/release/wear-release.apk`. Versionscode und -name für beide Apps gleich setzen; für Updates einen mindestens gleich hohen Versionscode wählen.

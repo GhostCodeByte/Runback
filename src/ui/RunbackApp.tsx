@@ -22,6 +22,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Onboarding } from './Onboarding';
+import { Statistics } from './Statistics';
+import { TrainingChat } from './TrainingChat';
 import { DeviceSettings } from './DeviceSettings';
 import { RunIntegrations } from './RunIntegrations';
 import { ProseSettings, ProseExplanation } from './ProseSettings';
@@ -106,7 +109,15 @@ const initial: AppState = {
   capabilities: {},
 };
 type Tab = 'Heute' | 'Läufe' | 'Fokus' | 'Mehr';
-type Page = 'main' | 'profile' | 'devices' | 'data' | 'presets' | 'models';
+type Page =
+  | 'main'
+  | 'profile'
+  | 'devices'
+  | 'data'
+  | 'presets'
+  | 'models'
+  | 'statistics'
+  | 'chat';
 
 const RunRow = memo(function RunRow({
   run,
@@ -151,6 +162,8 @@ export function RunbackApp() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [purposePicker, setPurposePicker] = useState(false);
@@ -164,6 +177,8 @@ export function RunbackApp() {
   const runs = state.runs;
   const recording = state.recording;
   const isRecording = Boolean(recording);
+  const showOnboarding =
+    loaded && !isRecording && (setupOpen || !settings.onboardedAt);
   const experiment = settings.experiments?.find(
     e => e.status === 'active' || e.status === 'paused',
   );
@@ -186,6 +201,7 @@ export function RunbackApp() {
     next.runs.sort((a, b) => b.startTime - a.startTime);
     stateRef.current = next;
     setState(next);
+    setLoaded(true);
     return next;
   }, []);
   const action = useCallback(async (fn: () => Promise<void>) => {
@@ -247,6 +263,7 @@ export function RunbackApp() {
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
       () => {
+        if (showOnboarding) return false;
         if (purposePicker) {
           setPurposePicker(false);
           return true;
@@ -268,7 +285,7 @@ export function RunbackApp() {
       },
     );
     return () => subscription.remove();
-  }, [selected, page, tab, purposePicker]);
+  }, [selected, page, tab, purposePicker, showOnboarding]);
   useEffect(() => {
     setNote(selected?.note || '');
   }, [selected?.id, selected?.note]);
@@ -388,10 +405,12 @@ export function RunbackApp() {
       });
     });
   };
-  const runImport = () => {
+  const beginImport = (stayInSetup: boolean) => {
     void action(async () => {
-      setPage('data');
-      setTab('Mehr');
+      if (!stayInSetup) {
+        setPage('data');
+        setTab('Mehr');
+      }
       const timer = setInterval(() => {
         nativeCall<any>('getImportStatus')
           .then(setImportStatus)
@@ -406,6 +425,7 @@ export function RunbackApp() {
       }
     });
   };
+  const runImport = () => beginImport(false);
   const importSummary = importStatus
     ? `Importiert: ${importStatus.imported ?? 0} · Doppelt: ${
         importStatus.duplicates ?? 0
@@ -1059,7 +1079,24 @@ export function RunbackApp() {
     <>
       <Text style={styles.title}>Mehr</Text>
       <Copy muted>Runback passt sich deinem Lauf an.</Copy>
+      <Section title="Dein Training">
+        <Row
+          title="Statistik"
+          subtitle="Wochenumfang, Tempo und Laufgefühl"
+          onPress={() => openPage('statistics')}
+        />
+        <Row
+          title="Trainingschat"
+          subtitle="Fragen stellen und deine Läufe verstehen"
+          onPress={() => openPage('chat')}
+        />
+      </Section>
       <Section title="Deine Einstellungen">
+        <Row
+          title="Einrichtung"
+          subtitle="Ziel festlegen und Historie importieren"
+          onPress={() => setSetupOpen(true)}
+        />
         <Row
           title="Ziel & Alltag"
           subtitle="Trainingszweck, Zeit und Lauftage"
@@ -1446,28 +1483,68 @@ export function RunbackApp() {
         </Copy>
       </Section>
       <ProseSettings />
+      <Button title="Trainingschat öffnen" onPress={() => openPage('chat')} />
     </>
   );
 
-  const content = selected
-    ? renderDetail()
-    : page === 'profile'
-    ? renderProfile()
-    : page === 'devices'
-    ? renderDevices()
-    : page === 'data'
-    ? renderData()
-    : page === 'presets'
-    ? renderPresets()
-    : page === 'models'
-    ? renderModels()
-    : tab === 'Heute'
-    ? recording
-      ? renderRecording()
-      : renderHome()
-    : tab === 'Fokus'
-    ? renderFocus()
-    : renderMore();
+  const content = selected ? (
+    renderDetail()
+  ) : page === 'statistics' ? (
+    <Statistics runs={runs} />
+  ) : page === 'chat' ? (
+    <TrainingChat onSettings={() => openPage('models')} />
+  ) : page === 'profile' ? (
+    renderProfile()
+  ) : page === 'devices' ? (
+    renderDevices()
+  ) : page === 'data' ? (
+    renderData()
+  ) : page === 'presets' ? (
+    renderPresets()
+  ) : page === 'models' ? (
+    renderModels()
+  ) : tab === 'Heute' ? (
+    recording ? (
+      renderRecording()
+    ) : (
+      renderHome()
+    )
+  ) : tab === 'Fokus' ? (
+    renderFocus()
+  ) : (
+    renderMore()
+  );
+  if (showOnboarding) {
+    return (
+      <View
+        style={[
+          styles.app,
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
+        ]}
+      >
+        {error ? (
+          <View style={styles.notice}>
+            <Copy>{error}</Copy>
+          </View>
+        ) : null}
+        <Onboarding
+          settings={settings}
+          persist={persist}
+          busy={busy}
+          importStatus={importStatus}
+          onImport={() => beginImport(true)}
+          onCancelImport={() => {
+            void nativeCall('cancelImport').catch(e => setError(e.message));
+          }}
+          onDone={() => {
+            setSetupOpen(false);
+            setTab('Heute');
+            setPage('main');
+          }}
+        />
+      </View>
+    );
+  }
   const isHistory = !selected && page === 'main' && tab === 'Läufe';
   return (
     <View style={[styles.app, { paddingTop: insets.top }]}>
