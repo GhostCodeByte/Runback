@@ -4,7 +4,7 @@
 > Wie ein Ziel erreicht wird, entscheidet der Agent, solange die Invarianten in §3 gelten.
 > Überarbeitete Fassung aus der Produktbesprechung. Begriffe: [Glossar](glossar.md).
 > V1/V2 bezeichnen Produktstufen, nicht die Revisionsnummer dieses Dokuments.
-> Aktuell wird ausschließlich die Dokumentation gepflegt. Ergänzende Ziele: [Bedienung und spätere Auslieferung](bedienung-und-auslieferung.md).
+> Aktuell wird ausschließlich die Dokumentation gepflegt. Ergänzende Ziele: [Bedienung und spätere Auslieferung](bedienung-und-auslieferung.md), [Zielspezifikation Training (Gym + Laufen)](zielspezifikation-training.md).
 
 ---
 
@@ -449,8 +449,8 @@ Tool-Zugriff auf eine begrenzte Query-API statt Rohdaten im Prompt. Fragen wie �
 | ACWR-basierte Handlungsempfehlungen | Kein gewählter Ansatz für diese App. |
 | Kostenpflichtige Pflichtbibliotheken oder Pflichtdienste | Der Kern muss kostenlos nutzbar bleiben. |
 | Medizinische Diagnosen, Gesundheitsfreigaben, Verletzungsbehandlung | Außerhalb des Produktumfangs. Beschwerden dürfen Anlass sein, eine Trainingsempfehlung auszusetzen, aber nicht für automatische Diagnosen. |
-| Universeller Readiness- oder Verletzungsrisikoscore | Die vorgesehenen Daten rechtfertigen keine solche Garantie. |
-| Vollständiger automatischer Trainingsplangenerator in V1 | Zunächst den nächsten Lauf und den überprüfbaren Regelkreis beherrschen. |
+| Universeller **Ganzkörper**-Readiness-, Belastbarkeits- oder Verletzungsrisikoscore | Die vorgesehenen Daten rechtfertigen keine solche Garantie. Eine regionenbezogene Frische mit offengelegter Rechenvorschrift ist davon ausgenommen, siehe [Zielspezifikation Training §3](zielspezifikation-training.md). |
+| Vollständiger automatischer Trainingsplangenerator in V1 | Zunächst den nächsten Lauf und den überprüfbaren Regelkreis beherrschen. Vorschlagen und vom Nutzer bestätigen lassen bleibt zulässig. |
 | Garantierter Tipp nach jedem Lauf | Würde unbegründeten Änderungsbedarf erzeugen. |
 | Vollständige Neuberechenbarkeit nach Rohdatenlöschung | Physisch nicht erfüllbar. |
 | Gleichsetzung einer Modellschätzung mit einer Messung | Verletzt die Nachvollziehbarkeit der Aussagen. |
