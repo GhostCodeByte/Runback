@@ -61,7 +61,7 @@ describe('aggregateStatistics', () => {
     expect(new Date(stats.weeks[6].startTime).getDate()).toBe(23);
     expect(new Date(stats.weeks[7].startTime).getDate()).toBe(30);
     expect(stats.weeks[7].startTime - stats.weeks[6].startTime).toBe(
-      6 * 24 * 60 * 60 * 1000 + 23 * 60 * 60 * 1000,
+      new Date(2026, 2, 30).getTime() - new Date(2026, 2, 23).getTime(),
     );
   });
 

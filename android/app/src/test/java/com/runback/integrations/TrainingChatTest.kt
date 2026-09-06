@@ -76,4 +76,12 @@ class TrainingChatTest {
         try { client.send("Hallo", true); fail("Must fail") }
         catch (_: IllegalStateException) { assertNull(stored) }
     }
+
+    @Test fun trainingAccessChoiceSurvivesEmptyConversationAndClear() {
+        val client = chat { _, _, _ -> answer("Hallo") }
+        client.clear(false)
+        assertFalse(client.history().getBoolean("includeTraining"))
+        client.clear()
+        assertFalse(client.history().getBoolean("includeTraining"))
+    }
 }

@@ -24,7 +24,10 @@ class TrainingChat(
     @Volatile private var revision = 0L
     fun <T> resetData(block: () -> T): T = synchronized(lock) { revision++; block() }
     fun history(): JSONObject = readHistory() ?: JSONObject().put("messages", JSONArray())
-    fun clear(): JSONObject = synchronized(lock) { revision++; JSONObject().put("messages", JSONArray()).also(saveHistory) }
+    fun clear(includeTraining: Boolean = history().optBoolean("includeTraining", true)): JSONObject = synchronized(lock) {
+        revision++
+        JSONObject().put("messages", JSONArray()).put("includeTraining", includeTraining).also(saveHistory)
+    }
 
     fun send(text: String, includeTraining: Boolean): JSONObject {
         require(text.trim().length in 1..6000) { "Bitte eine Frage mit höchstens 6000 Zeichen eingeben." }

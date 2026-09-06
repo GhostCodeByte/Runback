@@ -121,6 +121,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
     @ReactMethod fun getChatHistory(promise: Promise) = aiTask(promise) { chat.history() }
     @ReactMethod fun clearChatHistory(promise: Promise) = aiTask(promise) { chat.clear() }
+    @ReactMethod fun setChatTrainingAccess(includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.clear(includeTraining) }
     @ReactMethod fun sendChat(text: String, includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.send(text, includeTraining) }
 
     private fun recording(action: String, purpose: String, promise: Promise) {

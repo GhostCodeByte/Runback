@@ -156,7 +156,10 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
     setBusy(true);
     setError('');
     try {
-      const result = await nativeCall<ChatResult>('clearChatHistory');
+      const result = await nativeCall<ChatResult>(
+        'setChatTrainingAccess',
+        value,
+      );
       setMessages(result.messages || []);
       if (typeof result.includeTraining === 'boolean') {
         setIncludeTraining(result.includeTraining);
