@@ -87,11 +87,23 @@ Hevy- und FitNotes-CSVs mit Strong-ähnlichem Aufbau werden wie Strong erkannt.
 - Dezimalkommas (`1.234,56`) und Punktformate werden erkannt; unbekannte
   Einheiten oder Spalten werden übersprungen statt geraten.
   Entfernungs-Heuristik für einheitenlose Bulk-CSVs: Werte >500 gelten als
-  Meter, darunter als Kilometer (in der UI als Annahme sichtbar, soweit
-  relevant).
-- Jede Datei meldet importiert/dupliziert/übersprungen/fehlgeschlagen mit
-  Grund; die App-Seite zeigt zusätzlich Zähler je Quelle sowie vorhandene
-  Kontext- und Kraftdaten.
+  Meter, Werte bis einschließlich 500 als Kilometer. Explizite Einheiten
+  in Spaltenköpfen oder Werten haben Vorrang vor dieser Heuristik.
+- Die App-Seite zeigt aggregierte Zähler für importierte und doppelte Läufe
+  sowie übersprungene und fehlgeschlagene Dateien. Fehlgeschlagene Dateien werden
+  mit Dateiname und Grund angezeigt; übersprungene Dateien werden nur als
+  Gesamtzahl gezählt, ohne individuellen Grund. Zusätzlich zeigt die Seite
+  vorhandene Kontext- und Kraftdaten.
+- Zähler je Quelle erscheinen, wenn der Importer die Quelle anhand des
+  Dateinamens bzw. Archivpfads identifizieren kann. Generische FIT/GPX/TCX-
+  Dateien ohne erkennbaren Anbieter werden in der Quelle „Generisch“
+  zusammengefasst.
+
+Generisches JSON importiert nur ausdrücklich bezeichnete Gewichtswerte, z. B.
+`[{"kind":"weight","date":"2024-11-02","value":70,"unit":"kg"}]`.
+`time` kann statt `date` verwendet werden. Unterstützte Gewichtseinheiten
+werden nach kg umgerechnet; unbekannte Metriken oder fehlende Einheiten
+werden übersprungen und niemals als Gewicht geraten.
 
 ## Privatsphäre
 

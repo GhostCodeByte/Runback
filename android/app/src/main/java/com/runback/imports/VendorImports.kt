@@ -96,7 +96,26 @@ object VendorImports {
 
     // ---- CSV utilities ----
 
-    fun splitCsvLine(line: String): List<String> {
+    fun csvDelimiter(line: String): Char {
+        var inQuotes = false
+        var commaCount = 0
+        var semicolonCount = 0
+        var i = 0
+        while (i < line.length) {
+            when (line[i]) {
+                '"' -> {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] == '"') i++
+                    else inQuotes = !inQuotes
+                }
+                ',' -> if (!inQuotes) commaCount++
+                ';' -> if (!inQuotes) semicolonCount++
+            }
+            i++
+        }
+        return if (semicolonCount > commaCount) ';' else ','
+    }
+
+    fun splitCsvLine(line: String, delimiter: Char = csvDelimiter(line)): List<String> {
         val out = ArrayList<String>()
         val current = StringBuilder()
         var inQuotes = false
@@ -112,11 +131,8 @@ object VendorImports {
             }
             when (c) {
                 '"' -> { inQuotes = true; i++ }
-                ',' -> { out.add(current.toString()); current.setLength(0); i++ }
-                ';' -> {
-                    // Only treat semicolon as delimiter when the line has no commas
-                    // (Central-European exports). Mixed lines keep comma splitting.
-                    if (!line.contains(',')) { out.add(current.toString()); current.setLength(0) }
+                ',', ';' -> {
+                    if (c == delimiter) { out.add(current.toString()); current.setLength(0) }
                     else current.append(c)
                     i++
                 }
@@ -251,7 +267,8 @@ object VendorImports {
     fun parseStrongCsv(text: String, source: String): StrongParseResult {
         val lines = text.lineSequence().take(MAX_CSV_ROWS + 2).toList()
         if (lines.isEmpty()) return StrongParseResult(emptyList(), emptyMap(), 0, 0)
-        val header = splitCsvLine(stripBom(lines.first()))
+        val delimiter = csvDelimiter(lines.first())
+        val header = splitCsvLine(stripBom(lines.first()), delimiter)
         require(isStrongHeader(header)) { "Keine Strong-Kopfzeile (Date, Exercise Name, Set Order erwartet)" }
         val idx = header.map { it.trim().lowercase(Locale.ROOT) }
         fun col(name: String): Int = idx.indexOf(name)
@@ -266,9 +283,10 @@ object VendorImports {
         for (raw in lines.drop(1)) {
             if (raw.isBlank()) continue
             if (++rows > MAX_CSV_ROWS) break
-            val cells = splitCsvLine(raw)
+            val cells = splitCsvLine(raw, delimiter)
             fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
-            val time = parseTimeFlexible(get(cDate)) ?: run { skipped++; continue }
+            val time = parseTimeFlexible(get(cDate))
+            if (time == null) { skipped++; continue }
             val exercise = get(cExercise).take(160)
             if (exercise.isBlank()) { skipped++; continue }
             val key = Key(time, get(cWorkout).ifBlank { "Krafttraining" }.take(120))
@@ -310,7 +328,8 @@ object VendorImports {
     fun parseActivitiesCsv(text: String, source: String): ActivitiesParseResult {
         val lines = text.lineSequence().take(MAX_CSV_ROWS + 2).toList()
         if (lines.isEmpty()) return ActivitiesParseResult(emptyList(), 0)
-        val header = splitCsvLine(stripBom(lines.first())).map { it.lowercase(Locale.ROOT) }
+        val delimiter = csvDelimiter(lines.first())
+        val header = splitCsvLine(stripBom(lines.first()), delimiter).map { it.lowercase(Locale.ROOT) }
         fun find(vararg names: String): Int {
             names.forEach { want ->
                 val i = header.indexOfFirst { it == want || it.contains(want) }
@@ -330,7 +349,7 @@ object VendorImports {
         var skipped = 0
         lines.drop(1).take(MAX_CSV_ROWS).forEach { raw ->
             if (raw.isBlank()) return@forEach
-            val cells = splitCsvLine(raw)
+            val cells = splitCsvLine(raw, delimiter)
             fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
             val start = parseTimeFlexible(get(cDate)) ?: run { skipped++; return@forEach }
             if (cType >= 0) {
@@ -339,8 +358,17 @@ object VendorImports {
                     t.contains("trail") || t.isBlank()
                 if (!isRun) { skipped++; return@forEach }
             }
-            val distance = parseDoubleFlexible(get(cDist))?.let { guessDistanceMeters(it, get(cDist)) } ?: 0.0
-            val duration = parseDurationFlexible(get(cDur)) ?: 0.0
+            val distance = parseDoubleFlexible(get(cDist))?.let {
+                guessDistanceMeters(it, "${if (cDist >= 0) header[cDist] else ""} ${get(cDist)}")
+            } ?: 0.0
+            val durationRaw = get(cDur)
+            val parsedDuration = parseDurationFlexible(durationRaw)
+            if (cDur >= 0 && durationRaw.isNotBlank() &&
+                (parsedDuration == null || !parsedDuration.isFinite() || parsedDuration < 0.0)) {
+                skipped++
+                return@forEach
+            }
+            val duration = parsedDuration ?: 0.0
             if (distance <= 0 && duration <= 0) { skipped++; return@forEach }
             val end = start + (duration * 1000).toLong().coerceIn(0, 24 * 3600 * 1000L)
             runs.add(RunDraft(start, if (end > start) end else start, duration, distance,
@@ -356,9 +384,9 @@ object VendorImports {
         // Heuristic only for unit-less bulk CSVs: marathon-scale numbers are meters,
         // everyday numbers are kilometers. Documented in vendor-import.md.
         val cell = rawCell.lowercase(Locale.ROOT)
-        if (cell.contains("mi")) return value * 1609.344
-        if (cell.contains("km")) return value * 1000.0
-        if (cell.contains(" m") || cell.endsWith("m")) return value
+        if (Regex("(^|[^a-z])(mi|mile|miles)([^a-z]|$)").containsMatchIn(cell)) return value * 1609.344
+        if (Regex("(^|[^a-z])(km|kilometer|kilometers)([^a-z]|$)").containsMatchIn(cell)) return value * 1000.0
+        if (Regex("(^|[^a-z])(m|meter|meters)([^a-z]|$)").containsMatchIn(cell)) return value
         return if (value > 500) value else value * 1000.0
     }
 

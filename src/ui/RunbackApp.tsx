@@ -407,9 +407,9 @@ export function RunbackApp() {
       });
     });
   };
-  const beginImport = (stayInSetup: boolean) => {
+  const beginImport = (stayOnPage: boolean) => {
     void action(async () => {
-      if (!stayInSetup) {
+      if (!stayOnPage) {
         setPage('data');
         setTab('Mehr');
       }
@@ -428,10 +428,20 @@ export function RunbackApp() {
     });
   };
   const runImport = () => beginImport(false);
+  const runVendorImport = () => beginImport(true);
+  const cancelImport = () => {
+    void nativeCall<any>('cancelImport')
+      .then(setImportStatus)
+      .catch(e => setError(e.message));
+  };
   const importSummary = importStatus
     ? `Importiert: ${importStatus.imported ?? 0} · Doppelt: ${
         importStatus.duplicates ?? 0
-      } · Übersprungen: ${importStatus.skipped ?? 0}`
+      } · Übersprungen: ${importStatus.skipped ?? 0} · Fehlgeschlagen: ${
+        importStatus.failed ?? 0
+      } · Kontextwerte: ${importStatus.wellness ?? 0} · Krafteinheiten: ${
+        importStatus.strength ?? 0
+      }`
     : '';
   const snapshot = selected ? analyzeRun(selected, experiment) : null;
 
@@ -1383,7 +1393,8 @@ export function RunbackApp() {
     <VendorImport
       busy={busy}
       importStatus={importStatus}
-      onImport={runImport}
+      onImport={runVendorImport}
+      onCancelImport={cancelImport}
     />
   );
 

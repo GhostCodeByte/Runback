@@ -38,6 +38,7 @@ describe('vendor imports', () => {
     expect(detectVendorForFile('export.xml')).toBe('apple_health');
     expect(detectVendorForFile('com.samsung.shealth.exercise.20240101.csv')).toBe('samsung');
     expect(detectVendorForFile('heart_rate-2024-03-15.json')).toBe('fitbit');
+    expect(detectVendorForFile('Takeout/Fitbit/activities.json')).toBe('fitbit');
     expect(detectVendorForFile('strong.csv')).toBe('strong');
     expect(detectVendorForFile('SPORT_20240101.csv')).toBe('mi_fitness');
     expect(detectVendorForFile('summarizedActivities.json')).toBe('garmin');
@@ -58,6 +59,18 @@ describe('vendor imports', () => {
     expect(() =>
       parseStrongCsvPreview('Activity ID,Name,Distance\n1,Run,5'),
     ).toThrow(/Strong-Kopfzeile/);
+  });
+
+  it('handles semicolon exports with quoted commas and decimal commas', () => {
+    const csv = [
+      'Date;Workout Name;Duration;Exercise Name;Set Order;Weight;Reps;Notes',
+      '2024-11-02 18:30:00;Friday-lower;1h 2m 30s;Squat;1;100,5;8;"rack, low"',
+    ].join('\n');
+    const parsed = parseStrongCsvPreview(csv);
+    expect(parsed.workouts).toHaveLength(1);
+    expect(parsed.workouts[0].durationSeconds).toBeCloseTo(3750, 0);
+    expect(parsed.workouts[0].sets[0].weight).toBeCloseTo(100.5, 5);
+    expect(parsed.workouts[0].sets[0].notes).toBe('rack, low');
   });
 
   it('maps Apple record types without inventing heart-rate rows', () => {

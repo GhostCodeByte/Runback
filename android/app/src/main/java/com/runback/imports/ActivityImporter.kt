@@ -38,7 +38,6 @@ import com.garmin.fit.SubSport
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPInputStream
-import java.util.zip.ZipInputStream
 
 /** SAF streams are copied to bounded private temporary files, never bridged through JavaScript. */
 class ActivityImporter(private val context: Context, private val store: RunStore) {
@@ -95,88 +94,18 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     }
 
     private fun importZip(file: File) {
-        ZipInputStream(file.inputStream().buffered()).use { zip ->
-            var entries = 0
-            while (true) {
-                checkCancelled()
-                val entry = zip.nextEntry ?: break
-                require(++entries <= MAX_ENTRIES) { "ZIP enthält zu viele Dateien" }
-                // Entry names are labels only; no archive path is ever used on the filesystem.
-                if (!entry.isDirectory) {
-                    val name = entry.name.substringAfterLast('/').substringAfterLast('\\')
-                    if (supported(name)) {
-                        val temp = File.createTempFile("runback-entry-", ".tmp", context.cacheDir)
-                        try {
-                            copyBounded(zip, temp, MAX_FILE_BYTES, true)
-                            try { processFile(temp, name) }
-                            catch (e: CancellationException) { throw e }
-                            catch (e: Exception) { recordError(name, e) }
-                        } finally { temp.delete() }
-                    } else {
-                        // Drain through the same limit so an ignored ZIP bomb cannot bypass the budget.
-                        drainBounded(zip)
-                        increment("skipped")
-                    }
-                }
-                zip.closeEntry()
-            }
-        }
-    }
-
-    private fun importZip(file: File, depth: Int = 0) {
-        require(depth <= 2) { "Verschachtelte Archive sind zu tief" }
-        // Collect entries first so GPS tracks (FIT/GPX/TCX) are processed before
-        // CSV/JSON summaries. Otherwise a summary-only run could win deduplication
-        // and the richer GPS version would be discarded as duplicate.
-        data class Entry(val name: String, val path: String, val temp: File)
-        val pending = ArrayList<Entry>()
-        ZipInputStream(file.inputStream().buffered()).use { zip ->
-            var entries = 0
-            while (true) {
-                checkCancelled()
-                val entry = zip.nextEntry ?: break
-                require(++entries <= MAX_ENTRIES) { "ZIP enthält zu viele Dateien" }
-                // Entry names are labels only; no archive path is ever used on the filesystem.
-                if (!entry.isDirectory) {
-                    val name = entry.name.substringAfterLast('/').substringAfterLast('\\')
-                    if (supported(name) || isNestedZip(name)) {
-                        val temp = File.createTempFile("runback-entry-", ".tmp", context.cacheDir)
-                        try {
-                            copyBounded(zip, temp, MAX_FILE_BYTES, true)
-                            pending.add(Entry(name, entry.name, temp))
-                        } catch (e: Exception) { temp.delete(); throw e }
-                    } else {
-                        // Drain through the same limit so an ignored ZIP bomb cannot bypass the budget.
-                        drainBounded(zip)
-                        increment("skipped")
-                    }
-                }
-                zip.closeEntry()
-            }
-        }
-        try {
-            pending.sortBy { trackPriority(it.name) }
-            for (item in pending) {
-                checkCancelled()
-                try {
-                    if (isNestedZip(item.name) && depth < 2) importZip(item.temp, depth + 1)
-                    else processFile(item.temp, item.name, item.path)
-                } catch (e: CancellationException) { throw e }
-                catch (e: Exception) { recordError(item.name, e) }
-            }
-        } finally { pending.forEach { it.temp.delete() } }
-    }
-
-    private fun isNestedZip(name: String) = name.lowercase(Locale.ROOT).endsWith(".zip")
-
-    /** Track files first (0), vendor summaries last (2). */
-    private fun trackPriority(name: String): Int {
-        val lower = name.lowercase(Locale.ROOT).removeSuffix(".gz")
-        return when {
-            lower.endsWith(".fit") || lower.endsWith(".gpx") || lower.endsWith(".tcx") -> 0
-            lower.endsWith(".xml") -> 1
-            else -> 2
-        }
+        ImportArchive(
+            tempRoot = context.cacheDir,
+            maxEntries = MAX_ENTRIES,
+            maxDepth = 2,
+            copyBounded = { input, target -> copyBounded(input, target, MAX_FILE_BYTES, true) },
+            drainBounded = ::drainBounded,
+            supported = ::supported,
+            checkCancelled = ::checkCancelled,
+            process = ::processFile,
+            onError = ::recordError,
+            onSkipped = { increment("skipped") },
+        ).import(file)
     }
 
     private fun supported(name: String) = name.lowercase(Locale.ROOT).removeSuffix(".gz").let {
@@ -199,42 +128,38 @@ class ActivityImporter(private val context: Context, private val store: RunStore
             } else original
             val lower = name.lowercase(Locale.ROOT).removeSuffix(".gz")
             when {
-                lower.endsWith(".fit") || lower.endsWith(".gpx") || lower.endsWith(".tcx") -> importTrackFile(file, original, name)
-                lower.endsWith(".xml") -> importVendorFile(file, original, name, entryPath)
-                lower.endsWith(".csv") || lower.endsWith(".json") -> importVendorFile(file, original, name, entryPath)
+                lower.endsWith(".fit") || lower.endsWith(".gpx") || lower.endsWith(".tcx") -> importTrackFile(file, original, name, entryPath)
+                lower.endsWith(".xml") -> importVendorFile(file, if (name.endsWith(".gz", true)) name.dropLast(3) else name, entryPath)
+                lower.endsWith(".csv") || lower.endsWith(".json") -> importVendorFile(file, if (name.endsWith(".gz", true)) name.dropLast(3) else name, entryPath)
                 else -> increment("skipped")
             }
         } finally { expanded?.delete() }
     }
 
-    private fun importTrackFile(file: File, original: File, name: String) {
+    private fun importTrackFile(file: File, original: File, name: String, entryPath: String) {
         val builder = ActivityBuilder(name)
         if (name.lowercase(Locale.ROOT).removeSuffix(".gz").endsWith(".fit")) parseFit(file, builder)
         else file.inputStream().buffered().use { parseXml(it, builder) }
         checkCancelled()
         val result = store.addImportedRun(builder.summary(), builder.samples, sha256(file))
-        when (result.optString("status")) {
-            "imported" -> {
-                val id = result.optString("id", result.optJSONObject("run")?.optString("id") ?: "")
-                if (id.isNotBlank()) store.storeImportedSource(id, original, name)
-                increment("imported")
-            }
-            "duplicate" -> increment("duplicates")
-            "deleted" -> increment("deleted")
-            else -> error("Unbekanntes Importergebnis")
+        if (result.optString("status") == "imported") {
+            val id = result.optString("id", result.optJSONObject("run")?.optString("id") ?: "")
+            if (id.isNotBlank()) store.storeImportedSource(id, original, name)
         }
+        val vendor = VendorImports.detectVendor(name, entryPath)?.name?.lowercase(Locale.ROOT) ?: "generic"
+        recordImported(result, vendor)
         increment("processed")
     }
 
     /**
      * Optional vendor exports (Strong, Apple Health, Samsung, Fitbit, Google Fit,
      * Mi Fitness, Garmin, Polar, Strava, Huawei). Each file contributes runs,
-     * wellness context and/or strength sessions; unknown content is skipped with
-     * a reason instead of inventing data.
+     * wellness context and/or strength sessions; unknown content is counted as skipped
+     * instead of inventing data.
      */
-    private fun importVendorFile(file: File, original: File, name: String, entryPath: String) {
+    private fun importVendorFile(file: File, name: String, entryPath: String) {
         val vendor = VendorImports.detectVendor(name, entryPath)
-        val lower = name.lowercase(Locale.ROOT)
+        val lower = name.lowercase(Locale.ROOT).removeSuffix(".gz")
         var handled = false
         when {
             lower.endsWith(".xml") || name.equals("export.xml", ignoreCase = true) ->
@@ -283,7 +208,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     } catch (_: Exception) { false }
 
     private fun importStrongCsv(file: File, name: String): Boolean {
-        val text = file.inputStream().bufferedReader().readText()
+        val text = file.bufferedReader().use { it.readText() }
         val parsed = VendorImports.parseStrongCsv(text, "strong")
         var strength = 0
         for (workout in parsed.workouts) {
@@ -296,7 +221,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     }
 
     private fun importActivitiesCsv(file: File, name: String, vendor: String): Boolean {
-        val text = file.inputStream().bufferedReader().readText()
+        val text = file.bufferedReader().use { it.readText() }
         val header = VendorImports.splitCsvLine(VendorImports.stripBom(text.lineSequence().firstOrNull() ?: return false))
         if (!VendorImports.isGenericActivitiesHeader(header)) return false
         val parsed = VendorImports.parseActivitiesCsv(text, vendor)
@@ -317,10 +242,11 @@ class ActivityImporter(private val context: Context, private val store: RunStore
 
     private fun importMiFitnessCsv(file: File, name: String): Boolean {
         val kind = VendorImports.miFitnessFileKind(name)
-        val text = file.inputStream().bufferedReader().readText()
+        val text = file.bufferedReader().use { it.readText() }
         val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
         if (lines.size < 2) return false
-        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first())).map { it.lowercase(Locale.ROOT) }
+        val delimiter = VendorImports.csvDelimiter(lines.first())
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first()), delimiter).map { it.lowercase(Locale.ROOT) }
         fun col(vararg names: String): Int {
             names.forEach { want -> val i = header.indexOfFirst { it.contains(want) }; if (i >= 0) return i }
             return -1
@@ -334,7 +260,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 for (raw in lines.drop(1)) {
                     if (raw.isBlank()) continue
                     checkCancelled()
-                    val cells = VendorImports.splitCsvLine(raw)
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
                     fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
                     val type = get(cType)
                     val isRun = type.lowercase(Locale.ROOT).contains("run") || type.contains("跑") ||
@@ -362,7 +288,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 val rows = ArrayList<com.runback.core.WellnessRow>()
                 for (raw in lines.drop(1)) {
                     if (raw.isBlank() || rows.size >= VendorImports.MAX_JSON_WELLNESS) break
-                    val cells = VendorImports.splitCsvLine(raw)
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
                     val time = cells.firstNotNullOfOrNull { VendorImports.parseTimeFlexible(it) } ?: continue
                     val value = cells.mapNotNull { VendorImports.parseDoubleFlexible(it) }
                         .firstOrNull { it in 1.0..100000.0 } ?: continue
@@ -382,11 +308,12 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     private fun importSamsungCsv(file: File, name: String): Boolean {
         val kind = VendorImports.samsungFileKind(name)
         if (kind == "other" || kind == "weather") return false
-        val text = file.inputStream().bufferedReader().readText()
+        val text = file.bufferedReader().use { it.readText() }
         val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
         if (lines.size < 2) return false
         // Samsung files carry namespaced headers (com.samsung.health....); match by suffix.
-        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first())).map { it.lowercase(Locale.ROOT) }
+        val delimiter = VendorImports.csvDelimiter(lines.first())
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first()), delimiter).map { it.lowercase(Locale.ROOT) }
         fun col(vararg wants: String): Int {
             wants.forEach { want ->
                 val i = header.indexOfFirst { it.endsWith(want) || it.contains(want) }
@@ -401,7 +328,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
             for (raw in lines.drop(1)) {
                 if (raw.isBlank()) continue
                 checkCancelled()
-                val cells = VendorImports.splitCsvLine(raw)
+                val cells = VendorImports.splitCsvLine(raw, delimiter)
                 fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
                 if (!VendorImports.isSamsungRunningExercise(get(cType))) continue
                 val start = VendorImports.parseTimeFlexible(get(cStart)) ?: continue
@@ -423,7 +350,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
             val rows = ArrayList<com.runback.core.WellnessRow>()
             for (raw in lines.drop(1)) {
                 if (raw.isBlank() || rows.size >= VendorImports.MAX_JSON_WELLNESS) break
-                val cells = VendorImports.splitCsvLine(raw)
+                val cells = VendorImports.splitCsvLine(raw, delimiter)
                 fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
                 val start = VendorImports.parseTimeFlexible(get(cStart)) ?: continue
                 val end = VendorImports.parseTimeFlexible(get(cEnd)) ?: start
@@ -454,7 +381,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         val rows = ArrayList<com.runback.core.WellnessRow>()
         for (raw in lines.drop(1)) {
             if (raw.isBlank() || rows.size >= VendorImports.MAX_JSON_WELLNESS) break
-            val cells = VendorImports.splitCsvLine(raw)
+            val cells = VendorImports.splitCsvLine(raw, delimiter)
             fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
             val start = VendorImports.parseTimeFlexible(get(cStart)) ?: continue
             val end = VendorImports.parseTimeFlexible(get(cEnd)) ?: start
@@ -471,7 +398,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     private fun importVendorJson(file: File, name: String, entryPath: String, vendor: VendorImports.Vendor?): Boolean {
         val lower = name.lowercase(Locale.ROOT)
         // Large Takeout archives can be tens of MB of JSON; stream via text with caps.
-        val text = file.inputStream().bufferedReader().readText()
+        val text = file.bufferedReader().use { it.readText() }
         if (text.length > MAX_FILE_BYTES) return false
         return when {
             vendor == VendorImports.Vendor.FITBIT || VendorImports.fitbitFileKind(name) != "other" ->
@@ -547,7 +474,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                     ?: ((end - t) / 60000.0).takeIf { it in 0.0..1440.0 } ?: return null
                 val stage = obj.optString("level", obj.optString("stage", "asleep"))
                 return com.runback.core.WellnessRow(VendorImports.wellnessId("sleep_stage", t, "fitbit", minutes),
-                    "sleep_stage", t, end, minutes, "min", "fitbit", "{\"stage\":\"${stage.take(20)}\"}")
+                    "sleep_stage", t, end, minutes, "min", "fitbit", JSONObject().put("stage", stage.take(20)).toString())
             }
             "hrv" -> {
                 val rmssd = obj.optDouble("rmssd", obj.optDouble("dailyRmssd", Double.NaN))
@@ -677,26 +604,10 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     }
 
     private fun importGenericWellnessJson(text: String, name: String): Boolean {
-        // Conservative fallback: flat {time, value} series (Withings/Huawei-style CSV-converted JSON).
-        return try {
-            val trimmed = text.trim()
-            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false
-            val rows = ArrayList<com.runback.core.WellnessRow>()
-            if (trimmed.startsWith("[")) {
-                val arr = org.json.JSONArray(trimmed)
-                for (i in 0 until minOf(arr.length(), 5000)) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val t = VendorImports.parseTimeFlexible(obj.optString("time", obj.optString("date", ""))) ?: continue
-                    val v = obj.optDouble("value", Double.NaN)
-                    if (!v.isFinite()) continue
-                    rows.add(com.runback.core.WellnessRow(VendorImports.wellnessId("weight", t, "generic", v),
-                        "weight", t, 0L, v, "", "generic", "{\"unmapped\":true}"))
-                }
-            }
-            if (rows.isEmpty()) return false
-            noteVendor("generic", 0, 0, store.addWellnessBatch(rows), 0)
-            true
-        } catch (_: Exception) { false }
+        val rows = GenericWellnessJson.parse(text, ::checkCancelled)
+        if (rows.isEmpty()) return false
+        noteVendor("generic", 0, 0, store.addWellnessBatch(rows), 0)
+        return true
     }
 
     /** Streaming Apple Health export.xml: running workouts become summary runs, mapped records become wellness. */
@@ -792,7 +703,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
             "resting_hr" -> value.takeIf { it in 30.0..120.0 }
             "hrv_sdnn" -> value.takeIf { it in 1.0..500.0 }
             "steps" -> value.takeIf { it in 0.0..200000.0 }
-            "spo2" -> (if (unit == "%" || value <= 1.0) value * (if (value <= 1.0) 100 else 1.0) else value)
+            "spo2" -> (if (unit == "%" || value <= 1.0) value * (if (value <= 1.0) 100.0 else 1.0) else value)
                 .takeIf { it in 50.0..100.0 }
             "respiratory_rate" -> value.takeIf { it in 4.0..60.0 }
             "body_fat" -> value.takeIf { it in 0.0..80.0 }

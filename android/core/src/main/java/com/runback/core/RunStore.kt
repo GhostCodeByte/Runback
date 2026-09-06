@@ -339,6 +339,10 @@ class RunStore(context: Context) {
     /** Summary-only activity (CSV summary without track samples). Never invents samples. */
     fun addSummaryRun(summary: JSONObject, sourceHash: String): JSONObject = locked {
         val start = summary.optLong("startTime", summary.optLong("startedAt"));require(start>0){"Startzeit fehlt"}
+        val duration = summary.optDouble("durationSeconds", 0.0)
+        require(duration.isFinite() && duration >= 0.0) { "Ungültige Laufdauer" }
+        val distance = summary.optDouble("distanceMeters", 0.0)
+        require(distance.isFinite() && distance >= 0.0) { "Ungültige Laufdistanz" }
         val fingerprint = "start:${start/1000}"
         db.rawQuery("SELECT id FROM tombstones WHERE id IN (?,?)",arrayOf(sourceHash,fingerprint)).use { if(it.moveToFirst())return@locked JSONObject().put("status","deleted") }
         var duplicate: String? = null
@@ -350,9 +354,9 @@ class RunStore(context: Context) {
             return@locked JSONObject().put("status","duplicate").put("id",duplicate) }
         transaction {
             val run=JSONObject(summary.toString());val id=run.optString("id").takeIf{it.matches(Regex("[A-Za-z0-9_-]{1,100}"))}?:UUID.randomUUID().toString()
-            run.put("id",id).put("startTime",start).put("durationMs",(summary.optDouble("durationSeconds",0.0)*1000).toLong())
+            run.put("id",id).put("startTime",start).put("durationMs",(duration*1000).toLong())
                 .put("status","completed").put("rawSampleCount",0).put("sourceVersion",sourceHash)
-                .put("distanceMeters",summary.optDouble("distanceMeters",0.0))
+                .put("distanceMeters",distance)
                 .put("summaryOnly",true)
                 .put("dataRetention",JSONObject().put("originals","summary_only").put("recomputable",false))
             write(run)

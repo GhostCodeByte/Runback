@@ -100,6 +100,30 @@ class RunStoreTest {
     }
 
     @Test
+    fun summaryImportRejectsInvalidDurationAndDistanceBeforePersisting() {
+        val start = System.currentTimeMillis() - 120_000
+        val invalidDuration = JSONObject().put("startTime", start).put("durationSeconds", -1.0)
+            .put("distanceMeters", 1000.0)
+        try {
+            store.addSummaryRun(invalidDuration, "invalid-duration")
+            fail("negative duration should be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected.
+        }
+
+        val invalidDistance = JSONObject().put("startTime", start + 60_000).put("durationSeconds", 30.0)
+            .put("distanceMeters", -1.0)
+        try {
+            store.addSummaryRun(invalidDistance, "invalid-distance")
+            fail("negative distance should be rejected")
+        } catch (_: IllegalArgumentException) {
+            // Expected.
+        }
+
+        assertEquals(0, store.listRuns().length())
+    }
+
+    @Test
     fun backupRestoreKeepsSettingsFeedbackAndRawSamples() {
         val id = store.start("training", "test").getString("id")
         store.appendSamples(id, listOf(RawSample(1_000, "heartRate", JSONObject().put("bpm", 155))))

@@ -483,8 +483,11 @@ export function detectVendorForFile(fileName: string): VendorId {
     }
   }
   const lower = normalized.toLowerCase();
-  if (lower.includes('fitbit') || lower.includes('takeout') && lower.includes('fit')) {
-    return lower.includes('google') || lower.includes('takeout') ? 'google_fit' : 'fitbit';
+  if (lower.includes('fitbit')) {
+    return 'fitbit';
+  }
+  if (lower.includes('takeout') && lower.includes('fit')) {
+    return 'google_fit';
   }
   if (lower.includes('samsung')) {
     return 'samsung';
@@ -532,7 +535,28 @@ export interface StrongWorkout {
   workoutNotes: string;
 }
 
-function splitCsvLine(line: string): string[] {
+function csvDelimiter(line: string): ',' | ';' {
+  let inQuotes = false;
+  let commas = 0;
+  let semicolons = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (!inQuotes && c === ',') {
+      commas++;
+    } else if (!inQuotes && c === ';') {
+      semicolons++;
+    }
+  }
+  return semicolons > commas ? ';' : ',';
+}
+
+function splitCsvLine(line: string, delimiter = csvDelimiter(line)): string[] {
   const out: string[] = [];
   let current = '';
   let inQuotes = false;
@@ -553,10 +577,7 @@ function splitCsvLine(line: string): string[] {
     }
     if (c === '"') {
       inQuotes = true;
-    } else if (c === ',') {
-      out.push(current);
-      current = '';
-    } else if (c === ';' && !line.includes(',')) {
+    } else if (c === delimiter) {
       out.push(current);
       current = '';
     } else {
@@ -620,6 +641,14 @@ function parseStrongDuration(raw: string): number {
       return total * 60 + value;
     }, 0);
   }
+  const hours = /([0-9]+(?:[.,][0-9]+)?)\s*h/i.exec(s)?.[1];
+  const minutes = /([0-9]+(?:[.,][0-9]+)?)\s*m(?!s)/i.exec(s)?.[1];
+  const seconds = /([0-9]+(?:[.,][0-9]+)?)\s*s/i.exec(s)?.[1];
+  if (hours || minutes || seconds) {
+    return (parseNumberFlexible(hours) ?? 0) * 3600 +
+      (parseNumberFlexible(minutes) ?? 0) * 60 +
+      (parseNumberFlexible(seconds) ?? 0);
+  }
   return parseNumberFlexible(s) ?? 0;
 }
 
@@ -642,7 +671,8 @@ export function parseStrongCsvPreview(text: string, maxRows = 60000): {
   if (!lines.length) {
     return { workouts: [], rows: 0, skipped: 0 };
   }
-  const header = splitCsvLine(lines[0]).map(cell => cell.toLowerCase());
+  const delimiter = csvDelimiter(lines[0]);
+  const header = splitCsvLine(lines[0], delimiter).map(cell => cell.toLowerCase());
   const col = (name: string) => header.indexOf(name);
   const cDate = col('date');
   const cWorkout = col('workout name');
@@ -670,7 +700,7 @@ export function parseStrongCsvPreview(text: string, maxRows = 60000): {
     if (++rows > maxRows) {
       break;
     }
-    const cells = splitCsvLine(raw);
+    const cells = splitCsvLine(raw, delimiter);
     const time = parseStrongTime(get(cells, cDate));
     const exercise = get(cells, cExercise);
     if (time === null || !exercise) {

@@ -6,11 +6,13 @@ import { Button, Copy, Section, color } from './components';
 
 export function VendorImport({
   onImport,
+  onCancelImport,
   onOpenDocs,
   busy,
   importStatus,
 }: {
   onImport: () => void;
+  onCancelImport: () => void;
   onOpenDocs?: () => void;
   busy: boolean;
   importStatus: any;
@@ -28,7 +30,7 @@ export function VendorImport({
 
   useEffect(() => {
     refreshSummary();
-  }, [refreshSummary, status.imported, status.duplicates]);
+  }, [refreshSummary, status.imported, status.duplicates, status.state, status.wellness, status.strength]);
 
   const toggle = (id: VendorId) => setOpen(current => (current === id ? null : id));
 
@@ -47,13 +49,29 @@ export function VendorImport({
           Doppelte Läufe werden erkannt, Fehler einzelner Dateien stoppen den Rest nicht.
         </Copy>
         <Button title="Dateien wählen & importieren" onPress={onImport} disabled={busy} />
+        {status.state === 'running' ? (
+          <>
+            <Copy>
+              Import läuft: {status.processed ?? 0} Dateien verarbeitet
+              {status.currentFile ? ` · ${status.currentFile}` : ''}
+            </Copy>
+            <Button secondary small title="Import abbrechen" onPress={onCancelImport} />
+          </>
+        ) : null}
         {status.imported !== undefined || status.wellness !== undefined ? (
           <Copy>
             Läufe: {status.imported ?? 0} importiert · {status.duplicates ?? 0} doppelt
             {status.wellness !== undefined ? ` · Kontextwerte: ${status.wellness}` : ''}
             {status.strength !== undefined ? ` · Krafteinheiten: ${status.strength}` : ''}
+            {status.skipped !== undefined ? ` · ${status.skipped} übersprungen` : ''}
+            {status.failed !== undefined ? ` · ${status.failed} fehlgeschlagen` : ''}
           </Copy>
         ) : null}
+        {(status.errors || []).slice(0, 20).map((item: any, i: number) => (
+          <Copy muted key={i}>
+            {item.file ? `${item.file}: ` : ''}{item.message || item.reason || String(item)}
+          </Copy>
+        ))}
         {summary?.wellness && Object.keys(summary.wellness).length ? (
           <Copy muted>
             Kontext vorhanden: {Object.entries(summary.wellness).map(([kind, info]: [string, any]) => `${kind} (${info.count})`).join(', ')}

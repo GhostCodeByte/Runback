@@ -21,6 +21,13 @@ class VendorImportsTest {
         assertFalse(VendorImports.isStrongHeader(listOf("Activity ID", "Name", "Distance")))
     }
 
+    @Test fun semicolonStrongCsvPreservesDecimalComma() {
+        val csv = "Date;Workout Name;Exercise Name;Set Order;Weight;Reps\n" +
+            "2024-11-02 18:30:00;Friday;Squat;1;100,5;8\n"
+        val parsed = VendorImports.parseStrongCsv(csv, "strong")
+        assertEquals(100.5, parsed.setsByWorkout.values.first().first().weight!!, 0.01)
+    }
+
     @Test fun appleRunningWorkoutDetection() {
         assertTrue(VendorImports.isAppleRunningWorkout("HKWorkoutActivityTypeRunning"))
         assertTrue(VendorImports.isAppleRunningWorkout("HKWorkoutActivityTypeTrackAndField"))
@@ -70,5 +77,36 @@ class VendorImportsTest {
         assertEquals(3720.0, VendorImports.parseDurationFlexible("01:02:00")!!, 0.1)
         assertEquals(90.0, VendorImports.parseDurationFlexible("1:30")!!, 0.1)
         assertEquals(3600.0, VendorImports.parseDurationFlexible("1h")!!, 0.1)
+    }
+
+    @Test fun semicolonCsvKeepsQuotedCommasInFields() {
+        assertEquals(
+            listOf("2024-05-01", "Run", "Run, morning", "5"),
+            VendorImports.splitCsvLine("2024-05-01;Run;\"Run, morning\";5"),
+        )
+    }
+
+    @Test fun genericActivitiesUsesDistanceHeaderUnits() {
+        val csv = "Name,Type,Date,Distance (m),Elapsed\n" +
+            "Track,Run,2024-05-01 07:00:00,500,60\n"
+        val parsed = VendorImports.parseActivitiesCsv(csv, "generic")
+        assertEquals(1, parsed.runs.size)
+        assertEquals(500.0, parsed.runs.first().distanceMeters, 0.1)
+    }
+
+    @Test fun genericActivitiesConvertsMilesFromDistanceHeader() {
+        val csv = "Name,Type,Date,Distance (miles),Elapsed\n" +
+            "Road,Run,2024-05-01 07:00:00,5,3600\n"
+        val parsed = VendorImports.parseActivitiesCsv(csv, "generic")
+        assertEquals(1, parsed.runs.size)
+        assertEquals(8046.72, parsed.runs.first().distanceMeters, 0.01)
+    }
+
+    @Test fun genericActivitiesSkipsNegativeDuration() {
+        val csv = "Name,Type,Date,Distance,Elapsed\n" +
+            "Bad,Run,2024-05-01 07:00:00,5,-60\n"
+        val parsed = VendorImports.parseActivitiesCsv(csv, "generic")
+        assertEquals(0, parsed.runs.size)
+        assertEquals(1, parsed.skipped)
     }
 }
