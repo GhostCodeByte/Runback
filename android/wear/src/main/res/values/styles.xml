@@ -1,0 +1,10 @@
+<resources>
+    <style name="WearTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#A1EA8B</item>
+        <item name="android:windowBackground">#090D0B</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>
