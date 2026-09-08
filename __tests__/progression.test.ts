@@ -73,6 +73,33 @@ describe('Kraftprogression', () => {
     expect(series[0].weightKg).toBe(100);
   });
 
+  it('verwendet geplante Werte nicht als Trainingsbeleg', () => {
+    const plannedOnly = session('planned', 0, 100);
+    plannedOnly.exercises[0].sets[1].actualWeightKg = undefined;
+    plannedOnly.exercises[0].sets[1].actualReps = undefined;
+    expect(buildE1RMSeries([plannedOnly], 'squat')).toEqual([]);
+  });
+
+  it('mischt keine Zeitsätze oder andere Lastarten in die Lastserie', () => {
+    const timed = session('timed', 0, 100);
+    timed.exercises[0].sets[1].planned.kind = 'timed';
+    timed.exercises[0].sets[1].planned.seconds = 30;
+    const bodyweight = session('bodyweight', 7, 100);
+    bodyweight.exercises[0].sets[1].planned.loadKind = 'bodyweight';
+    expect(buildE1RMSeries([timed, bodyweight], 'squat')).toEqual([]);
+  });
+
+  it('lässt Frischemodulation die Richtung eines Vorschlags nicht umkippen', () => {
+    const result = assessExerciseProgression(
+      [session('s1', 0, 100), session('s2', 7, 105), session('s3', 14, 110)],
+      'squat',
+      { regionFreshness: 0 },
+    );
+    expect(result.verdict).toBe('increase');
+    expect(result.suggestion?.targetRange.targetKg).toBeGreaterThanOrEqual(110);
+    expect(result.suggestion?.targetRange.minKg).toBeGreaterThanOrEqual(110);
+  });
+
   it('erreicht den Keep-going-Verdikt eigenständig', () => {
     const result = assessExerciseProgression(
       [session('s1', 0, 100), session('s2', 7, 100), session('s3', 14, 101)],

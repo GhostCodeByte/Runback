@@ -111,12 +111,25 @@ const SetRow = memo(function SetRow({
   position: number;
   reference: string | null;
   active: boolean;
-  onComplete: (setId: string, weight: string, reps: string) => void;
-  onEdit: (setId: string, weight: string, reps: string) => void;
+  onComplete: (
+    setId: string,
+    weight: string,
+    reps: string,
+    timed: boolean,
+  ) => void;
+  onEdit: (
+    setId: string,
+    weight: string,
+    reps: string,
+    timed: boolean,
+  ) => void;
 }) {
   const initialWeight =
     set.actualWeightKg ?? set.planned.weightKg ?? undefined;
-  const initialReps = set.actualReps ?? set.planned.reps ?? undefined;
+  const timed = set.planned.kind === 'timed';
+  const initialReps = timed
+    ? set.actualSeconds ?? set.planned.seconds ?? undefined
+    : set.actualReps ?? set.planned.reps ?? undefined;
   const [weight, setWeight] = useState(
     initialWeight === undefined ? '' : formatWeight(initialWeight),
   );
@@ -124,7 +137,6 @@ const SetRow = memo(function SetRow({
     initialReps === undefined ? '' : String(initialReps),
   );
   const done = set.completedAt !== undefined;
-  const timed = set.planned.kind === 'timed';
   const bodyweight = set.planned.loadKind === 'bodyweight';
   const note = kindLabel[set.planned.kind];
 
@@ -153,7 +165,7 @@ const SetRow = memo(function SetRow({
         accessibilityLabel={`Gewicht für Satz ${position}`}
         editable={!bodyweight}
         keyboardType="decimal-pad"
-        onBlur={() => onEdit(set.id, weight, reps)}
+        onBlur={() => onEdit(set.id, weight, reps, timed)}
         onChangeText={setWeight}
         placeholder={bodyweight ? 'KG' : '–'}
         placeholderTextColor={color.muted}
@@ -164,7 +176,7 @@ const SetRow = memo(function SetRow({
       <TextInput
         accessibilityLabel={`${timed ? 'Sekunden' : 'Wiederholungen'} für Satz ${position}`}
         keyboardType="number-pad"
-        onBlur={() => onEdit(set.id, weight, reps)}
+        onBlur={() => onEdit(set.id, weight, reps, timed)}
         onChangeText={setReps}
         placeholder="–"
         placeholderTextColor={color.muted}
@@ -178,7 +190,7 @@ const SetRow = memo(function SetRow({
         }
         accessibilityRole="button"
         accessibilityState={{ checked: done }}
-        onPress={() => onComplete(set.id, weight, reps)}
+        onPress={() => onComplete(set.id, weight, reps, timed)}
         style={({ pressed }) => [
           styles.check,
           styles.checkLarge,
@@ -213,12 +225,20 @@ export function WorkoutScreen({
   onCompleteSet: (
     exerciseIndex: number,
     setId: string,
-    values: { actualWeightKg?: number; actualReps?: number },
+    values: {
+      actualWeightKg?: number;
+      actualReps?: number;
+      actualSeconds?: number;
+    },
   ) => void;
   onEditSet: (
     exerciseIndex: number,
     setId: string,
-    values: { actualWeightKg?: number; actualReps?: number },
+    values: {
+      actualWeightKg?: number;
+      actualReps?: number;
+      actualSeconds?: number;
+    },
   ) => void;
   onAddSet: (exerciseIndex: number) => void;
   onAddExercise: () => void;
@@ -231,28 +251,37 @@ export function WorkoutScreen({
   const rest = restRemaining(session, now);
   const elapsed = Math.max(0, (now - session.startTime) / 1000);
 
-  const parse = useCallback((weight: string, reps: string) => {
+  const parse = useCallback((weight: string, reps: string, timed: boolean) => {
     const parsedWeight = Number(weight.replace(',', '.'));
     const parsedReps = Number(reps);
     return {
       actualWeightKg: Number.isFinite(parsedWeight) && weight.trim()
         ? parsedWeight
         : undefined,
-      actualReps:
-        Number.isFinite(parsedReps) && reps.trim()
-          ? Math.round(parsedReps)
-          : undefined,
+      ...(timed
+        ? {
+            actualSeconds:
+              Number.isFinite(parsedReps) && reps.trim()
+                ? Math.round(parsedReps)
+                : undefined,
+          }
+        : {
+            actualReps:
+              Number.isFinite(parsedReps) && reps.trim()
+                ? Math.round(parsedReps)
+                : undefined,
+          }),
     };
   }, []);
 
   const complete = useCallback(
-    (setId: string, weight: string, reps: string) =>
-      onCompleteSet(index, setId, parse(weight, reps)),
+    (setId: string, weight: string, reps: string, timed: boolean) =>
+      onCompleteSet(index, setId, parse(weight, reps, timed)),
     [index, onCompleteSet, parse],
   );
   const edit = useCallback(
-    (setId: string, weight: string, reps: string) =>
-      onEditSet(index, setId, parse(weight, reps)),
+    (setId: string, weight: string, reps: string, timed: boolean) =>
+      onEditSet(index, setId, parse(weight, reps, timed)),
     [index, onEditSet, parse],
   );
 

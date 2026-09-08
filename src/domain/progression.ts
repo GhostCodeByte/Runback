@@ -51,8 +51,8 @@ export function bestWorkingSet(
     if (!isCompletedWorkingSet(set)) {
       continue;
     }
-    const weightKg = set.actualWeightKg ?? set.planned.weightKg;
-    const reps = set.actualReps ?? set.planned.reps;
+    const weightKg = set.actualWeightKg;
+    const reps = set.actualReps;
     if (!finite(weightKg) || !finite(reps)) {
       continue;
     }
@@ -83,7 +83,10 @@ function isCompletedWorkingSet(set: LoggedSet): boolean {
   return (
     set.completedAt !== undefined &&
     !set.skipped &&
-    set.planned.kind !== 'warmup'
+    (set.planned.kind === 'normal' || set.planned.kind === 'failure') &&
+    set.planned.loadKind === 'kg' &&
+    finite(set.actualWeightKg) &&
+    finite(set.actualReps)
   );
 }
 
@@ -451,10 +454,28 @@ function makeSuggestion(
   const previous = series[series.length - 1].weightKg;
   const lowerCap = previous * 0.95;
   const upperCap = previous * 1.05;
-  const targetKg = Math.min(upperCap, Math.max(lowerCap, rawTarget));
+  // The verdict and the suggested target must point in the same direction.
+  // Freshness can therefore hold an increase at the previous load, but it can
+  // never turn an increase into an unlabelled reduction (or vice versa).
+  const directionalTarget =
+    verdict === 'increase'
+      ? Math.max(previous, rawTarget)
+      : verdict === 'reduce'
+      ? Math.min(previous, rawTarget)
+      : rawTarget;
+  const targetKg = Math.min(
+    upperCap,
+    Math.max(lowerCap, directionalTarget),
+  );
   const stepCapApplied = Math.abs(targetKg - rawTarget) > 0.000001;
-  const minKg = Math.min(targetKg, Math.max(lowerCap, targetKg * 0.975));
-  const maxKg = Math.max(targetKg, Math.min(upperCap, targetKg * 1.025));
+  const minKg =
+    verdict === 'increase'
+      ? Math.max(previous, Math.max(lowerCap, targetKg * 0.975))
+      : Math.min(targetKg, Math.max(lowerCap, targetKg * 0.975));
+  const maxKg =
+    verdict === 'reduce'
+      ? Math.min(previous, Math.max(targetKg, Math.min(upperCap, targetKg * 1.025)))
+      : Math.max(targetKg, Math.min(upperCap, targetKg * 1.025));
   const freshnessText =
     freshness === null
       ? 'Die Frische ist unbekannt; deshalb wird keine Frischemodulation behauptet.'
