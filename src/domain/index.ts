@@ -9,3 +9,5 @@ export * from './catalog';
 export * from './freshness';
 export * from './calibration';
 export * from './modelValidation';
+export * from './progression';
+export * from './coupling';
