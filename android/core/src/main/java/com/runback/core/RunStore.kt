@@ -15,6 +15,13 @@ import java.util.zip.ZipOutputStream
 import kotlin.math.abs
 
 data class RawSample(val time: Long, val kind: String, val values: JSONObject)
+data class WellnessRow(val id: String = "", val kind: String, val time: Long, val endTime: Long = 0L,
+    val value: Double = Double.NaN, val unit: String = "", val source: String = "import", val extra: String = "{}")
+data class StrengthWorkout(val id: String, val time: Long, val name: String = "",
+    val durationSec: Double = 0.0, val source: String = "import", val extra: String = "{}")
+data class StrengthSet(val exercise: String, val setOrder: Int = 0, val weight: Double? = null,
+    val weightUnit: String = "kg", val reps: Int? = null, val distance: Double? = null,
+    val seconds: Double? = null, val rpe: Double? = null, val notes: String = "")
 
 /** One serialized SQLite owner per process. Raw rows are append-only, corrections are separate. */
 class RunStore(context: Context) {
@@ -249,6 +256,118 @@ class RunStore(context: Context) {
         require(file.length()<=64L*1024*1024);read(id)
         db.insertOrThrow("sources",null,ContentValues().apply {put("run_id",id);put("name",name.take(200));put("data",file.readBytes())});Unit
     }
+    // ---- Optional vendor wellness & strength data (V1-17 context only, never a readiness score) ----
+    // Wellness rows are append-only daily/point context (sleep, resting HR, HRV, weight, steps).
+    // They never change run derivations; missing rows only limit the affected context note.
+    fun addWellnessBatch(rows: List<WellnessRow>): Int = locked {
+        if (rows.isEmpty()) return@locked 0
+        var inserted = 0
+        transaction {
+            rows.take(MAX_WELLNESS_BATCH).forEach { row ->
+                require(row.kind.length in 1..64 && row.time > 0) { "Ungültiger Wellness-Wert" }
+                val id = row.id.ifBlank { "wellness:${row.kind}:${row.time}:${row.source}:${row.value}" }
+                val changed = db.insertWithOnConflict("wellness", null, ContentValues().apply {
+                    put("id", id.take(220)); put("kind", row.kind.take(64)); put("time", row.time)
+                    put("end_time", row.endTime)
+                    if (row.value.isFinite()) put("value", row.value) else putNull("value")
+                    put("unit", row.unit.take(24))
+                    put("source", row.source.take(120)); put("extra", row.extra.take(2000))
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+                if (changed > 0) inserted++
+            }
+        }
+        inserted
+    }
+    fun wellnessSummary(limitPerKind: Int = 5): JSONObject = locked {
+        val result = JSONObject()
+        db.rawQuery("SELECT DISTINCT kind FROM wellness", null).use { kinds ->
+            while (kinds.moveToNext()) {
+                val kind = kinds.getString(0)
+                val items = JSONArray()
+                db.rawQuery("SELECT time,end_time,value,unit,source FROM wellness WHERE kind=? ORDER BY time DESC LIMIT ?",
+                    arrayOf(kind, limitPerKind.coerceIn(1, 50).toString())).use { rows ->
+                    while (rows.moveToNext()) items.put(JSONObject().put("time", rows.getLong(0))
+                        .put("endTime", rows.getLong(1)).put("value", rows.getDouble(2))
+                        .put("unit", rows.getString(3) ?: "").put("source", rows.getString(4) ?: ""))
+                }
+                val count = db.rawQuery("SELECT COUNT(*) FROM wellness WHERE kind=?", arrayOf(kind)).use {
+                    it.moveToFirst(); it.getLong(0) }
+                result.put(kind, JSONObject().put("count", count).put("recent", items))
+            }
+        }
+        result
+    }
+    fun addStrengthWorkout(workout: StrengthWorkout, sets: List<StrengthSet>): JSONObject = locked {
+        require(workout.time > 0) { "Trainingszeit fehlt" }
+        require(sets.size <= 2000) { "Zu viele Sätze für ein Krafttraining" }
+        transaction {
+            db.insertWithOnConflict("strength_workouts", null, ContentValues().apply {
+                put("id", workout.id.take(120)); put("time", workout.time); put("name", workout.name.take(120))
+                put("durationSec", workout.durationSec); put("source", workout.source.take(120)); put("extra", workout.extra.take(2000))
+            }, SQLiteDatabase.CONFLICT_IGNORE)
+            db.delete("strength_sets", "workout_id=?", arrayOf(workout.id))
+            sets.forEach { set ->
+                db.insertOrThrow("strength_sets", null, ContentValues().apply {
+                    put("workout_id", workout.id.take(120)); put("exercise", set.exercise.take(160))
+                    put("set_order", set.setOrder); put("weight", set.weight); put("weight_unit", set.weightUnit.take(8))
+                    put("reps", set.reps); put("distance", set.distance); put("seconds", set.seconds)
+                    put("rpe", set.rpe); put("notes", set.notes.take(500))
+                })
+            }
+            JSONObject().put("id", workout.id).put("sets", sets.size)
+        }
+    }
+    fun strengthSummary(limit: Int = 20): JSONObject = locked {
+        val workouts = JSONArray()
+        db.rawQuery("SELECT id,time,name,durationSec,source FROM strength_workouts ORDER BY time DESC LIMIT ?",
+            arrayOf(limit.coerceIn(1, 100).toString())).use { rows ->
+            while (rows.moveToNext()) {
+                val id = rows.getString(0)
+                val setCount = db.rawQuery("SELECT COUNT(*) FROM strength_sets WHERE workout_id=?", arrayOf(id)).use {
+                    it.moveToFirst(); it.getInt(0) }
+                val volume = db.rawQuery("SELECT SUM(COALESCE(weight,0)*COALESCE(reps,0)) FROM strength_sets WHERE workout_id=?", arrayOf(id)).use {
+                    it.moveToFirst(); if (it.isNull(0)) 0.0 else it.getDouble(0) }
+                workouts.put(JSONObject().put("id", id).put("time", rows.getLong(1)).put("name", rows.getString(2) ?: "")
+                    .put("durationSec", rows.getDouble(3)).put("source", rows.getString(4) ?: "")
+                    .put("sets", setCount).put("volume", volume))
+            }
+        }
+        val totalWorkouts = db.rawQuery("SELECT COUNT(*) FROM strength_workouts", null).use {
+            it.moveToFirst(); it.getLong(0) }
+        JSONObject().put("workouts", totalWorkouts).put("recent", workouts)
+    }
+    /** Summary-only activity (CSV summary without track samples). Never invents samples. */
+    fun addSummaryRun(summary: JSONObject, sourceHash: String): JSONObject = locked {
+        val start = summary.optLong("startTime", summary.optLong("startedAt"));require(start>0){"Startzeit fehlt"}
+        val duration = summary.optDouble("durationSeconds", 0.0)
+        require(duration.isFinite() && duration >= 0.0) { "Ungültige Laufdauer" }
+        val distance = summary.optDouble("distanceMeters", 0.0)
+        require(distance.isFinite() && distance >= 0.0) { "Ungültige Laufdistanz" }
+        val fingerprint = "start:${start/1000}"
+        db.rawQuery("SELECT id FROM tombstones WHERE id IN (?,?)",arrayOf(sourceHash,fingerprint)).use { if(it.moveToFirst())return@locked JSONObject().put("status","deleted") }
+        var duplicate: String? = null
+        db.rawQuery("SELECT run_id FROM hashes WHERE hash=?",arrayOf(sourceHash)).use { if(it.moveToFirst())duplicate=it.getString(0) }
+        if(duplicate==null) db.rawQuery("SELECT id,json FROM runs WHERE abs(start-?)<=10000",arrayOf(start.toString())).use { rows ->
+            while(rows.moveToNext()) { val other=JSONObject(rows.getString(1));val duration=summary.optDouble("durationSeconds",0.0)
+                if(abs(other.optLong("durationMs")/1000.0-duration)<=maxOf(30.0,duration*.05)) {duplicate=rows.getString(0);break} } }
+        if(duplicate!=null) { db.insertWithOnConflict("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",duplicate)},SQLiteDatabase.CONFLICT_IGNORE)
+            return@locked JSONObject().put("status","duplicate").put("id",duplicate) }
+        transaction {
+            val run=JSONObject(summary.toString());val id=run.optString("id").takeIf{it.matches(Regex("[A-Za-z0-9_-]{1,100}"))}?:UUID.randomUUID().toString()
+            run.put("id",id).put("startTime",start).put("durationMs",(duration*1000).toLong())
+                .put("status","completed").put("rawSampleCount",0).put("sourceVersion",sourceHash)
+                .put("distanceMeters",distance)
+                .put("summaryOnly",true)
+                .put("dataRetention",JSONObject().put("originals","summary_only").put("recomputable",false))
+            write(run)
+            db.insertOrThrow("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",id)})
+            JSONObject().put("status","imported").put("id",id)
+        }
+    }
+    fun vendorSummary(): JSONObject = locked {
+        JSONObject().put("wellness", wellnessSummary(3)).put("strength", strengthSummary(5))
+            .put("runs", listRuns(1).length())
+    }
     fun deleteRun(id: String) = locked {
         check(activeId()!=id){"Beende zuerst die Aufzeichnung."}
         transaction {
@@ -264,13 +383,14 @@ class RunStore(context: Context) {
     fun clearAllData() = locked { check(activeId()==null);transaction { tables.forEach {db.delete(it,null,null)} } }
     fun backup(output: OutputStream) = locked {
         ZipOutputStream(BufferedOutputStream(output)).use { zip ->
-            zip.putNextEntry(ZipEntry("manifest.json"));zip.write(JSONObject().put("schemaVersion",1).put("app","Runback").put("createdAt",System.currentTimeMillis()).toString().toByteArray());zip.closeEntry()
+            zip.putNextEntry(ZipEntry("manifest.json"));zip.write(JSONObject().put("schemaVersion",2).put("app","Runback").put("createdAt",System.currentTimeMillis()).toString().toByteArray());zip.closeEntry()
             tables.forEach { table ->
                 zip.putNextEntry(ZipEntry("$table.ndjson"))
                 db.rawQuery("SELECT * FROM $table",null).use { c ->while(c.moveToNext()){
                     val row=JSONObject(); for(i in 0 until c.columnCount) when(c.getType(i)){
                         android.database.Cursor.FIELD_TYPE_BLOB -> row.put(c.getColumnName(i),android.util.Base64.encodeToString(c.getBlob(i),android.util.Base64.NO_WRAP))
                         android.database.Cursor.FIELD_TYPE_INTEGER -> row.put(c.getColumnName(i),c.getLong(i))
+                        android.database.Cursor.FIELD_TYPE_FLOAT -> row.put(c.getColumnName(i),c.getDouble(i))
                         else -> row.put(c.getColumnName(i),if(c.isNull(i))JSONObject.NULL else c.getString(i)) }
                     zip.write((row.toString()+"\n").toByteArray()) } };zip.closeEntry()
             }
@@ -281,7 +401,7 @@ class RunStore(context: Context) {
         transaction {
             ZipInputStream(BufferedInputStream(input)).use { zip ->
                 require(zip.nextEntry?.name=="manifest.json"){"Kein Runback-Backup"}
-                val manifest=JSONObject(readEntry(zip,65536).toString(Charsets.UTF_8));require(manifest.getInt("schemaVersion")==1){"Backup-Version wird nicht unterstützt"}
+                val manifest=JSONObject(readEntry(zip,65536).toString(Charsets.UTF_8));require(manifest.getInt("schemaVersion") in listOf(1,2)){"Backup-Version wird nicht unterstützt"}
                 tables.forEach {db.delete(it,null,null)}
                 var total=0L; val seen=HashSet<String>()
                 while(true){val entry=zip.nextEntry?:break;val table=entry.name.removeSuffix(".ndjson");require(table in tables && seen.add(table)){"Ungültiger Backup-Inhalt"}
@@ -290,11 +410,12 @@ class RunStore(context: Context) {
                         val row=JSONObject(line);val values=ContentValues();row.keys().forEach { key ->
                             when { key=="data" && table=="sources" -> values.put(key,android.util.Base64.decode(row.getString(key),android.util.Base64.NO_WRAP))
                                 row.isNull(key)->values.putNull(key)
+                                row.get(key) is Double || row.get(key) is Float ->values.put(key,row.getDouble(key))
                                 row.get(key) is Number ->values.put(key,row.getLong(key))
                                 else->values.put(key,row.getString(key)) }
                         };db.insertOrThrow(table,null,values)
                     } }
-                };require(seen==tables.toSet()){ "Backup ist unvollständig" }
+                };require(seen.containsAll(legacyTables)){ "Backup ist unvollständig" }
                 db.rawQuery("SELECT id,json FROM runs",null).use { c->while(c.moveToNext()){val run=JSONObject(c.getString(1));if(run.optString("status")=="recording"){run.put("status","interrupted");run.remove("_tick");write(run)}} }
             };JSONObject().put("restored",true).put("count",listRuns(10000).length())
         }
@@ -318,7 +439,7 @@ class RunStore(context: Context) {
     }
     private fun readEntry(input:InputStream,limit:Long):ByteArray {val out=ByteArrayOutputStream();val buffer=ByteArray(32768);var total=0L
         while(true){val n=input.read(buffer);if(n<0)break;total+=n;require(total<=limit){"Backup überschreitet das Größenlimit"};out.write(buffer,0,n)};return out.toByteArray()}
-    private class Database(context:Context):SQLiteOpenHelper(context,"runback.db",null,1){
+    private class Database(context:Context):SQLiteOpenHelper(context,"runback.db",null,2){
         override fun onConfigure(db:SQLiteDatabase){db.execSQL("PRAGMA synchronous=FULL")}
         override fun onCreate(db:SQLiteDatabase){
             db.execSQL("CREATE TABLE runs(id TEXT PRIMARY KEY,start INTEGER NOT NULL,json TEXT NOT NULL)")
@@ -329,8 +450,20 @@ class RunStore(context: Context) {
             db.execSQL("CREATE TABLE hashes(hash TEXT PRIMARY KEY,run_id TEXT NOT NULL)")
             db.execSQL("CREATE TABLE tombstones(id TEXT PRIMARY KEY)")
             db.execSQL("CREATE TABLE sources(seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,name TEXT NOT NULL,data BLOB NOT NULL)")
+            createVendorTables(db)
         }
-        override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){error("Datenbankversion wird nicht unterstützt")}
+        override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){
+            if (oldVersion < 2) createVendorTables(db)
+            if (oldVersion > 2 || newVersion > 2) error("Datenbankversion wird nicht unterstützt")
+        }
+        private fun createVendorTables(db: SQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS wellness(id TEXT PRIMARY KEY,kind TEXT NOT NULL,time INTEGER NOT NULL,end_time INTEGER NOT NULL DEFAULT 0,value REAL,unit TEXT NOT NULL DEFAULT '',source TEXT NOT NULL DEFAULT '',extra TEXT NOT NULL DEFAULT '{}')")
+            db.execSQL("CREATE INDEX IF NOT EXISTS wellness_kind_time ON wellness(kind,time)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS strength_workouts(id TEXT PRIMARY KEY,time INTEGER NOT NULL,name TEXT NOT NULL DEFAULT '',durationSec REAL NOT NULL DEFAULT 0,source TEXT NOT NULL DEFAULT '',extra TEXT NOT NULL DEFAULT '{}')")
+            db.execSQL("CREATE TABLE IF NOT EXISTS strength_sets(seq INTEGER PRIMARY KEY AUTOINCREMENT,workout_id TEXT NOT NULL,exercise TEXT NOT NULL,set_order INTEGER NOT NULL DEFAULT 0,weight REAL,reps INTEGER,distance REAL,seconds REAL,rpe REAL,weight_unit TEXT NOT NULL DEFAULT 'kg',notes TEXT NOT NULL DEFAULT '')")
+            db.execSQL("CREATE INDEX IF NOT EXISTS strength_workout_time ON strength_workouts(time)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS strength_sets_workout ON strength_sets(workout_id)")
+        }
     }
-    companion object {private val lock=Any();private var helper:Database?=null;private val tables=listOf("runs","samples","events","documents","hashes","tombstones","sources")}
+    companion object {private val lock=Any();private var helper:Database?=null;private val tables=listOf("runs","samples","events","documents","hashes","tombstones","sources","wellness","strength_workouts","strength_sets");private val legacyTables=listOf("runs","samples","events","documents","hashes","tombstones","sources");private const val MAX_WELLNESS_BATCH = 50000}
 }

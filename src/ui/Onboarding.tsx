@@ -265,7 +265,10 @@ export function Onboarding({
           <Text style={styles.title}>Historie mitnehmen?</Text>
           <Copy muted>
             Importiere FIT, GPX, TCX oder einen Strava Export. Doppelte
-            Aktivitäten werden erkannt.
+            Aktivitäten werden erkannt. Auch Fitbit, Google Fit, Strong, Mi
+            Fitness, Apple Health, Samsung, Garmin und weitere Exporte
+            funktionieren — Details stehen später unter Mehr → Daten & Speicher
+            → App-Importe.
           </Copy>
           <Button
             title={importRunning ? 'Import läuft …' : 'Dateien importieren'}

@@ -16,6 +16,7 @@ Android-Telefon-App (React Native + Kotlin), eigenständige Wear-OS-App und geme
 ## Dokumentation
 
 - [Zielspezifikation V1 / V2](docs/zielspezifikation.md) — Ziele, Invarianten und Akzeptanzkriterien.
+- [App-Importe](docs/vendor-import.md) — Fitbit, Google Fit, Strong, Mi Fitness, Apple Health, Samsung & Co. importieren (optional).
 - [Glossar](docs/glossar.md) — verständliche Bedeutungen neben englischen Fach- und Suchbegriffen.
 - [Änderungen zum ursprünglichen Entwurf](docs/aenderungen.md) — übernommene Klarstellungen und fachliche Verbesserungen.
 - [Bedienung und spätere Auslieferung](docs/bedienung-und-auslieferung.md) — flexible Funktionswahl, klare UI und Anforderungen an spätere Test-APKs.
