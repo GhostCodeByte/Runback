@@ -117,8 +117,12 @@ export interface SessionSummary {
   volumeKg: number;
 }
 
-const identifier = (prefix: string, seed: number, index: number) =>
-  `${prefix}-${seed.toString(36)}-${index}`;
+const identifier = (
+  prefix: string,
+  seed: number,
+  index: number,
+  scope = 0,
+) => `${prefix}-${seed.toString(36)}-${scope}-${index}`;
 
 export const emptyStrengthState = (): StrengthState => ({
   templates: [],
@@ -135,11 +139,11 @@ export function startSession(
   now: number,
   name = 'Freies Training',
 ): StrengthSession {
-  const exercises = (template?.exercises || []).map(exercise => ({
+  const exercises = (template?.exercises || []).map((exercise, exerciseIndex) => ({
     exerciseId: exercise.exerciseId,
     name: exercise.name,
     sets: exercise.sets.map((planned, index) => ({
-      id: identifier(exercise.exerciseId, now, index),
+      id: identifier(exercise.exerciseId, now, index, exerciseIndex),
       planned: { ...planned },
     })),
   }));
@@ -345,7 +349,7 @@ export function addExercise(
     name: exercise.name,
     added: true,
     sets: Array.from({ length: Math.max(1, sets) }, (_, index) => ({
-      id: identifier(exercise.id, now, index),
+      id: identifier(exercise.id, now, index, session.exercises.length),
       planned: { ...planned },
     })),
   };
