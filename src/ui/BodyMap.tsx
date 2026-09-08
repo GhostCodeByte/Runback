@@ -325,7 +325,6 @@ export function BodyMap({
               <G key={shape.id}>
                 <Polygon
                   accessibilityLabel={regionSpeech(mode, shape.id, value)}
-                  accessibilityRole="button"
                   fill={fillFor(mode, value)}
                   onPress={
                     onSelectRegion ? () => onSelectRegion(shape.id) : undefined

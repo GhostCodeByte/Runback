@@ -8,6 +8,10 @@ import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
@@ -37,6 +41,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     private val prose = OpenRouterProse(context)
     private val chat = TrainingChat(store, prose)
     private var pending: Pair<Promise, (Int, Intent?) -> Unit>? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var speechPromise: Promise? = null
 
     init {
         context.addActivityEventListener(object : BaseActivityEventListener() {
@@ -67,6 +73,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
             .put("locationPermission", granted(Manifest.permission.ACCESS_FINE_LOCATION))
             .put("notificationPermission", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
             .put("bluetoothPermission", Build.VERSION.SDK_INT < 31 || (granted(Manifest.permission.BLUETOOTH_SCAN) && granted(Manifest.permission.BLUETOOTH_CONNECT)))
+            .put("microphonePermission", granted(Manifest.permission.RECORD_AUDIO))
+            .put("speechRecognition", runCatching { SpeechRecognizer.isRecognitionAvailable(context) }.getOrDefault(false))
             .put("healthConnect", "not_connected")
     }
 
@@ -113,6 +121,15 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         .put("history", strengthIndex().optJSONArray("sessions") ?: JSONArray())
 
     @ReactMethod fun getStrengthState(promise: Promise) = task(promise) { strengthState() }
+    @ReactMethod fun getStrengthSessions(limit: Int, promise: Promise) = task(promise) {
+        val sessions = JSONArray()
+        val history = strengthIndex().optJSONArray("sessions") ?: JSONArray()
+        for (i in 0 until minOf(limit.coerceIn(1, 500), history.length())) {
+            val id = history.optJSONObject(i)?.optString("id") ?: continue
+            store.getDocument("strength_session_$id")?.let(sessions::put)
+        }
+        JSONObject().put("sessions", sessions)
+    }
     @ReactMethod fun saveStrengthTemplates(json: String, promise: Promise) = task(promise) {
         store.putDocument("strength_templates", JSONObject().put("templates", JSONArray(json))); strengthState()
     }
@@ -152,6 +169,100 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         }
         store.putDocument("strength_index", index.put("sessions", kept))
         strengthState()
+    }
+
+    // Muskelkatermeldungen liegen als ein versioniertes Dokument neben den
+    // übrigen Trainingsdokumenten. Dadurch nimmt das vorhandene Backup sie
+    // automatisch mit, ohne eine Datenbankmigration zu benötigen.
+    private fun sorenessState() = store.getDocument("soreness_reports")
+        ?: JSONObject().put("reports", JSONArray())
+
+    @ReactMethod fun getSorenessReports(promise: Promise) = task(promise) { sorenessState() }
+    @ReactMethod fun saveSorenessReport(json: String, promise: Promise) = task(promise) {
+        val report = JSONObject(json)
+        require(report.optLong("at") > 0) { "Muskelkatermeldung ohne Zeitpunkt." }
+        val entries = report.optJSONArray("entries") ?: JSONArray()
+        require(entries.length() <= 45) { "Zu viele Regionen in einer Muskelkatermeldung." }
+        val previous = sorenessState().optJSONArray("reports") ?: JSONArray()
+        val kept = JSONArray()
+        for (i in 0 until previous.length()) {
+            val item = previous.optJSONObject(i) ?: continue
+            if (item.optLong("at") != report.optLong("at")) kept.put(item)
+        }
+        kept.put(report)
+        while (kept.length() > 500) kept.remove(0)
+        store.putDocument("soreness_reports", JSONObject().put("reports", kept))
+        sorenessState()
+    }
+
+    @ReactMethod fun requestSorenessVoicePermissions(promise: Promise) = permissions(
+        arrayOf(Manifest.permission.RECORD_AUDIO), promise)
+
+    @ReactMethod fun transcribeSoreness(promise: Promise) {
+        context.runOnUiQueueThread {
+            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                promise.reject("SPEECH_UNAVAILABLE", "Auf diesem Gerät ist keine Spracherkennung verfügbar.")
+                return@runOnUiQueueThread
+            }
+            if (!granted(Manifest.permission.RECORD_AUDIO)) {
+                promise.reject("MICROPHONE_PERMISSION", "Für die Spracheingabe bitte den Mikrofonzugriff erlauben.")
+                return@runOnUiQueueThread
+            }
+            if (speechPromise != null) {
+                promise.reject("SPEECH_BUSY", "Die Spracherkennung hört bereits zu.")
+                return@runOnUiQueueThread
+            }
+            val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            speechRecognizer = recognizer
+            speechPromise = promise
+            recognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                override fun onError(error: Int) {
+                    finishSpeechError("Spracherkennung fehlgeschlagen (Code $error).")
+                }
+                override fun onResults(results: Bundle?) {
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()?.trim().orEmpty()
+                    if (text.isBlank()) finishSpeechError("Kein gesprochener Text erkannt.")
+                    else finishSpeech(text)
+                }
+            })
+            try {
+                recognizer.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "de-DE")
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                })
+            } catch (error: Exception) {
+                speechRecognizer?.destroy()
+                speechRecognizer = null
+                speechPromise = null
+                promise.reject("SPEECH_START", error.message, error)
+            }
+        }
+    }
+
+    private fun finishSpeech(text: String) {
+        val promise = speechPromise ?: return
+        speechPromise = null
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        promise.resolve(JSONObject().put("text", text).toString())
+    }
+
+    private fun finishSpeechError(message: String) {
+        val promise = speechPromise ?: return
+        speechPromise = null
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        promise.reject("SPEECH_ERROR", message)
     }
 
     @ReactMethod fun getProseSettings(promise: Promise) = task(promise) { prose.settings() }
@@ -351,6 +462,10 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
 
     override fun invalidate() {
         importer.cancel()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        speechPromise?.reject("APP_CLOSED", "Die App wurde geschlossen.")
+        speechPromise = null
         pending?.first?.reject("APP_CLOSED", "Die App wurde geschlossen.")
         pending = null
         chat.resetData {}

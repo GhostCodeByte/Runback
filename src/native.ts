@@ -11,6 +11,10 @@ import type {
   WorkoutTemplate,
 } from './domain/strength';
 import { summarize } from './domain/strength';
+import type {
+  SorenessReport as CapturedSorenessReport,
+  StructuredSorenessItem,
+} from './domain/sorenessInput';
 
 export interface Preset {
   id: string;
@@ -52,8 +56,14 @@ export interface Capabilities {
   locationPermission?: boolean;
   notificationPermission?: boolean;
   bluetoothPermission?: boolean;
+  microphonePermission?: boolean;
+  speechRecognition?: boolean;
   healthConnect?: string;
   [key: string]: unknown;
+}
+export interface SorenessTranscript {
+  text: string;
+  structured?: StructuredSorenessItem[];
 }
 export interface AppState {
   runs: Run[];
@@ -145,10 +155,39 @@ export const native = {
   async strengthSession(id: string): Promise<StrengthSession> {
     return (await nativeCall<any>('getStrengthSession', id)) as StrengthSession;
   },
+  async strengthSessions(limit = 100): Promise<StrengthSession[]> {
+    const raw = await nativeCall<any>('getStrengthSessions', limit);
+    return Array.isArray(raw?.sessions)
+      ? (raw.sessions as StrengthSession[])
+      : [];
+  },
   async deleteStrengthSession(id: string): Promise<StrengthState> {
     return normalizeStrength(
       await nativeCall<any>('deleteStrengthSession', id),
     );
+  },
+  async sorenessReports(): Promise<CapturedSorenessReport[]> {
+    const raw = await nativeCall<any>('getSorenessReports');
+    return Array.isArray(raw?.reports)
+      ? (raw.reports as CapturedSorenessReport[])
+      : [];
+  },
+  async saveSorenessReport(
+    report: CapturedSorenessReport,
+  ): Promise<CapturedSorenessReport[]> {
+    const raw = await nativeCall<any>(
+      'saveSorenessReport',
+      JSON.stringify(report),
+    );
+    return Array.isArray(raw?.reports)
+      ? (raw.reports as CapturedSorenessReport[])
+      : [];
+  },
+  async requestSorenessVoicePermissions(): Promise<Capabilities> {
+    return nativeCall<Capabilities>('requestSorenessVoicePermissions');
+  },
+  async transcribeSoreness(): Promise<SorenessTranscript> {
+    return nativeCall<SorenessTranscript>('transcribeSoreness');
   },
 };
 

@@ -31,6 +31,8 @@ import { WorkoutScreen } from './WorkoutScreen';
 import { ExercisePicker } from './ExercisePicker';
 import { PlanEditor } from './PlanEditor';
 import { PlanList } from './PlanList';
+import { BodyMap } from './BodyMap';
+import { SorenessCapture } from './SorenessCapture';
 import {
   createTemplate,
   deleteTemplate,
@@ -57,6 +59,8 @@ import { ProseSettings, ProseExplanation } from './ProseSettings';
 import {
   acceptRecommendation,
   analyzeRun,
+  allRegionIds,
+  calculateFreshness,
   evaluateExperiment,
   transitionExperiment,
 } from '../domain';
@@ -65,6 +69,11 @@ import type {
   Recommendation,
   RunPurpose,
 } from '../domain/types';
+import type {
+  SorenessReport as CapturedSorenessReport,
+} from '../domain/sorenessInput';
+import type { MuscleReport } from '../domain/freshness';
+import type { RegionId } from '../domain/regions';
 import {
   native,
   nativeCall,
@@ -145,7 +154,8 @@ type Page =
   | 'models'
   | 'statistics'
   | 'chat'
-  | 'plans';
+  | 'plans'
+  | 'muscle-map';
 
 const RunRow = memo(function RunRow({
   run,
@@ -207,6 +217,14 @@ export function RunbackApp() {
   const [planDraft, setPlanDraft] = useState<WorkoutTemplate | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recentSessions, setRecentSessions] = useState<StrengthSession[]>([]);
+  const [strengthSessions, setStrengthSessions] = useState<StrengthSession[]>([]);
+  const [sorenessReports, setSorenessReports] = useState<
+    CapturedSorenessReport[]
+  >([]);
+  const [sorenessStorageAvailable, setSorenessStorageAvailable] =
+    useState(false);
+  const [sorenessOpen, setSorenessOpen] = useState(false);
+  const sorenessPromptShown = useRef(false);
   const strengthRef = useRef(strength);
   strengthRef.current = strength;
   const settings = state.settings;
@@ -284,14 +302,51 @@ export function RunbackApp() {
       .then(next => {
         setStrength(next);
         if (next.active) {
+          setSorenessOpen(false);
           setWorkoutOpen(true);
         }
       })
       .catch(() => {});
+    void native
+      .strengthSessions()
+      .then(setStrengthSessions)
+      .catch(() => {});
+    void native
+      .sorenessReports()
+      .then(next => {
+        setSorenessReports(next);
+        setSorenessStorageAvailable(true);
+      })
+      .catch(() => {});
   }, []);
+  useEffect(() => {
+    if (
+      !loaded ||
+      !sorenessStorageAvailable ||
+      sorenessPromptShown.current ||
+      showOnboarding ||
+      isRecording ||
+      workoutOpen
+    ) {
+      return;
+    }
+    sorenessPromptShown.current = true;
+    const today = new Date();
+    const hasReportToday = sorenessReports.some(report => {
+      const at = new Date(report.at);
+      return (
+        at.getFullYear() === today.getFullYear() &&
+        at.getMonth() === today.getMonth() &&
+        at.getDate() === today.getDate()
+      );
+    });
+    if (!hasReportToday) {
+      setSorenessOpen(true);
+    }
+  }, [isRecording, loaded, sorenessReports, sorenessStorageAvailable, showOnboarding, workoutOpen]);
   // Sekundentakt nur, solange eine Pause läuft.
   useEffect(() => {
-    if (!strength.active?.restStartedAt) {
+    if (strength.active?.restStartedAt === undefined) {
       return;
     }
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -321,6 +376,10 @@ export function RunbackApp() {
       'hardwareBackPress',
       () => {
         if (showOnboarding) return false;
+        if (sorenessOpen) {
+          setSorenessOpen(false);
+          return true;
+        }
         if (workoutOpen) {
           if (pickerOpen) {
             setPickerOpen(false);
@@ -350,7 +409,7 @@ export function RunbackApp() {
       },
     );
     return () => subscription.remove();
-  }, [selected, page, tab, purposePicker, showOnboarding, workoutOpen, pickerOpen]);
+  }, [selected, page, tab, purposePicker, showOnboarding, workoutOpen, pickerOpen, sorenessOpen]);
   useEffect(() => {
     setNote(selected?.note || '');
   }, [selected?.id, selected?.note]);
@@ -382,6 +441,9 @@ export function RunbackApp() {
   );
   const openPage = (next: Page) => {
     setPage(next);
+    if (next === 'muscle-map') {
+      setNow(Date.now());
+    }
     if (next === 'profile') {
       setGoalInput(settings.goal || '');
       setMinuteInput(String(settings.minutes || 30));
@@ -437,6 +499,7 @@ export function RunbackApp() {
     void action(async () => {
       const next = await native.finishStrengthSession(finished);
       setStrength(next);
+      setStrengthSessions(await native.strengthSessions().catch(() => []));
       setWorkoutOpen(false);
       setMessage('Training gespeichert.');
     });
@@ -561,6 +624,70 @@ export function RunbackApp() {
       }`
     : '';
   const snapshot = selected ? analyzeRun(selected, experiment) : null;
+  const muscleReports = useMemo<MuscleReport[]>(
+    () =>
+      sorenessReports.flatMap(report => {
+        const entries: MuscleReport[] = report.entries.map(entry => ({
+          at: report.at,
+          regionId: entry.regionId,
+          value: entry.value,
+          kind: 'soreness' as const,
+        }));
+        return entries.length
+          ? entries
+          : report.nothingToday
+          ? ([{ kind: 'nothing_today' as const, at: report.at }] as MuscleReport[])
+          : [];
+      }),
+    [sorenessReports],
+  );
+  const freshness = useMemo(
+    () =>
+      calculateFreshness({
+        at: now,
+        sessions: strengthSessions,
+        reports: muscleReports,
+        runs,
+      }),
+    [muscleReports, now, runs, strengthSessions],
+  );
+  const freshnessValues = useMemo(
+    () =>
+      allRegionIds().reduce(
+        (values, id) => {
+          const result = freshness.regions[id];
+          values[id] = result.kind === 'freshness' ? result.value : null;
+          return values;
+        },
+        {} as Record<RegionId, number | null>,
+      ),
+    [freshness],
+  );
+  const openSorenessCapture = () => {
+    setNow(Date.now());
+    setSorenessOpen(true);
+  };
+  const transcribeSoreness = async () => {
+    const capabilities = await native.requestSorenessVoicePermissions();
+    setState(current => ({ ...current, capabilities }));
+    if (!capabilities.microphonePermission) {
+      throw new Error(
+        'Für die Spracheingabe fehlt die Mikrofonfreigabe. Tippen funktioniert unverändert.',
+      );
+    }
+    if (!capabilities.speechRecognition) {
+      throw new Error('Auf diesem Gerät ist keine Spracherkennung verfügbar.');
+    }
+    return native.transcribeSoreness();
+  };
+  const saveSoreness = (report: CapturedSorenessReport) => {
+    void action(async () => {
+      const next = await native.saveSorenessReport(report);
+      setSorenessReports(next);
+      setSorenessOpen(false);
+      setMessage('Muskelkatermeldung gespeichert.');
+    });
+  };
 
   const renderHome = () => (
     <>
@@ -657,6 +784,11 @@ export function RunbackApp() {
               title="Trainingspläne"
               subtitle="Vorlagen anlegen, ändern und starten"
               onPress={() => openPage('plans')}
+            />
+            <Row
+              title="Muskelkarte"
+              subtitle="Gemeldeten Muskelkater und gerechnete Frische ansehen"
+              onPress={() => openPage('muscle-map')}
             />
           </>
         )}
@@ -1271,6 +1403,11 @@ export function RunbackApp() {
           onPress={() => openPage('plans')}
         />
         <Row
+          title="Muskelkarte"
+          subtitle="Gemeldeten Muskelkater und gerechnete Frische ansehen"
+          onPress={() => openPage('muscle-map')}
+        />
+        <Row
           title="Trainingschat"
           subtitle="Fragen stellen und deine Läufe verstehen"
           onPress={() => openPage('chat')}
@@ -1646,6 +1783,44 @@ export function RunbackApp() {
     </>
   );
 
+  const renderMuscleMap = () => {
+    const latestReport = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
+    return (
+      <>
+        <Text style={styles.title}>Muskelkarte</Text>
+        <Copy muted>
+          Frische ist eine gerechnete Größe je Region. 100 bedeutet: keine
+          nachwirkende Belastung im Sinne des Modells — nicht gesund, stark oder
+          bereit.
+        </Copy>
+        <Section title="Gerechnete Frische">
+          <BodyMap mode="freshness" values={freshnessValues} />
+          <Copy muted>
+            {freshness.model_version} · Grundlage:{' '}
+            {freshness.contributing_sessions.length} Krafttrainingseinheiten und{' '}
+            {freshness.contributing_reports.length} Meldungen.
+          </Copy>
+        </Section>
+        <Section title="Deine Meldung">
+          <Copy muted>
+            {latestReport
+              ? `Letzte Meldung: ${date(latestReport.at)} · ${
+                  latestReport.nothingToday
+                    ? 'heute nichts'
+                    : `${latestReport.entries.length} Regionen angegeben`
+                }.`
+              : 'Noch keine Meldung gespeichert.'}
+          </Copy>
+          <Button title="Muskelkater melden" onPress={openSorenessCapture} />
+        </Section>
+        <Copy muted>
+          Fehlende oder unsichere Grundlage bleibt auf der Karte unbekannt. Die
+          Ansicht ersetzt keine medizinische Einschätzung.
+        </Copy>
+      </>
+    );
+  };
+
   const renderModels = () => (
     <>
       <Text style={styles.title}>Auswertung & Modelle</Text>
@@ -1724,6 +1899,8 @@ export function RunbackApp() {
     renderVendorImport()
   ) : page === 'presets' ? (
     renderPresets()
+  ) : page === 'muscle-map' ? (
+    renderMuscleMap()
   ) : page === 'models' ? (
     renderModels()
   ) : tab === 'Heute' ? (
@@ -1737,6 +1914,47 @@ export function RunbackApp() {
   ) : (
     renderMore()
   );
+  if (sorenessOpen && !workoutOpen && !showOnboarding && !recording) {
+    return (
+      <View
+        style={[
+          styles.app,
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
+        ]}
+      >
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Muskelkatermeldung schließen"
+            onPress={() => setSorenessOpen(false)}
+            style={styles.back}
+          >
+            <Text style={styles.backText}>‹</Text>
+            <Text style={styles.backLabel}>Zurück</Text>
+          </Pressable>
+          {busy ? <ActivityIndicator color={color.green} /> : null}
+        </View>
+        {error ? (
+          <View style={styles.notice}>
+            <Copy>{error}</Copy>
+          </View>
+        ) : null}
+        <SorenessCapture
+          busy={busy}
+          now={now}
+          onSave={saveSoreness}
+          onSkip={() => setSorenessOpen(false)}
+          onTranscribe={transcribeSoreness}
+          voiceAvailable={Boolean(state.capabilities.speechRecognition)}
+          voiceHint={
+            state.capabilities.speechRecognition === false
+              ? 'Auf diesem Gerät ist keine Spracherkennung verfügbar. Tippen funktioniert unverändert.'
+              : undefined
+          }
+        />
+      </View>
+    );
+  }
   if (planDraft) {
     return (
       <View
