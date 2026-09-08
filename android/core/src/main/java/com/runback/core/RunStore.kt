@@ -221,6 +221,7 @@ class RunStore(context: Context) {
         require(key.length<=200)
         db.insertWithOnConflict("documents",null,ContentValues().apply { put("key",key);put("json",value.toString()) },SQLiteDatabase.CONFLICT_REPLACE); Unit
     }
+    fun deleteDocument(key: String) = locked { db.delete("documents","key=?",arrayOf(key)); Unit }
     fun settings(): JSONObject = getDocument("settings") ?: JSONObject().put("rawBudgetMb",512).put("weatherEnabled",false)
     fun saveSettings(value: JSONObject) { putDocument("settings",value) }
     fun saveFeedback(id: String, value: JSONObject) = locked {
