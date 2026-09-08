@@ -20,6 +20,8 @@ Bei Annahme werden Baseline, Methode, relevante Mindeständerung, Dauer-/Distanz
 
 ## Dateien, Aufbewahrung und Backup
 
+Kraft-Trainingspläne und bestätigte Muskelkatermeldungen werden als Nutzerdokumente im selben Backup-Bereich gespeichert. Kraft-Sessions schreiben Plan- und Ist-Sätze getrennt; ein aktiver Satz wird nach jeder relevanten Eingabe persistiert. Die Muskelkarten-Historie zeigt nur abgeschlossene Kraft-Sessions und die letzte bestätigte Meldung. Fehlende Regionen bleiben unbekannt und werden nicht als null interpretiert.
+
 Das ZIP-Backup (Schema 2) enthält Tabellen für Läufe, Originalsamples, Ereignisse, Nutzerdokumente, Importidentitäten, Löschmarkierungen, erhaltene Quelldateien sowie optionale Wellness- und Kraftdaten (`wellness`, `strength_workouts`, `strength_sets`). Schema-1-Backups lassen sich weiterhin wiederherstellen; die neuen Tabellen bleiben dann leer. Wiederherstellung ist transaktional; beschädigte Backups lassen den bestehenden Bestand unangetastet. Die normale App-Sicherung enthält keine OpenRouter-Schlüssel. GPX, FIT und JSON sind begrenzte Austauschformate.
 
 Originale werden nicht automatisch gelöscht. 512 MB ist die voreingestellte Budgetangabe; eine automatische Budgetbereinigung ist noch nicht freigeschaltet. Neue Aufzeichnungen werden unter 32 MB freiem Speicher abgelehnt. Importlimits: 64 MB pro Aktivität, 512 MB expandierte Gesamtmenge, 2.000 Archiveinträge, 150.000 Samples pro Aktivität. Eine automatische, geschützte Rohdatenreduktion nach V1-15 bleibt offen. Sehr große Backups benötigen zusätzliche Speicherprüfung, da Wiederherstellung derzeit tabellenweise im Speicher verarbeitet wird.
@@ -32,6 +34,8 @@ Originale werden nicht automatisch gelöscht. 512 MB ist die voreingestellte Bud
 - OpenRouter: deaktiviert ohne Nutzerentscheidung, Key im Android Keystore geschützt. Die bisherige alternative Textdarstellung ordnet ausschließlich unveränderte Engine-Aussagen an. Der separate Trainingschat beantwortet freie Fragen und kann auf Wunsch Profil, gespeicherte Experimente, paginierte Laufzusammenfassungen, Notizen, RPE und Kilometerabschnitte lesen. Er verändert weder Daten noch Engine-Entscheidungen. Automatische Werkzeugantworten enthalten keine GPS-Geometrie oder Rohsamples. Freitextnachrichten und Notizen können persönliche Informationen enthalten und werden an OpenRouter und den ausgewählten Anbieter übertragen. Kein Live-Aufruf ohne konfigurierten Schlüssel getestet.
 
 ## Einrichtung, Statistik und Chat
+
+Mehr → Trainingspläne verwaltet bearbeitbare Vorlagen für Krafttraining. Mehr → Kraft-Historie zeigt abgeschlossene Einheiten, absolvierte Sätze und erfasstes Volumen; Planwerte werden nicht nachträglich als Ist-Werte ausgegeben. Mehr → Muskelkarte bietet die Ansichten „Frische“ und „Gemeldeter Muskelkater“. Frische ist eine regionale Modellgröße aus Kraft- und Meldungsdaten, kein Readiness-, Gesundheits- oder Diagnosescore. Die optionale Android-Spracherfassung nutzt den nativen deutschen SpeechRecognizer; die strukturierte Auswertung erfolgt lokal über das deterministische Lexikon, Roh-Audio wird nicht gespeichert.
 
 Beim ersten Start erscheint eine freiwillige Einrichtung: Ziel, Zeitbudget, Lauftage, Standardzweck, Dateiimport und optionale Aufzeichnungsberechtigungen. Schritte werden gespeichert; „Später“ beendet die Einrichtung. Unter Mehr → Einrichtung lässt sie sich erneut öffnen. Import nutzt dieselbe Verarbeitung und Duplikaterkennung wie Daten & Speicher.
 

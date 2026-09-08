@@ -31,7 +31,7 @@ import { WorkoutScreen } from './WorkoutScreen';
 import { ExercisePicker } from './ExercisePicker';
 import { PlanEditor } from './PlanEditor';
 import { PlanList } from './PlanList';
-import { BodyMap } from './BodyMap';
+import { BodyMap, type BodyMapMode } from './BodyMap';
 import { SorenessCapture } from './SorenessCapture';
 import {
   createTemplate,
@@ -47,6 +47,7 @@ import {
   emptyStrengthState,
   finishSession,
   selectExercise,
+  summarize,
   startSession,
   templateForDay,
   type Exercise,
@@ -69,9 +70,7 @@ import type {
   Recommendation,
   RunPurpose,
 } from '../domain/types';
-import type {
-  SorenessReport as CapturedSorenessReport,
-} from '../domain/sorenessInput';
+import type { SorenessReport as CapturedSorenessReport } from '../domain/sorenessInput';
 import type { MuscleReport } from '../domain/freshness';
 import type { RegionId } from '../domain/regions';
 import {
@@ -155,6 +154,7 @@ type Page =
   | 'statistics'
   | 'chat'
   | 'plans'
+  | 'strength-history'
   | 'muscle-map';
 
 const RunRow = memo(function RunRow({
@@ -217,13 +217,16 @@ export function RunbackApp() {
   const [planDraft, setPlanDraft] = useState<WorkoutTemplate | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recentSessions, setRecentSessions] = useState<StrengthSession[]>([]);
-  const [strengthSessions, setStrengthSessions] = useState<StrengthSession[]>([]);
+  const [strengthSessions, setStrengthSessions] = useState<StrengthSession[]>(
+    [],
+  );
   const [sorenessReports, setSorenessReports] = useState<
     CapturedSorenessReport[]
   >([]);
   const [sorenessStorageAvailable, setSorenessStorageAvailable] =
     useState(false);
   const [sorenessOpen, setSorenessOpen] = useState(false);
+  const [muscleMapMode, setMuscleMapMode] = useState<BodyMapMode>('freshness');
   const sorenessPromptShown = useRef(false);
   const strengthRef = useRef(strength);
   strengthRef.current = strength;
@@ -343,7 +346,14 @@ export function RunbackApp() {
     if (!hasReportToday) {
       setSorenessOpen(true);
     }
-  }, [isRecording, loaded, sorenessReports, sorenessStorageAvailable, showOnboarding, workoutOpen]);
+  }, [
+    isRecording,
+    loaded,
+    sorenessReports,
+    sorenessStorageAvailable,
+    showOnboarding,
+    workoutOpen,
+  ]);
   // Sekundentakt nur, solange eine Pause läuft.
   useEffect(() => {
     if (strength.active?.restStartedAt === undefined) {
@@ -409,7 +419,16 @@ export function RunbackApp() {
       },
     );
     return () => subscription.remove();
-  }, [selected, page, tab, purposePicker, showOnboarding, workoutOpen, pickerOpen, sorenessOpen]);
+  }, [
+    selected,
+    page,
+    tab,
+    purposePicker,
+    showOnboarding,
+    workoutOpen,
+    pickerOpen,
+    sorenessOpen,
+  ]);
   useEffect(() => {
     setNote(selected?.note || '');
   }, [selected?.id, selected?.note]);
@@ -483,12 +502,18 @@ export function RunbackApp() {
     setRecentSessions(loaded.filter(Boolean) as StrengthSession[]);
   }, []);
   const startStrength = (template: WorkoutTemplate | null) => {
-    const session = startSession(template, Date.now());
-    setStrength(current => ({ ...current, active: session }));
-    setWorkoutOpen(true);
-    setNow(Date.now());
-    void loadRecentSessions(strengthRef.current).catch(() => {});
-    void native.saveStrengthSession(session).catch(e => setError(e.message));
+    if (strengthRef.current.active) {
+      setWorkoutOpen(true);
+      return;
+    }
+    void action(async () => {
+      const session = startSession(template, Date.now());
+      setStrength(current => ({ ...current, active: session }));
+      setWorkoutOpen(true);
+      setNow(Date.now());
+      await loadRecentSessions(strengthRef.current);
+      await native.saveStrengthSession(session);
+    });
   };
   const finishStrength = () => {
     const active = strengthRef.current.active;
@@ -510,7 +535,10 @@ export function RunbackApp() {
     setStrength(current => ({ ...current, templates: next }));
     void native.saveStrengthTemplates(next).catch(e => setError(e.message));
   };
-  const todaysTemplate = templateForDay(strength.templates, new Date().getDay());
+  const todaysTemplate = templateForDay(
+    strength.templates,
+    new Date().getDay(),
+  );
   const start = () => {
     void action(async () => {
       const permissions = await nativeCall<{ locationPermission: boolean }>(
@@ -636,7 +664,9 @@ export function RunbackApp() {
         return entries.length
           ? entries
           : report.nothingToday
-          ? ([{ kind: 'nothing_today' as const, at: report.at }] as MuscleReport[])
+          ? ([
+              { kind: 'nothing_today' as const, at: report.at },
+            ] as MuscleReport[])
           : [];
       }),
     [sorenessReports],
@@ -653,16 +683,23 @@ export function RunbackApp() {
   );
   const freshnessValues = useMemo(
     () =>
-      allRegionIds().reduce(
-        (values, id) => {
-          const result = freshness.regions[id];
-          values[id] = result.kind === 'freshness' ? result.value : null;
-          return values;
-        },
-        {} as Record<RegionId, number | null>,
-      ),
+      allRegionIds().reduce((values, id) => {
+        const result = freshness.regions[id];
+        values[id] = result.kind === 'freshness' ? result.value : null;
+        return values;
+      }, {} as Record<RegionId, number | null>),
     [freshness],
   );
+  const sorenessValues = useMemo(() => {
+    const latest = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
+    const byId = new Map(
+      latest?.entries.map(entry => [entry.regionId, entry.value]) ?? [],
+    );
+    return allRegionIds().reduce((values, id) => {
+      values[id] = byId.get(id) ?? null;
+      return values;
+    }, {} as Record<RegionId, number | null>);
+  }, [sorenessReports]);
   const openSorenessCapture = () => {
     setNow(Date.now());
     setSorenessOpen(true);
@@ -784,6 +821,11 @@ export function RunbackApp() {
               title="Trainingspläne"
               subtitle="Vorlagen anlegen, ändern und starten"
               onPress={() => openPage('plans')}
+            />
+            <Row
+              title="Kraft-Historie"
+              subtitle="Erfasste Einheiten, Sätze und Volumen"
+              onPress={() => openPage('strength-history')}
             />
             <Row
               title="Muskelkarte"
@@ -1403,6 +1445,11 @@ export function RunbackApp() {
           onPress={() => openPage('plans')}
         />
         <Row
+          title="Kraft-Historie"
+          subtitle="Erfasste Einheiten, Sätze und Volumen"
+          onPress={() => openPage('strength-history')}
+        />
+        <Row
           title="Muskelkarte"
           subtitle="Gemeldeten Muskelkater und gerechnete Frische ansehen"
           onPress={() => openPage('muscle-map')}
@@ -1783,22 +1830,107 @@ export function RunbackApp() {
     </>
   );
 
+  const renderStrengthHistory = () => {
+    const sessions = [...strengthSessions]
+      .filter(session => session.status === 'finished')
+      .sort(
+        (a, b) =>
+          (b.endTime ?? b.startTime) - (a.endTime ?? a.startTime) ||
+          b.id.localeCompare(a.id),
+      );
+    return (
+      <>
+        <Text style={styles.title}>Kraft-Historie</Text>
+        <Copy muted>
+          Hier bleibt sichtbar, was du tatsächlich erfasst hast. Planwerte und
+          tatsächliche Sätze werden getrennt gehalten.
+        </Copy>
+        {sessions.length ? (
+          sessions.map(session => {
+            const summary = summarize(session);
+            return (
+              <View key={session.id} style={styles.historyCard}>
+                <Text style={styles.subTitle}>{session.name}</Text>
+                <Text style={styles.muted}>{date(session.startTime)}</Text>
+                <View style={styles.metrics}>
+                  <Stat label="Sätze" value={String(summary.completedSets)} />
+                  <Stat
+                    label="Volumen"
+                    value={`${number(summary.volumeKg, 1)} kg`}
+                  />
+                </View>
+                <Copy muted>
+                  {session.exercises
+                    .map(
+                      exercise => `${exercise.name} (${exercise.sets.length})`,
+                    )
+                    .join(' · ')}
+                </Copy>
+              </View>
+            );
+          })
+        ) : (
+          <View style={styles.empty}>
+            <Text style={styles.subTitle}>Noch keine Kraft-Einheit.</Text>
+            <Copy muted>
+              Starte ein freies Training oder einen Plan. Jede bestätigte
+              Einheit erscheint danach hier.
+            </Copy>
+            <Button
+              title="Zum Krafttraining"
+              onPress={() => switchTab('Heute')}
+            />
+          </View>
+        )}
+      </>
+    );
+  };
+
   const renderMuscleMap = () => {
     const latestReport = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
     return (
       <>
         <Text style={styles.title}>Muskelkarte</Text>
         <Copy muted>
-          Frische ist eine gerechnete Größe je Region. 100 bedeutet: keine
-          nachwirkende Belastung im Sinne des Modells — nicht gesund, stark oder
-          bereit.
+          {muscleMapMode === 'freshness'
+            ? 'Frische ist eine gerechnete Größe je Region. 100 bedeutet: keine nachwirkende Belastung im Sinne des Modells — nicht gesund, stark oder bereit.'
+            : 'Muskelkater ist deine eigene Angabe je Region auf einer Skala von 0 bis 10. Er ist keine Messung und keine Diagnose.'}
         </Copy>
-        <Section title="Gerechnete Frische">
-          <BodyMap mode="freshness" values={freshnessValues} />
+        <Section
+          title={
+            muscleMapMode === 'freshness'
+              ? 'Gerechnete Frische'
+              : 'Gemeldeter Muskelkater'
+          }
+        >
+          <View style={styles.choiceRow}>
+            <View style={styles.flex}>
+              <Button
+                secondary={muscleMapMode !== 'freshness'}
+                small
+                title="Frische"
+                onPress={() => setMuscleMapMode('freshness')}
+              />
+            </View>
+            <View style={styles.flex}>
+              <Button
+                secondary={muscleMapMode !== 'soreness'}
+                small
+                title="Gemeldeter Muskelkater"
+                onPress={() => setMuscleMapMode('soreness')}
+              />
+            </View>
+          </View>
+          <BodyMap
+            mode={muscleMapMode}
+            values={
+              muscleMapMode === 'freshness' ? freshnessValues : sorenessValues
+            }
+          />
           <Copy muted>
-            {freshness.model_version} · Grundlage:{' '}
-            {freshness.contributing_sessions.length} Krafttrainingseinheiten und{' '}
-            {freshness.contributing_reports.length} Meldungen.
+            {muscleMapMode === 'freshness'
+              ? `${freshness.model_version} · Grundlage: ${freshness.contributing_sessions.length} Krafttrainingseinheiten und ${freshness.contributing_reports.length} Meldungen.`
+              : 'Letzte bestätigte Meldung · Skala 0 bis 10 · keine Messung.'}
           </Copy>
         </Section>
         <Section title="Deine Meldung">
@@ -1878,15 +2010,15 @@ export function RunbackApp() {
       }
       onDelete={id => persistTemplates(deleteTemplate(strength.templates, id))}
       onDuplicate={id =>
-        persistTemplates(
-          duplicateTemplate(strength.templates, id, Date.now()),
-        )
+        persistTemplates(duplicateTemplate(strength.templates, id, Date.now()))
       }
       onEdit={template => setPlanDraft(template)}
       onStart={template => startStrength(template)}
       templates={strength.templates}
       today={new Date().getDay()}
     />
+  ) : page === 'strength-history' ? (
+    renderStrengthHistory()
   ) : page === 'chat' ? (
     <TrainingChat onSettings={() => openPage('models')} />
   ) : page === 'profile' ? (
@@ -2359,6 +2491,12 @@ const styles = StyleSheet.create({
   },
   importLink: { minHeight: 48, justifyContent: 'center' },
   empty: { paddingVertical: 40, gap: 18 },
+  historyCard: {
+    backgroundColor: color.raised,
+    borderRadius: 10,
+    padding: 16,
+    gap: 6,
+  },
   pressed: { opacity: 0.7 },
   metrics: { flexDirection: 'row', gap: 16, paddingVertical: 24 },
   bigMetric: { paddingTop: 38, paddingBottom: 8 },
