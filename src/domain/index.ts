@@ -6,3 +6,4 @@ export * from './vendorImports';
 export * from './regions';
 export * from './strength';
 export * from './catalog';
+export * from './plans';

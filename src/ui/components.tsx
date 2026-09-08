@@ -18,15 +18,19 @@ export function Button({
   secondary = false,
   disabled = false,
   small = false,
+  label,
 }: {
   title: string;
   onPress: () => void;
   secondary?: boolean;
   disabled?: boolean;
   small?: boolean;
+  /** Vorlesetext, wenn die Beschriftung allein nicht eindeutig ist. */
+  label?: string;
 }) {
   return (
     <Pressable
+      accessibilityLabel={label ?? title}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}

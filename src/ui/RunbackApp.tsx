@@ -29,6 +29,14 @@ import { DeviceSettings } from './DeviceSettings';
 import { VendorImport } from './VendorImport';
 import { WorkoutScreen } from './WorkoutScreen';
 import { ExercisePicker } from './ExercisePicker';
+import { PlanEditor } from './PlanEditor';
+import { PlanList } from './PlanList';
+import {
+  createTemplate,
+  deleteTemplate,
+  duplicateTemplate,
+  upsertTemplate,
+} from '../domain/plans';
 import {
   addExercise,
   addSet,
@@ -136,7 +144,8 @@ type Page =
   | 'presets'
   | 'models'
   | 'statistics'
-  | 'chat';
+  | 'chat'
+  | 'plans';
 
 const RunRow = memo(function RunRow({
   run,
@@ -195,6 +204,7 @@ export function RunbackApp() {
   const [strength, setStrength] = useState<StrengthState>(emptyStrengthState());
   const [workoutOpen, setWorkoutOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [planDraft, setPlanDraft] = useState<WorkoutTemplate | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recentSessions, setRecentSessions] = useState<StrengthSession[]>([]);
   const strengthRef = useRef(strength);
@@ -431,6 +441,12 @@ export function RunbackApp() {
       setMessage('Training gespeichert.');
     });
   };
+  // Pläne bleiben Nutzerartefakte: geschrieben wird nur, was der Nutzer hier
+  // ausdrücklich bestätigt hat (T-6).
+  const persistTemplates = (next: WorkoutTemplate[]) => {
+    setStrength(current => ({ ...current, templates: next }));
+    void native.saveStrengthTemplates(next).catch(e => setError(e.message));
+  };
   const todaysTemplate = templateForDay(strength.templates, new Date().getDay());
   const start = () => {
     void action(async () => {
@@ -637,6 +653,11 @@ export function RunbackApp() {
                 onPress={() => startStrength(null)}
               />
             ) : null}
+            <Row
+              title="Trainingspläne"
+              subtitle="Vorlagen anlegen, ändern und starten"
+              onPress={() => openPage('plans')}
+            />
           </>
         )}
       </Section>
@@ -1245,6 +1266,11 @@ export function RunbackApp() {
           onPress={() => openPage('statistics')}
         />
         <Row
+          title="Trainingspläne"
+          subtitle="Vorlagen für dein Krafttraining"
+          onPress={() => openPage('plans')}
+        />
+        <Row
           title="Trainingschat"
           subtitle="Fragen stellen und deine Läufe verstehen"
           onPress={() => openPage('chat')}
@@ -1669,6 +1695,23 @@ export function RunbackApp() {
     renderDetail()
   ) : page === 'statistics' ? (
     <Statistics runs={runs} />
+  ) : page === 'plans' ? (
+    <PlanList
+      busy={busy}
+      onCreate={() =>
+        setPlanDraft(createTemplate(Date.now(), '', strength.templates))
+      }
+      onDelete={id => persistTemplates(deleteTemplate(strength.templates, id))}
+      onDuplicate={id =>
+        persistTemplates(
+          duplicateTemplate(strength.templates, id, Date.now()),
+        )
+      }
+      onEdit={template => setPlanDraft(template)}
+      onStart={template => startStrength(template)}
+      templates={strength.templates}
+      today={new Date().getDay()}
+    />
   ) : page === 'chat' ? (
     <TrainingChat onSettings={() => openPage('models')} />
   ) : page === 'profile' ? (
@@ -1694,6 +1737,32 @@ export function RunbackApp() {
   ) : (
     renderMore()
   );
+  if (planDraft) {
+    return (
+      <View
+        style={[
+          styles.app,
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
+        ]}
+      >
+        {error ? (
+          <View style={styles.notice}>
+            <Copy>{error}</Copy>
+          </View>
+        ) : null}
+        <PlanEditor
+          busy={busy}
+          onCancel={() => setPlanDraft(null)}
+          onSave={template => {
+            persistTemplates(upsertTemplate(strength.templates, template));
+            setPlanDraft(null);
+            setMessage('Plan gespeichert.');
+          }}
+          template={planDraft}
+        />
+      </View>
+    );
+  }
   if (strength.active && workoutOpen) {
     const session = strength.active;
     return (
