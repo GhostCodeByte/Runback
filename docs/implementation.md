@@ -20,7 +20,7 @@ Bei Annahme werden Baseline, Methode, relevante Mindeständerung, Dauer-/Distanz
 
 ## Dateien, Aufbewahrung und Backup
 
-Das ZIP-Backup (Schema 1) enthält Tabellen für Läufe, Originalsamples, Ereignisse, Nutzerdokumente, Importidentitäten, Löschmarkierungen und erhaltene Quelldateien. Wiederherstellung ist transaktional; beschädigte Backups lassen den bestehenden Bestand unangetastet. Die normale App-Sicherung enthält keine OpenRouter-Schlüssel. GPX, FIT und JSON sind begrenzte Austauschformate.
+Das ZIP-Backup (Schema 2) enthält Tabellen für Läufe, Originalsamples, Ereignisse, Nutzerdokumente, Importidentitäten, Löschmarkierungen, erhaltene Quelldateien sowie optionale Wellness- und Kraftdaten (`wellness`, `strength_workouts`, `strength_sets`). Schema-1-Backups lassen sich weiterhin wiederherstellen; die neuen Tabellen bleiben dann leer. Wiederherstellung ist transaktional; beschädigte Backups lassen den bestehenden Bestand unangetastet. Die normale App-Sicherung enthält keine OpenRouter-Schlüssel. GPX, FIT und JSON sind begrenzte Austauschformate.
 
 Originale werden nicht automatisch gelöscht. 512 MB ist die voreingestellte Budgetangabe; eine automatische Budgetbereinigung ist noch nicht freigeschaltet. Neue Aufzeichnungen werden unter 32 MB freiem Speicher abgelehnt. Importlimits: 64 MB pro Aktivität, 512 MB expandierte Gesamtmenge, 2.000 Archiveinträge, 150.000 Samples pro Aktivität. Eine automatische, geschützte Rohdatenreduktion nach V1-15 bleibt offen. Sehr große Backups benötigen zusätzliche Speicherprüfung, da Wiederherstellung derzeit tabellenweise im Speicher verarbeitet wird.
 
@@ -34,6 +34,8 @@ Originale werden nicht automatisch gelöscht. 512 MB ist die voreingestellte Bud
 ## Einrichtung, Statistik und Chat
 
 Beim ersten Start erscheint eine freiwillige Einrichtung: Ziel, Zeitbudget, Lauftage, Standardzweck, Dateiimport und optionale Aufzeichnungsberechtigungen. Schritte werden gespeichert; „Später“ beendet die Einrichtung. Unter Mehr → Einrichtung lässt sie sich erneut öffnen. Import nutzt dieselbe Verarbeitung und Duplikaterkennung wie Daten & Speicher.
+
+Optionale App-Importe (Fitbit, Google Fit, Strong, Mi Fitness/Zepp, Apple Health, Samsung Health, Garmin, Polar, Strava, Huawei und generische FIT/GPX/TCX/CSV/JSON-Quellen) werden in [App-Importe](vendor-import.md) beschrieben: strombasierte Verarbeitung mit denselben Größenbudgets, Tracks vor Zusammenfassungen, idempotente Wellness- (`wellness`) und Krafttabellen (`strength_workouts`, `strength_sets`), Anzeige-Kontext ohne Readiness-Scores.
 
 Mehr → Statistik zeigt abgeschlossene/importierte Läufe, acht lokale Kalenderwochen, gewichtetes Tempo ab 500 Metern sowie subjektive RPE-Mittelwerte. Wochen werden kalendarisch über Sommer-/Winterzeit gebildet. Die Oberfläche wertet die bis zu 1.000 geladenen Läufe aus und benennt diese Grenze bei entsprechend großen Beständen. Der Chat kann ältere Läufe paginiert abrufen und Gesamtsummen über den gesamten Bestand berechnen.
 
