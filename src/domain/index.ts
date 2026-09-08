@@ -11,3 +11,4 @@ export * from './calibration';
 export * from './modelValidation';
 export * from './progression';
 export * from './coupling';
+export * from './plans';
