@@ -170,9 +170,9 @@ describe('Planeditor', () => {
   it('ändert Wiederholungen, Gewicht und Pause eines Satzes', () => {
     const handlers = editorHandlers();
     const tree = renderEditor(template(), handlers);
-    type(tree, 'Wiederholungen für Satz 1', '3');
-    type(tree, 'Gewicht für Satz 1 in Kilogramm', '107,5');
-    type(tree, 'Pause nach Satz 1 in Sekunden', '240');
+    type(tree, 'Wiederholungen für Satz 1 von Kniebeuge (Langhantel)', '3');
+    type(tree, 'Gewicht für Satz 1 von Kniebeuge (Langhantel) in Kilogramm', '107,5');
+    type(tree, 'Pause nach Satz 1 von Kniebeuge (Langhantel) in Sekunden', '240');
     press(tree, 'Plan speichern');
     expect(handlers.onSave.mock.calls[0][0].exercises[0].sets[0]).toEqual({
       kind: 'normal',
@@ -186,7 +186,7 @@ describe('Planeditor', () => {
   it('nimmt eine geleerte Eingabe als nicht vorgegeben', () => {
     const handlers = editorHandlers();
     const tree = renderEditor(template(), handlers);
-    type(tree, 'Gewicht für Satz 1 in Kilogramm', '');
+    type(tree, 'Gewicht für Satz 1 von Kniebeuge (Langhantel) in Kilogramm', '');
     press(tree, 'Plan speichern');
     expect(
       handlers.onSave.mock.calls[0][0].exercises[0].sets[0].weightKg,
@@ -196,7 +196,10 @@ describe('Planeditor', () => {
   it('schaltet die Satzart weiter', () => {
     const handlers = editorHandlers();
     const tree = renderEditor(template(), handlers);
-    press(tree, 'Satzart für Satz 1, jetzt Arbeitssatz, weiterschalten');
+    press(
+      tree,
+      'Satzart für Satz 1 von Kniebeuge (Langhantel), jetzt Arbeitssatz, weiterschalten',
+    );
     press(tree, 'Plan speichern');
     expect(handlers.onSave.mock.calls[0][0].exercises[0].sets[0].kind).toBe(
       'failure',
@@ -222,7 +225,7 @@ describe('Planeditor', () => {
     press(tree, 'Satz zu Beinbeuger liegend hinzufügen');
     press(tree, 'Plan speichern');
     expect(handlers.onSave.mock.calls[0][0].exercises[1].sets).toHaveLength(2);
-    press(tree, 'Satz 2 entfernen');
+    press(tree, 'Satz 2 von Beinbeuger liegend entfernen');
     press(tree, 'Plan speichern');
     expect(handlers.onSave.mock.calls[1][0].exercises[1].sets).toHaveLength(1);
   });
@@ -379,7 +382,7 @@ describe('Planübersicht', () => {
   it('legt einen neuen Plan an', () => {
     const handlers = listHandlers();
     const tree = renderList([], handlers);
-    press(tree, 'Neuen Plan anlegen');
+    press(tree, 'Neuen Trainingsplan anlegen');
     expect(handlers.onCreate).toHaveBeenCalledTimes(1);
   });
 
