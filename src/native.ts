@@ -5,6 +5,12 @@ import type {
   Experiment,
   Adherence,
 } from './domain/types';
+import type {
+  StrengthSession,
+  StrengthState,
+  WorkoutTemplate,
+} from './domain/strength';
+import { summarize } from './domain/strength';
 
 export interface Preset {
   id: string;
@@ -103,4 +109,54 @@ export const native = {
   async feedback(id: string, feedback: unknown) {
     await nativeCall('updateRunFeedback', id, JSON.stringify(feedback));
   },
+
+  // Krafttraining. Der native Speicher legt die laufende Einheit getrennt von
+  // der Historie ab, damit ein bestätigter Satz eine kleine Schreiboperation
+  // bleibt.
+  async strength(): Promise<StrengthState> {
+    return normalizeStrength(await nativeCall<any>('getStrengthState'));
+  },
+  async saveStrengthTemplates(
+    templates: WorkoutTemplate[],
+  ): Promise<StrengthState> {
+    return normalizeStrength(
+      await nativeCall<any>('saveStrengthTemplates', JSON.stringify(templates)),
+    );
+  },
+  async saveStrengthSession(session: StrengthSession): Promise<StrengthState> {
+    return normalizeStrength(
+      await nativeCall<any>('saveStrengthSession', JSON.stringify(session)),
+    );
+  },
+  async discardStrengthSession(): Promise<StrengthState> {
+    return normalizeStrength(await nativeCall<any>('discardStrengthSession'));
+  },
+  async finishStrengthSession(
+    session: StrengthSession,
+  ): Promise<StrengthState> {
+    return normalizeStrength(
+      await nativeCall<any>(
+        'finishStrengthSession',
+        JSON.stringify(session),
+        JSON.stringify(summarize(session)),
+      ),
+    );
+  },
+  async strengthSession(id: string): Promise<StrengthSession> {
+    return (await nativeCall<any>('getStrengthSession', id)) as StrengthSession;
+  },
+  async deleteStrengthSession(id: string): Promise<StrengthState> {
+    return normalizeStrength(
+      await nativeCall<any>('deleteStrengthSession', id),
+    );
+  },
 };
+
+/** Fehlende Felder ergeben einen leeren, benutzbaren Zustand statt eines Fehlers. */
+export function normalizeStrength(raw: any): StrengthState {
+  return {
+    templates: Array.isArray(raw?.templates) ? raw.templates : [],
+    active: raw?.active && raw.active.id ? (raw.active as StrengthSession) : null,
+    history: Array.isArray(raw?.history) ? raw.history : [],
+  };
+}
