@@ -3,6 +3,7 @@ import type { RunPurpose, RunSummary } from './types';
 
 export const COUPLING_MODEL_VERSION = 'run-strength-coupling-v1';
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_PLAN_SPACING_MS = 12 * 60 * 60 * 1000;
 const NO_CAUSAL_CLAIM = false as const;
 
 /** Die Frische kommt aus der aufrufenden Schicht, nicht aus diesem Modul. */
@@ -124,8 +125,50 @@ function comparableRuns(
   if (!purpose) {
     return [];
   }
-  return input.runs
-    .filter(entry => entry.run.purpose === purpose && entry.regionBase.trim())
+  const candidates = input.runs.filter(
+    entry => entry.run.purpose === purpose && entry.regionBase.trim(),
+  );
+  // One assessment must never compare different leg-region proxies. If the
+  // caller supplies more than one, use the first deterministic group and leave
+  // the other group for a separate assessment.
+  const regionBase = candidates[0]?.regionBase.trim();
+  const seenCanonicalIds = new Set<string>();
+  return candidates
+    .filter(entry => {
+      if (entry.regionBase.trim() !== regionBase) {
+        return false;
+      }
+      const canonicalId = entry.run.canonicalId || entry.run.id;
+      if (!canonicalId || seenCanonicalIds.has(canonicalId)) {
+        return false;
+      }
+      const run = entry.run;
+      if (
+        !['completed', 'finished'].includes(run.status) ||
+        !Number.isFinite(run.startTime) ||
+        !Number.isFinite(run.durationSeconds) ||
+        !Number.isFinite(run.distanceMeters) ||
+        run.durationSeconds < 5 * 60 ||
+        run.distanceMeters < 500 ||
+        !run.segments?.length ||
+        run.segments.some(
+          segment =>
+            !Number.isFinite(segment.distanceMeters) ||
+            !Number.isFinite(segment.durationSeconds) ||
+            segment.distanceMeters <= 0 ||
+            segment.durationSeconds <= 0,
+        ) ||
+        run.segments.some(
+          segment =>
+            Number.isFinite(segment.gradePercent) &&
+            Math.abs(segment.gradePercent as number) > 15,
+        )
+      ) {
+        return false;
+      }
+      seenCanonicalIds.add(canonicalId);
+      return true;
+    })
     .map(entry => {
       const pacing = pacingFor(entry.run);
       const freshness = lookup(entry.regionBase, entry.run.startTime);
@@ -271,13 +314,19 @@ function caliperFor(rows: ComparableRun[]): CaliperPair[] {
       const freshnessDifference = Math.abs(
         rows[first].legFreshness - rows[second].legFreshness,
       );
-      if (freshnessDifference <= 10) {
+      if (freshnessDifference > 0 && freshnessDifference <= 10) {
+        const fresher =
+          rows[first].legFreshness > rows[second].legFreshness
+            ? rows[first]
+            : rows[second];
+        const lessFresh = fresher === rows[first] ? rows[second] : rows[first];
         pairs.push({
-          firstRunId: rows[first].run.id,
-          secondRunId: rows[second].run.id,
+          firstRunId: fresher.run.id,
+          secondRunId: lessFresh.run.id,
           freshnessDifference,
-          fadeDifferencePercent:
-            rows[first].fadePercent - rows[second].fadePercent,
+          // Positive means the less-fresh run faded more than its fresher
+          // counterpart. The direction is by freshness, never by date/order.
+          fadeDifferencePercent: lessFresh.fadePercent - fresher.fadePercent,
         });
       }
     }
@@ -573,6 +622,12 @@ export function searchMonthlyPlan(
           regionBases: session.regionBases,
           important: session.important,
         });
+      }
+    }
+    const ordered = [...planned].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+    for (let index = 1; index < ordered.length; index += 1) {
+      if (ordered[index].at - ordered[index - 1].at < MIN_PLAN_SPACING_MS) {
+        return;
       }
     }
     const simulated = simulatePlannedFreshness(planned, lookup);

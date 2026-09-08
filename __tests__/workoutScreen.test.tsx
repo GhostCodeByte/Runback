@@ -165,6 +165,40 @@ describe('Trainingsansicht', () => {
     );
   });
 
+  it('speichert bei einem Zeitsatz Sekunden statt Wiederholungen', () => {
+    const timed = startSession(
+      {
+        ...template,
+        exercises: [
+          {
+            exerciseId: 'plank',
+            name: 'Unterarmstütz',
+            sets: [
+              {
+                kind: 'timed',
+                loadKind: 'bodyweight',
+                seconds: 30,
+                restSeconds: 30,
+              },
+            ],
+          },
+        ],
+      },
+      1_000_000,
+    );
+    const props = handlers();
+    const tree = render(timed, props);
+    ReactTestRenderer.act(() => {
+      tree.root.findAllByType(TextInput)[1].props.onChangeText('42');
+    });
+    byLabel(tree, 'Satz 1 bestätigen').props.onPress();
+    expect(props.onCompleteSet).toHaveBeenCalledWith(
+      0,
+      timed.exercises[0].sets[0].id,
+      { actualWeightKg: undefined, actualSeconds: 42 },
+    );
+  });
+
   it('bietet bei einem erledigten Satz das Zurücknehmen an', () => {
     const session = base();
     const done = completeSet(session, 0, session.exercises[0].sets[0].id, 1);

@@ -69,6 +69,23 @@ describe('Kopplung von Lauf und Krafttraining', () => {
     expect(result.matchedPairs?.[0].freshnessDifference).toBeLessThanOrEqual(10);
   });
 
+  it('orientiert Caliper-Paare nach Frische statt nach Datum', () => {
+    const result = evaluateCoupling({
+      enabled: true,
+      runs: [
+        { run: run('älter', 0, 8), regionBase: 'legs' },
+        { run: run('frischer', 1, 3), regionBase: 'legs' },
+      ],
+      freshness: (_region, at) => (at === 0 ? 50 : 55),
+    });
+    expect(result.matchedPairs?.[0]).toMatchObject({
+      firstRunId: 'frischer',
+      secondRunId: 'älter',
+      freshnessDifference: 5,
+    });
+    expect(result.matchedPairs?.[0].fadeDifferencePercent).toBeCloseTo(5);
+  });
+
   it('wechselt ab zehn vergleichbaren Läufen zur kleinen Regression', () => {
     const entries = coupledRuns(10);
     const result = evaluateCoupling({
@@ -156,6 +173,32 @@ describe('Kopplung von Lauf und Krafttraining', () => {
           kind: 'run',
           regionBases: ['legs'],
           important: true,
+        },
+      ],
+    });
+    expect(result.verdict).toBe('not_assessable');
+    expect(result.selected).toBeNull();
+  });
+
+  it('verwirft eine Planung mit kollidierenden Fixterminen', () => {
+    const result = searchMonthlyPlan({
+      enabled: true,
+      weekStartAt: 0,
+      freshness: () => 80,
+      sessions: [
+        {
+          id: 'lauf',
+          kind: 'run',
+          regionBases: ['legs'],
+          important: true,
+          fixedWeekday: 2,
+        },
+        {
+          id: 'kraft',
+          kind: 'strength',
+          regionBases: ['legs'],
+          important: false,
+          fixedWeekday: 2,
         },
       ],
     });
