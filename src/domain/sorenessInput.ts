@@ -545,6 +545,7 @@ function group(tokens: Token[]): { entries: Entry[]; unknown: string[] } {
         last.side = token.side;
       } else if (
         last &&
+        last.value === undefined &&
         last.side !== undefined &&
         last.side !== 'both' &&
         token.side !== 'both' &&
@@ -802,7 +803,12 @@ export function buildReport(
   transcript?: string,
 ): SorenessReport {
   const entries = Object.keys(values)
-    .filter(id => validRegionId(id) && typeof values[id] === 'number')
+    .filter(
+      id =>
+        validRegionId(id) &&
+        typeof values[id] === 'number' &&
+        Number.isFinite(values[id]),
+    )
     .map(id => ({ regionId: id, value: clamp(values[id] as number) }));
   entries.sort(
     (left, right) =>

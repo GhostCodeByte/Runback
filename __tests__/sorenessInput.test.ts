@@ -19,6 +19,17 @@ describe('Soreness capture parsing', () => {
     ]);
   });
 
+  it('keeps consecutive regions with different sides separate', () => {
+    expect(parseSoreness('Bizeps links 3 rechts Wade 5').proposals).toEqual([
+      { regionId: 'biceps_l', value: 3 },
+      { regionId: 'calf_gastroc_r', value: 5 },
+    ]);
+    expect(parseSoreness('Bizeps links 3 rechts Bizeps 5').proposals).toEqual([
+      { regionId: 'biceps_l', value: 3 },
+      { regionId: 'biceps_r', value: 5 },
+    ]);
+  });
+
   it('does not accept an unknown structured region', () => {
     const result = fromStructured([
       { region: 'shoulder', side: 'l', value: 4 },
@@ -47,5 +58,12 @@ describe('Soreness capture parsing', () => {
       { regionId: 'quad_l', value: 3 },
       { regionId: 'quad_r', value: 4 },
     ]);
+  });
+
+  it('does not persist non-finite report values', () => {
+    expect(
+      buildReport({ biceps_l: Number.NaN, quad_l: Infinity }, 123, 'tap')
+        .entries,
+    ).toEqual([]);
   });
 });
