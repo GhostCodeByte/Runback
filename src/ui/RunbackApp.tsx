@@ -63,6 +63,7 @@ import {
   allRegionIds,
   calculateFreshness,
   evaluateExperiment,
+  modelIsUnlocked,
   transitionExperiment,
 } from '../domain';
 import type {
@@ -681,14 +682,30 @@ export function RunbackApp() {
       }),
     [muscleReports, now, runs, strengthSessions],
   );
+  // Das Modell bleibt bis zur datenbasierten Freischaltung eine interne
+  // Rechnung. Die Karte darf keine scheinbar präzisen Werte aus den bloßen
+  // Ausgangsannahmen ausgeben (docs/muskelmodell.md §11).
+  const muscleModelVerdict = useMemo(
+    () =>
+      modelIsUnlocked({
+        sessions: strengthSessions,
+        reports: muscleReports,
+        runs,
+      }),
+    [muscleReports, runs, strengthSessions],
+  );
+  const muscleModelUnlocked = muscleModelVerdict.unlocked;
   const freshnessValues = useMemo(
     () =>
       allRegionIds().reduce((values, id) => {
         const result = freshness.regions[id];
-        values[id] = result.kind === 'freshness' ? result.value : null;
+        values[id] =
+          muscleModelUnlocked && result.kind === 'freshness'
+            ? result.value
+            : null;
         return values;
       }, {} as Record<RegionId, number | null>),
-    [freshness],
+    [freshness, muscleModelUnlocked],
   );
   const sorenessValues = useMemo(() => {
     const latest = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
@@ -1929,9 +1946,21 @@ export function RunbackApp() {
           />
           <Copy muted>
             {muscleMapMode === 'freshness'
-              ? `${freshness.model_version} · Grundlage: ${freshness.contributing_sessions.length} Krafttrainingseinheiten und ${freshness.contributing_reports.length} Meldungen.`
+              ? muscleModelUnlocked
+                ? `${freshness.model_version} · Grundlage: ${freshness.contributing_sessions.length} Krafttrainingseinheiten und ${freshness.contributing_reports.length} Meldungen.`
+                : `${freshness.model_version} · Noch nicht freigeschaltet. Die interne Rechnung wird erst nach bestandener Datenprüfung angezeigt; die Regionen bleiben unbekannt.`
               : 'Letzte bestätigte Meldung · Skala 0 bis 10 · keine Messung.'}
           </Copy>
+          {muscleMapMode === 'freshness' && !muscleModelUnlocked ? (
+            <View style={styles.validationNotice}>
+              <Text style={styles.fieldLabel}>Warum noch unbekannt?</Text>
+              {muscleModelVerdict.reasons.map(reason => (
+                <Copy muted key={reason.code}>
+                  {reason.reason}
+                </Copy>
+              ))}
+            </View>
+          ) : null}
         </Section>
         <Section title="Deine Meldung">
           <Copy muted>
@@ -2510,6 +2539,13 @@ const styles = StyleSheet.create({
   },
   slotTitle: { color: color.green, fontSize: 15, fontWeight: '600' },
   fieldLabel: { color: color.text, fontSize: 15, fontWeight: '500' },
+  validationNotice: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: color.surface,
+    borderRadius: 8,
+    gap: 6,
+  },
   rpeGroup: { gap: 10, marginTop: 10 },
   rpeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   rpe: {
