@@ -1,9 +1,11 @@
 import {
   calculateFreshness,
   calculateSetStimulus,
+  buildRunStimulusContributions,
   combinedImpulseResponse,
   distributeStimulus,
   effectiveRepetitionsFromSeconds,
+  isValidMuscleReport,
   impulseResponse,
   MUSCLE_MODEL_CONSTANTS,
   nothingTodayReport,
@@ -164,5 +166,36 @@ describe('Reiz- und Frischemodell', () => {
     expect(report.kind).toBe('nothing_today');
     expect(result.contributing_reports).toEqual([report]);
     expect(result.regions.quad_l.contributing_reports).toEqual([report]);
+  });
+
+  it('verwirft Meldungen für unbekannte Muskelregionen', () => {
+    expect(isValidMuscleReport({
+      at: sessionAt,
+      regionId: 'made_up_region',
+      value: 5,
+    })).toBe(false);
+  });
+
+  it('führt anonyme Laufabschnitte mit eigener Kennung und Startzeit', () => {
+    const run = buildRunStimulusContributions({
+      id: 'run-1',
+      startTime: sessionAt,
+      endTime: sessionAt + 120 * 1000,
+      durationSeconds: 120,
+      distanceMeters: 360,
+      purpose: 'free',
+      source: 'test',
+      status: 'finished',
+      segments: [
+        { distanceMeters: 180, durationSeconds: 60, gradePercent: 0 },
+        { distanceMeters: 180, durationSeconds: 60, gradePercent: 0 },
+      ],
+    });
+    expect(new Set(run.map(contribution => contribution.segmentId))).toEqual(
+      new Set(['split-1', 'split-2']),
+    );
+    expect(new Set(run.map(contribution => contribution.at))).toEqual(
+      new Set([sessionAt, sessionAt + 60 * 1000]),
+    );
   });
 });
