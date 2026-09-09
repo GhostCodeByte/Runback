@@ -35,6 +35,8 @@ Originale werden nicht automatisch gelöscht. 512 MB ist die voreingestellte Bud
 
 ## Einrichtung, Statistik und Chat
 
+Die persönliche Frischeprüfung ist in dieser Version noch nicht automatisch verfügbar; bis ein gespeichertes Validierungsurteil vorliegt, zeigt die Muskelkarte daher keine berechneten Frischezahlen. Auf Android 12 (API 31) nutzt die optionale Spracheingabe ausschließlich den nativen On-Device-SpeechRecognizer, wenn das Gerät ihn bereitstellt; auf älteren oder nicht unterstützten Geräten bleibt Tippen verfügbar.
+
 Mehr → Trainingspläne verwaltet bearbeitbare Vorlagen für Krafttraining. Mehr → Kraft-Historie zeigt die bis zu 500 zuletzt gespeicherten abgeschlossenen Einheiten, absolvierte Sätze und erfasstes Volumen; Planwerte werden nicht nachträglich als Ist-Werte ausgegeben. Mehr → Muskelkarte bietet die Ansichten „Frische“ und „Gemeldeter Muskelkater“. Frische ist eine regionale Modellgröße aus Kraft- und Meldungsdaten, kein Readiness-, Gesundheits- oder Diagnosescore. Die Frischekarte bleibt bis zur bestandenen Hold-out-, Kalibrierungs-, Zeit-, Stabilitäts- und Ausfallprüfung unbekannt. Die optionale Android-Spracherfassung nutzt den nativen deutschen SpeechRecognizer, sofern das Gerät ihn bereitstellt; die strukturierte Auswertung erfolgt lokal über das deterministische Lexikon, Roh-Audio wird nicht gespeichert.
 
 Beim ersten Start erscheint eine freiwillige Einrichtung: Ziel, Zeitbudget, Lauftage, Standardzweck, Dateiimport und optionale Aufzeichnungsberechtigungen. Schritte werden gespeichert; „Später“ beendet die Einrichtung. Unter Mehr → Einrichtung lässt sie sich erneut öffnen. Import nutzt dieselbe Verarbeitung und Duplikaterkennung wie Daten & Speicher.
