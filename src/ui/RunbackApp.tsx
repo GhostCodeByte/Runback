@@ -263,6 +263,23 @@ export function RunbackApp() {
     setLoaded(true);
     return next;
   }, []);
+  const reloadTrainingState = useCallback(async () => {
+    const [nextStrength, nextSessions, nextReports] = await Promise.all([
+      native.strength().catch(() => emptyStrengthState()),
+      native.strengthSessions(500).catch(() => []),
+      native.sorenessReports().catch(() => []),
+    ]);
+    strengthRef.current = nextStrength;
+    setStrength(nextStrength);
+    setStrengthSessions(nextSessions);
+    setSorenessReports(nextReports);
+    setSorenessStorageAvailable(true);
+    setRecentSessions([]);
+    setPlanDraft(null);
+    setPickerOpen(false);
+    setWorkoutOpen(Boolean(nextStrength.active));
+    setSorenessOpen(false);
+  }, []);
   const action = useCallback(async (fn: () => Promise<void>) => {
     if (busyRef.current) {
       return;
@@ -313,7 +330,7 @@ export function RunbackApp() {
       })
       .catch(() => {});
     void native
-      .strengthSessions()
+      .strengthSessions(500)
       .then(setStrengthSessions)
       .catch(() => {});
     void native
@@ -526,7 +543,7 @@ export function RunbackApp() {
     void action(async () => {
       const next = await native.finishStrengthSession(finished);
       setStrength(next);
-      setStrengthSessions(await native.strengthSessions().catch(() => []));
+      setStrengthSessions(await native.strengthSessions(500).catch(() => []));
       setWorkoutOpen(false);
       setMessage('Training gespeichert.');
     });
@@ -1720,6 +1737,7 @@ export function RunbackApp() {
                     void action(async () => {
                       const result = await nativeCall<any>('restoreBackup');
                       await refresh();
+                      await reloadTrainingState();
                       if (!result.cancelled) {
                         setMessage(
                           result.message || 'Backup wiederhergestellt.',
@@ -1758,6 +1776,7 @@ export function RunbackApp() {
                     void action(async () => {
                       await nativeCall('clearAllData');
                       await refresh();
+                      await reloadTrainingState();
                       setPage('main');
                       setMessage('Lokale Daten gelöscht.');
                     });
