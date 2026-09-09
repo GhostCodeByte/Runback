@@ -148,6 +148,21 @@ describe('Einheit starten', () => {
     );
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it('hält auch bei derselben Übung mehrmals die Satzkennungen eindeutig', () => {
+    const duplicate: WorkoutTemplate = {
+      ...template,
+      exercises: [template.exercises[0], template.exercises[0]],
+    };
+    const session = startSession(duplicate, 1_000_000);
+    const ids = session.exercises.flatMap(exercise =>
+      exercise.sets.map(set => set.id),
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+    const changed = completeSet(session, 1, session.exercises[1].sets[0].id, 2);
+    expect(changed.exercises[0].sets[0].completedAt).toBeUndefined();
+    expect(changed.exercises[1].sets[0].completedAt).toBe(2);
+  });
 });
 
 describe('Sätze erfassen', () => {

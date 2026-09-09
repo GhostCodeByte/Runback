@@ -16,6 +16,8 @@ Android-Telefon-App (React Native + Kotlin), eigenständige Wear-OS-App und geme
 ## Dokumentation
 
 - [Zielspezifikation V1 / V2](docs/zielspezifikation.md) — Ziele, Invarianten und Akzeptanzkriterien.
+- [Zielspezifikation Training (Gym + Laufen)](docs/zielspezifikation-training.md) — Krafttraining, Trainingspläne, Muskelkarte und die Verzahnung beider Trainingsarten.
+- [Muskel- und Belastungsmodell](docs/muskelmodell.md) — Skala, Rechenvorschrift, Kalibrierung und Prüfverfahren der regionenbezogenen Frische.
 - [App-Importe](docs/vendor-import.md) — Fitbit, Google Fit, Strong, Mi Fitness, Apple Health, Samsung & Co. importieren (optional).
 - [Glossar](docs/glossar.md) — verständliche Bedeutungen neben englischen Fach- und Suchbegriffen.
 - [Änderungen zum ursprünglichen Entwurf](docs/aenderungen.md) — übernommene Klarstellungen und fachliche Verbesserungen.
