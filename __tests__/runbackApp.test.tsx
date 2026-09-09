@@ -23,6 +23,8 @@ jest.mock('../src/native', () => {
       saveSettings: jest.fn(() => Promise.resolve()),
       feedback: jest.fn(() => Promise.resolve()),
       strength: jest.fn(() => Promise.resolve(emptyStrengthState())),
+      strengthSessions: jest.fn(() => Promise.resolve([])),
+      sorenessReports: jest.fn(() => Promise.resolve([])),
       saveStrengthSession: jest.fn(() => Promise.resolve()),
       finishStrengthSession: jest.fn(() =>
         Promise.resolve(emptyStrengthState()),
@@ -55,6 +57,7 @@ async function render() {
   await act(async () => {
     await Promise.resolve();
   });
+  await tap(tree, 'Überspringen');
   return tree;
 }
 

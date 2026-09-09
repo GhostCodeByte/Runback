@@ -59,6 +59,7 @@ export function Button({
   danger = false,
   disabled = false,
   small = false,
+  label,
 }: {
   title: string;
   onPress: () => void;
@@ -66,10 +67,13 @@ export function Button({
   danger?: boolean;
   disabled?: boolean;
   small?: boolean;
+  /** Vorlesetext, wenn die Beschriftung allein nicht eindeutig ist. */
+  label?: string;
 }) {
   const outlined = secondary || danger;
   return (
     <Pressable
+      accessibilityLabel={label ?? title}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}

@@ -1,5 +1,7 @@
 # Testbericht
 
+Aktueller Integrationsstand: 8. September 2026. Die unten dokumentierten Emulatorprüfungen bleiben gültig; die Ergänzung am Ende enthält die zusätzlichen Krafttrainings- und Muskelkartenprüfungen.
+
 Stand: 6. September 2026 (Emulatortests am 5. und 6. September). Dieser Bericht dokumentiert Testsoftware, keine vollständige Abnahme aller V1-/V2-Ziele.
 
 ## Referenzumgebung
@@ -46,3 +48,19 @@ Die offene Funktionsliste und Grenzen stehen in [implementation.md](implementati
 - TypeScript, native Core-Tests, Android-Lint und Release-Builds für Telefon/Uhr erfolgreich. Neue native Tests sind auch Teil der GitHub-CI und ihrer Berichte.
 - Telefon-Emulator Pixel 8, API 36: vorhandene Testdaten beim APK-Update erhalten; Einrichtung durchlaufen, Trainingstag gewählt, bestehende synthetische GPX im Onboarding importiert und korrekt als Duplikat erkannt, Berechtigungsstatus angezeigt, Einrichtung beendet. Statistik mit vorhandenen Läufen und Chat-Einstieg visuell geprüft. OpenRouter-Einstellungen zeigen den kostenlosen Standard und kein Tageslimit. Keine AndroidRuntime-/ReactNativeJS-Fehler bei diesen Schritten.
 - Wear-OS-Emulator Pixel Watch 2, API 35: aktualisierte APK installiert und Startansicht geprüft. Onboarding, Statistik und Chat sind Telefonfunktionen. Keine neue komplexe Sensor-/Synchronisations-Testserie; kein physisches Telefon angeschlossen.
+
+## Ergänzung: Krafttraining, Muskelmodell und Körperkarte (8. September 2026)
+
+- 18 Jest-Suites mit 202 Tests bestanden. Abgedeckt sind unter anderem getaktete Kraftsätze, persistierte aktive Sessions, bearbeitbare Trainingspläne, Progressionsrichtung, Run-/Kraft-Kopplung, regionale Frische sowie deutsche Muskelkater-Spracherfassung mit unbekannten Regionen.
+- `npm run typecheck` und `npm run lint` erfolgreich; ESLint meldet weiterhin nur vorhandene Warnungen und keine Fehler.
+- `:core:testDebugUnitTest :app:lintRelease :wear:lintRelease` mit JDK 21 erfolgreich. Die native Android-Erweiterung für Soreness-Persistenz und den optionalen deutschen SpeechRecognizer baut und lintet damit sauber.
+- Die neue Körperkarte wurde als React-Native-Komponente und mit UI-Tests geprüft. Die native SpeechRecognizer-Berechtigung und echte Spracherkennung wurden nicht auf physischer Hardware nachgewiesen; OpenRouter bleibt für diese Funktion optional und wurde ohne konfigurierten Schlüssel nicht live getestet.
+
+## PR-Review und Integration (9. September 2026)
+
+- Regressionen für eindeutige Satzkennungen, deterministische Kopplungsgruppen, ungültige Planzeiten und IDs, Muskelregionen, Segmentprovenienz und deutsche Seitenzuordnung ergänzt.
+- Elf native Datenbanktests auf dem Telefon-Emulator (API 36) bestanden. Der neue Fehlerfall bricht den Index-Write per SQLite-Trigger nach dem Session-Write ab und prüft den tatsächlichen Rollback einschließlich aktiver Einheit. Die Historienbegrenzung berücksichtigt den Trainingsbeginn statt der Speicherreihenfolge.
+- Die synchrone Modellvalidierung ist für die Oberfläche zu langsam: bei 30 synthetischen Kraftsessions wurden für 5/10/20 Regionsmeldungen etwa 283/922/4.615 ms gemessen; 60 Meldungen waren nach 40 Sekunden nicht abgeschlossen. Die Frischeanzeige bleibt daher gesperrt, bis eine außerhalb des UI-Threads ermittelte Prüfung mit Daten- und Modellversion verknüpft verfügbar ist. Gemeldeter Muskelkater bleibt unabhängig davon nutzbar. Ein vollständig kalibrierter Zustand darf nicht in frühere Hold-outs übernommen werden (Datenleck).
+- Sprache verwendet ausschließlich die Android-On-Device-Erkennung ab API 31. Fehlt sie, bleibt die Texteingabe verfügbar. Eine echte deutsche Spracherkennung auf physischer Hardware wurde nicht nachgewiesen.
+- Integrierte Release-APK auf dem Telefon-Emulator aktualisiert und gestartet. Muskelkater-Erfassung/Überspringen, unbekannte Frischekarte ohne blockierende Modellprüfung, Planeditor mit Übungsauswahl/Abbruch und Kraft-Historie mit sichtbarer 500-Einheiten-Grenze geprüft. Keine AndroidRuntime-/ReactNativeJS-Fehler bei diesen Schritten. App-/Core-Unit-Tests und Release-Lint für Telefon und Uhr bestanden.
+- Gespeicherte Muskelkatermeldungen werden nicht mehr beim Überschreiten von 500 Einträgen still gelöscht.

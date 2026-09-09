@@ -34,6 +34,7 @@ export interface TranscriptResult {
 
 export interface SorenessCaptureProps {
   now: number;
+  busy?: boolean;
   /** Sprachweg verfügbar. Fehlt er, bleibt das Tippen vollständig nutzbar. */
   voiceAvailable: boolean;
   /** Grund, warum der Sprachweg gerade nicht geht. Wird unverändert gezeigt. */
@@ -58,6 +59,7 @@ type Values = Record<RegionId, number | null>;
 
 export function SorenessCapture({
   now,
+  busy = false,
   voiceAvailable,
   voiceHint,
   onTranscribe,
@@ -122,8 +124,7 @@ export function SorenessCapture({
         const ruleIds = new Set(rules.proposals.map(entry => entry.regionId));
         absorb({
           ...rules,
-          // Structured fields can fill gaps, but may never replace a
-          // deterministic proposal for the same concrete region.
+          // Structured proposals may fill gaps, never replace parsed regions.
           proposals: [
             ...rules.proposals,
             ...checked.proposals.filter(entry => !ruleIds.has(entry.regionId)),
@@ -182,16 +183,22 @@ export function SorenessCapture({
       </Copy>
 
       <View style={styles.actions}>
-        <Button onPress={nothingToday} title="Heute nichts" />
+        <Button disabled={busy} onPress={nothingToday} title="Heute nichts" />
         <Button
-          disabled={!voiceAvailable || listening || !onTranscribe}
+          disabled={busy || !voiceAvailable || listening || !onTranscribe}
           onPress={() => {
             void listen();
           }}
           secondary
           title={listening ? 'Hört zu …' : 'Sprechen'}
         />
-        <Button onPress={onSkip} secondary small title="Überspringen" />
+        <Button
+          disabled={busy}
+          onPress={onSkip}
+          secondary
+          small
+          title="Überspringen"
+        />
       </View>
 
       {!voiceAvailable ? (
@@ -302,7 +309,7 @@ export function SorenessCapture({
       </Copy>
 
       <Button
-        disabled={!answered.length}
+        disabled={busy || !answered.length}
         onPress={confirm}
         title="Übernehmen und speichern"
       />
