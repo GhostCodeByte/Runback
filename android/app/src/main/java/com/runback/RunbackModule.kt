@@ -103,6 +103,57 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
     @ReactMethod fun deleteAllData(promise: Promise) = clearAllData(promise)
 
+    // Krafttraining. Liegt im vorhandenen Dokumentspeicher und ist damit vom
+    // Backup abgedeckt. Die laufende Einheit hat ein eigenes Dokument, damit ein
+    // bestätigter Satz nicht die gesamte Historie neu schreibt.
+    private fun strengthIndex() = store.getDocument("strength_index") ?: JSONObject().put("sessions", JSONArray())
+    private fun strengthState() = JSONObject()
+        .put("templates", (store.getDocument("strength_templates") ?: JSONObject()).optJSONArray("templates") ?: JSONArray())
+        .put("active", store.getDocument("strength_active") ?: JSONObject.NULL)
+        .put("history", strengthIndex().optJSONArray("sessions") ?: JSONArray())
+
+    @ReactMethod fun getStrengthState(promise: Promise) = task(promise) { strengthState() }
+    @ReactMethod fun saveStrengthTemplates(json: String, promise: Promise) = task(promise) {
+        store.putDocument("strength_templates", JSONObject().put("templates", JSONArray(json))); strengthState()
+    }
+    @ReactMethod fun saveStrengthSession(json: String, promise: Promise) = task(promise) {
+        store.putDocument("strength_active", JSONObject(json)); strengthState()
+    }
+    @ReactMethod fun discardStrengthSession(promise: Promise) = task(promise) {
+        store.deleteDocument("strength_active"); strengthState()
+    }
+    @ReactMethod fun finishStrengthSession(json: String, summaryJson: String, promise: Promise) = task(promise) {
+        val session = JSONObject(json)
+        val id = session.optString("id").ifBlank { error("Einheit ohne Kennung kann nicht gespeichert werden.") }
+        store.putDocument("strength_session_$id", session)
+        val index = strengthIndex()
+        val sessions = index.optJSONArray("sessions") ?: JSONArray()
+        val kept = JSONArray()
+        for (i in 0 until sessions.length()) {
+            val entry = sessions.optJSONObject(i) ?: continue
+            if (entry.optString("id") != id) kept.put(entry)
+        }
+        kept.put(JSONObject(summaryJson))
+        store.putDocument("strength_index", index.put("sessions", kept))
+        store.deleteDocument("strength_active")
+        strengthState()
+    }
+    @ReactMethod fun getStrengthSession(id: String, promise: Promise) = task(promise) {
+        store.getDocument("strength_session_$id") ?: error("Einheit nicht gefunden")
+    }
+    @ReactMethod fun deleteStrengthSession(id: String, promise: Promise) = task(promise) {
+        store.deleteDocument("strength_session_$id")
+        val index = strengthIndex()
+        val sessions = index.optJSONArray("sessions") ?: JSONArray()
+        val kept = JSONArray()
+        for (i in 0 until sessions.length()) {
+            val entry = sessions.optJSONObject(i) ?: continue
+            if (entry.optString("id") != id) kept.put(entry)
+        }
+        store.putDocument("strength_index", index.put("sessions", kept))
+        strengthState()
+    }
+
     @ReactMethod fun getProseSettings(promise: Promise) = task(promise) { prose.settings() }
     @ReactMethod fun configureProse(enabled: Boolean, model: String, apiKey: String?, promise: Promise) = task(promise) {
         prose.configure(enabled, model, apiKey)

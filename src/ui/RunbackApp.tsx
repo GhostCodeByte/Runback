@@ -27,6 +27,23 @@ import { Statistics } from './Statistics';
 import { TrainingChat } from './TrainingChat';
 import { DeviceSettings } from './DeviceSettings';
 import { VendorImport } from './VendorImport';
+import { WorkoutScreen } from './WorkoutScreen';
+import { ExercisePicker } from './ExercisePicker';
+import {
+  addExercise,
+  addSet,
+  completeSet as completeStrengthSet,
+  editSet as editStrengthSet,
+  emptyStrengthState,
+  finishSession,
+  selectExercise,
+  startSession,
+  templateForDay,
+  type Exercise,
+  type StrengthSession,
+  type StrengthState,
+  type WorkoutTemplate,
+} from '../domain/strength';
 import { RunIntegrations } from './RunIntegrations';
 import { ProseSettings, ProseExplanation } from './ProseSettings';
 import {
@@ -175,6 +192,13 @@ export function RunbackApp() {
   const [goalInput, setGoalInput] = useState('');
   const [minuteInput, setMinuteInput] = useState('30');
   const [presetName, setPresetName] = useState('');
+  const [strength, setStrength] = useState<StrengthState>(emptyStrengthState());
+  const [workoutOpen, setWorkoutOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [recentSessions, setRecentSessions] = useState<StrengthSession[]>([]);
+  const strengthRef = useRef(strength);
+  strengthRef.current = strength;
   const settings = state.settings;
   const runs = state.runs;
   const recording = state.recording;
@@ -242,6 +266,27 @@ export function RunbackApp() {
       .catch(e => setError(String(e.message)))
       .finally(() => setLoading(false));
   }, [refresh]);
+  // Krafttraining wird getrennt geladen. Fehlt die native Unterstützung, bleibt
+  // der Zustand leer und der Rest der App unberührt (Invariante 7).
+  useEffect(() => {
+    void native
+      .strength()
+      .then(next => {
+        setStrength(next);
+        if (next.active) {
+          setWorkoutOpen(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+  // Sekundentakt nur, solange eine Pause läuft.
+  useEffect(() => {
+    if (!strength.active?.restStartedAt) {
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [strength.active?.restStartedAt]);
   useEffect(() => {
     const subscription = AndroidAppState.addEventListener('change', value => {
       if (value === 'active' && !busyRef.current) {
@@ -266,6 +311,14 @@ export function RunbackApp() {
       'hardwareBackPress',
       () => {
         if (showOnboarding) return false;
+        if (workoutOpen) {
+          if (pickerOpen) {
+            setPickerOpen(false);
+          } else {
+            setWorkoutOpen(false);
+          }
+          return true;
+        }
         if (purposePicker) {
           setPurposePicker(false);
           return true;
@@ -287,7 +340,7 @@ export function RunbackApp() {
       },
     );
     return () => subscription.remove();
-  }, [selected, page, tab, purposePicker, showOnboarding]);
+  }, [selected, page, tab, purposePicker, showOnboarding, workoutOpen, pickerOpen]);
   useEffect(() => {
     setNote(selected?.note || '');
   }, [selected?.id, selected?.note]);
@@ -331,6 +384,54 @@ export function RunbackApp() {
     setError('');
     setMessage('');
   };
+
+  // ── Krafttraining ────────────────────────────────────────────────────────
+  // Jede Änderung schreibt die laufende Einheit sofort weg, damit ein Absturz
+  // oder ein leerer Akku keine bestätigten Sätze verliert (T-4).
+  const persistSession = useCallback((next: StrengthSession) => {
+    setStrength(current => ({ ...current, active: next }));
+    void native.saveStrengthSession(next).catch(e => setError(e.message));
+  }, []);
+  const changeSession = useCallback(
+    (change: (session: StrengthSession) => StrengthSession) => {
+      const active = strengthRef.current.active;
+      if (active) {
+        persistSession(change(active));
+      }
+    },
+    [persistSession],
+  );
+  const loadRecentSessions = useCallback(async (state: StrengthState) => {
+    const recent = [...state.history]
+      .sort((a, b) => b.startTime - a.startTime)
+      .slice(0, 5);
+    const loaded = await Promise.all(
+      recent.map(entry => native.strengthSession(entry.id).catch(() => null)),
+    );
+    setRecentSessions(loaded.filter(Boolean) as StrengthSession[]);
+  }, []);
+  const startStrength = (template: WorkoutTemplate | null) => {
+    const session = startSession(template, Date.now());
+    setStrength(current => ({ ...current, active: session }));
+    setWorkoutOpen(true);
+    setNow(Date.now());
+    void loadRecentSessions(strengthRef.current).catch(() => {});
+    void native.saveStrengthSession(session).catch(e => setError(e.message));
+  };
+  const finishStrength = () => {
+    const active = strengthRef.current.active;
+    if (!active) {
+      return;
+    }
+    const finished = finishSession(active, Date.now());
+    void action(async () => {
+      const next = await native.finishStrengthSession(finished);
+      setStrength(next);
+      setWorkoutOpen(false);
+      setMessage('Training gespeichert.');
+    });
+  };
+  const todaysTemplate = templateForDay(strength.templates, new Date().getDay());
   const start = () => {
     void action(async () => {
       const permissions = await nativeCall<{ locationPermission: boolean }>(
@@ -493,6 +594,52 @@ export function RunbackApp() {
           <Text style={styles.muted}>Passt heute nicht</Text>
         </Pressable>
       </View>
+      <Section title="Krafttraining">
+        {strength.active ? (
+          <>
+            <Copy muted>
+              {strength.active.name} läuft seit{' '}
+              {Math.max(
+                1,
+                Math.round((Date.now() - strength.active.startTime) / 60000),
+              )}{' '}
+              Minuten.
+            </Copy>
+            <Button
+              title="Training fortsetzen"
+              onPress={() => {
+                setNow(Date.now());
+                setWorkoutOpen(true);
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <Copy muted>
+              {todaysTemplate
+                ? `Für heute ist ${todaysTemplate.name} vorgesehen. Du kannst auch etwas anderes machen.`
+                : 'Kein Plan für heute hinterlegt. Du kannst frei trainieren und Übungen unterwegs hinzufügen.'}
+            </Copy>
+            <Button
+              disabled={busy}
+              title={
+                todaysTemplate
+                  ? `${todaysTemplate.name} starten`
+                  : 'Freies Training starten'
+              }
+              onPress={() => startStrength(todaysTemplate)}
+            />
+            {todaysTemplate ? (
+              <Button
+                secondary
+                small
+                title="Stattdessen frei trainieren"
+                onPress={() => startStrength(null)}
+              />
+            ) : null}
+          </>
+        )}
+      </Section>
       {experiment ? (
         <Section title="Dein Arbeitsthema">
           <Row
@@ -1547,6 +1694,52 @@ export function RunbackApp() {
   ) : (
     renderMore()
   );
+  if (strength.active && workoutOpen) {
+    const session = strength.active;
+    return (
+      <View
+        style={[
+          styles.app,
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
+        ]}
+      >
+        {error ? (
+          <View style={styles.notice}>
+            <Copy>{error}</Copy>
+          </View>
+        ) : null}
+        <WorkoutScreen
+          busy={busy}
+          history={recentSessions}
+          now={now}
+          onAddExercise={() => setPickerOpen(true)}
+          onAddSet={index => changeSession(s => addSet(s, index, Date.now()))}
+          onCompleteSet={(index, setId, values) =>
+            changeSession(s =>
+              completeStrengthSet(s, index, setId, Date.now(), values),
+            )
+          }
+          onEditSet={(index, setId, values) =>
+            changeSession(s => editStrengthSet(s, index, setId, values))
+          }
+          onFinish={finishStrength}
+          onMinimize={() => setWorkoutOpen(false)}
+          onSelectExercise={index =>
+            changeSession(s => selectExercise(s, index))
+          }
+          session={session}
+        />
+        <ExercisePicker
+          onClose={() => setPickerOpen(false)}
+          onSelect={(exercise: Exercise) => {
+            setPickerOpen(false);
+            changeSession(s => addExercise(s, exercise, Date.now()));
+          }}
+          visible={pickerOpen}
+        />
+      </View>
+    );
+  }
   if (showOnboarding) {
     return (
       <View
