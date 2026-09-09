@@ -184,6 +184,7 @@ test('clearing data reloads the UI and removes old strength history and soreness
   await openHistory(renderer);
   expect(text(renderer, 'Altes Training')).toBeUndefined();
   await openMuscleMap(renderer);
+  await tap(renderer, 'Gemeldeter Muskelkater');
   expect(
     renderer.root.findAllByType(BodyMap)[0].props.values.quad_l,
   ).toBeNull();
