@@ -1902,6 +1902,9 @@ export function RunbackApp() {
           </View>
           <BodyMap
             mode={muscleMapMode}
+            // Abschnittstitel, Umschalter und der Satz darunter benennen die
+            // Größe bereits; die Figur wiederholt sie nicht ein viertes Mal.
+            showScaleTitle={false}
             values={
               muscleMapMode === 'freshness' ? freshnessValues : sorenessValues
             }
