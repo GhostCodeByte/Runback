@@ -289,12 +289,8 @@ export function RunbackApp() {
     setSorenessOpen(false);
     const [nextStrength, nextSessions, nextReports] = await Promise.all([
       native.strength(),
-      typeof native.strengthSessions === 'function'
-        ? native.strengthSessions(500)
-        : Promise.resolve([]),
-      typeof native.sorenessReports === 'function'
-        ? native.sorenessReports()
-        : Promise.resolve([]),
+      native.strengthSessions(500),
+      native.sorenessReports(),
     ]);
     strengthRef.current = nextStrength;
     setStrength(nextStrength);
@@ -356,18 +352,14 @@ export function RunbackApp() {
         }
       })
       .catch(() => {});
-    if (typeof native.strengthSessions === 'function') {
-      void native.strengthSessions(500).then(setStrengthSessions).catch(() => {});
-    }
-    if (typeof native.sorenessReports === 'function') {
-      void native
-        .sorenessReports()
-        .then(next => {
-          setSorenessReports(next);
-          setSorenessStorageAvailable(true);
-        })
-        .catch(() => {});
-    }
+    void native.strengthSessions(500).then(setStrengthSessions).catch(() => {});
+    void native
+      .sorenessReports()
+      .then(next => {
+        setSorenessReports(next);
+        setSorenessStorageAvailable(true);
+      })
+      .catch(() => {});
   }, []);
   useEffect(() => {
     if (
