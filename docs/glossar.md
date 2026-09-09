@@ -135,6 +135,29 @@ Begriffe aus der Runback-Spezifikation und ihrer fachlichen Besprechung. Die zwe
 | Akzeptanzkriterium | Acceptance criterion | Konkrete, prüfbare Bedingung, unter der ein Ziel als erreicht gilt. |
 | Definition of Done | Definition of done / DoD | Gemeinsame Bedingungen dafür, wann die Version oder der Produktkern als fertig gilt. |
 
+## Krafttraining und Muskelmodell
+
+Maßgeblich sind die [Zielspezifikation Training](zielspezifikation-training.md) und das [Muskel- und Belastungsmodell](muskelmodell.md).
+
+| Begriff aus der Spec | Englisch / Suchbegriff | Einfach erklärt |
+|---|---|---|
+| Session | Session / Workout | Eine Trainingseinheit beliebiger Art. In Runback tragen Laufen und Krafttraining dieselbe Grundstruktur. |
+| Satz | Set | Eine zusammenhängende Folge von Wiederholungen einer Übung, gefolgt von einer Pause. |
+| Wiederholung | Rep / Repetition | Eine einzelne Ausführung der Bewegung. |
+| Muskelregion | Muscle region | Ein fest benannter Eintrag aus Runbacks versionierter Regionenliste, nicht ein frei gewählter Körperteil. |
+| Muskelanteil | Muscle contribution / involvement | Anteil, mit dem eine Übung eine Region beansprucht. Eine Übung verteilt sich immer auf mehrere Regionen. |
+| Frische | — (bewusst nicht „readiness“) | Runbacks gerechnete Skala 0–100 je Region. 100 bedeutet: keine nachwirkende Belastung im Sinne des Modells. Kein Maß für Gesundheit, Kraft oder Belastbarkeit. |
+| Muskelkater | DOMS / Delayed onset muscle soreness | Verzögert einsetzender Muskelschmerz, meist am stärksten etwa einen Tag nach ungewohnter Belastung. In Runback eine Nutzerangabe, keine Messung. |
+| Wiederholungen in Reserve | RIR / Reps in reserve | Geschätzte Zahl weiterer Wiederholungen, die im Satz noch möglich gewesen wären. Ein Satz mit RIR 0 ging bis zum Muskelversagen. |
+| Einwiederholungsmaximum | 1RM / One-rep max | Last, die genau einmal bewegt werden kann. Runback schätzt sie aus Last und Wiederholungen, misst sie nicht. |
+| Exzentrisch | Eccentric contraction | Der Muskel arbeitet, während er sich verlängert, etwa beim Bergablaufen oder beim Ablassen des Gewichts. Erzeugt deutlich mehr Muskelkater als die umgekehrte Richtung. |
+| Impulsantwort | Impulse response | Beschreibt, wie eine einzelne Belastung über die Zeit nachwirkt: erst ansteigend, dann abklingend. Grundlage der Frische-Berechnung. |
+| Robuste Trendschätzung | Theil–Sen estimator | Verfahren, das einen Verlauf aus dem Median vieler paarweiser Steigungen bestimmt. Einzelne schlechte Tage verzerren es kaum. |
+| Bruchpunkterkennung | CUSUM / Change point detection | Verfahren, das erkennt, ab wann ein Verlauf sich tatsächlich verändert hat, statt nur einzelne Ausschläge zu melden. |
+| Nicht unterscheidbare Koeffizienten | Collinearity / Identifiability | Zwei Werte lassen sich aus den vorhandenen Daten nicht trennen, weil sie immer gemeinsam auftreten. Runback benennt das, statt eine Zahl zu erfinden. |
+| Störgröße | Confounder | Ein Einfluss, der Ursache und Wirkung gemeinsam verändert, etwa Beinermüdung bei der Bewertung eines Laufs. |
+| Plan-Ist-Abweichung | Planned vs. actual | Unterschied zwischen der Zielvorgabe und dem tatsächlich Durchgeführten. In Runback eine Angabe zur Umsetzung, keine Bewertung. |
+
 ## Ein Beispiel für den Entscheidungsablauf
 
 Du beginnst einen Dauerlauf schnell und wirst später deutlich langsamer. Das ist zunächst eine Beobachtung. Die Hypothese lautet: Ein ruhigerer Start könnte den späteren Einbruch vermindern. Die Intervention ist der ruhigere Start. Als Baseline dienen geeignete frühere Läufe. Vorher wird festgelegt, welche Verbesserung bei erhaltenem Trainingszweck zählen soll. Danach prüft Runback zunächst die Umsetzung und anschließend das Ergebnis. Reichen die Belege nicht aus, lautet das Urteil inconclusive.

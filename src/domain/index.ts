@@ -7,3 +7,5 @@ export * from './regions';
 export * from './strength';
 export * from './catalog';
 export * from './plans';
+export * from './progression';
+export * from './coupling';
