@@ -1689,8 +1689,7 @@ export function RunbackApp() {
                     void action(async () => {
                       const result = await nativeCall<any>('restoreBackup');
                       if (!result.cancelled) {
-                        await refresh();
-                        await reloadTrainingState();
+                        await Promise.all([reloadTrainingState(), refresh()]);
                         setMessage(
                           result.message || 'Backup wiederhergestellt.',
                         );
@@ -1727,8 +1726,7 @@ export function RunbackApp() {
                   onPress: () => {
                     void action(async () => {
                       await nativeCall('clearAllData');
-                      await refresh();
-                      await reloadTrainingState();
+                      await Promise.all([reloadTrainingState(), refresh()]);
                       setPage('main');
                       setMessage('Lokale Daten gelöscht.');
                     });
@@ -1840,6 +1838,10 @@ export function RunbackApp() {
         <Copy muted>
           Hier bleibt sichtbar, was du tatsächlich erfasst hast. Planwerte und
           tatsächliche Sätze werden getrennt gehalten.
+        </Copy>
+        <Copy muted>
+          Die Ansicht zeigt höchstens die 500 neuesten Einheiten nach
+          Trainingsbeginn. Ältere Einheiten bleiben im Backup erhalten.
         </Copy>
         {sessions.length ? (
           sessions.map(session => {
