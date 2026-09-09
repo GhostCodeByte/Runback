@@ -63,3 +63,35 @@ describe('VendorImport status', () => {
     expect(tree.root.findAllByType(Text).map(textContent).join(' ')).toContain('weight (1)');
   });
 });
+
+describe('VendorImport flow', () => {
+  const props = { onImport: jest.fn(), onCancelImport: jest.fn(), busy: false, importStatus: null };
+
+  it('shows the sources first and the steps only after choosing one', async () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<VendorImport {...props} />);
+      await Promise.resolve();
+    });
+
+    const overview = tree.root.findAllByType(Text).map(textContent).join(' ');
+    expect(overview).toContain('Mi Fitness / Zepp Life (Xiaomi)');
+    expect(overview).not.toContain('So exportierst du');
+    expect(overview).not.toContain('Passwort');
+
+    const row = tree.root.find(
+      node =>
+        node.props?.accessibilityRole === 'button' &&
+        typeof node.props?.onPress === 'function' &&
+        textContent(node).includes('Mi Fitness / Zepp Life'),
+    );
+    await act(async () => {
+      row.props.onPress();
+    });
+
+    const detail = tree.root.findAllByType(Text).map(textContent).join(' ');
+    expect(detail).toContain('So exportierst du');
+    expect(detail).toContain('Passwort');
+    expect(detail).not.toContain('Fitbit / Google Health');
+  });
+});

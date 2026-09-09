@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  FlatList,
+  Modal,
   Pressable,
   StyleSheet,
   Switch,
@@ -8,7 +10,17 @@ import {
   View,
 } from 'react-native';
 import { nativeCall } from '../native';
-import { Button, Copy, Section, color } from './components';
+import {
+  Button,
+  Copy,
+  EmptyState,
+  Notice,
+  Title,
+  color,
+  radius,
+  space,
+  type,
+} from './components';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -27,6 +39,17 @@ type ProseSettings = {
   model?: string;
 };
 
+const SUGGESTIONS = [
+  'Was steht diese Woche an?',
+  'Wie war mein letzter Lauf?',
+  'Erkläre meinen Fokus',
+];
+
+/**
+ * Trainingschat als Chat-Oberfläche: der Verlauf füllt den Bildschirm, die
+ * Eingabe steht fest am unteren Rand, alles Übrige (Datenfreigabe, Modell,
+ * Verlauf löschen) liegt hinter „Optionen“ statt zwischen den Nachrichten.
+ */
 export function TrainingChat({ onSettings }: { onSettings: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -38,7 +61,9 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
   const [error, setError] = useState('');
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const sendingRef = useRef(false);
+  const listRef = useRef<FlatList<ChatMessage>>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -97,6 +122,7 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
     setError('');
     const optimistic = [...messages, { role: 'user' as const, content: text }];
     setMessages(optimistic.slice(-40));
+    setDraft('');
     try {
       const result = await nativeCall<ChatResult>(
         'sendChat',
@@ -108,8 +134,8 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
         setIncludeTraining(result.includeTraining);
       }
       if (result.model) setModel(result.model);
-      setDraft('');
     } catch (value) {
+      setDraft(text);
       try {
         await refreshHistory();
       } catch {
@@ -138,6 +164,7 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
       }
       if (result.model) setModel(result.model);
       setDraft('');
+      setOptionsOpen(false);
     } catch (value) {
       setError(
         value instanceof Error
@@ -179,201 +206,323 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
 
   const ready = Boolean(settings?.enabled && settings?.hasKey);
   const displayedMessages = messages.slice(-40);
+  const canSend = ready && !busy && Boolean(draft.trim());
 
   return (
-    <Section title="Trainingschat">
-      <View accessibilityRole="text" style={styles.intro}>
-        <Copy muted>
-          Deine Nachrichten und freigegebene Trainingsdaten werden an OpenRouter
-          und den gewählten Modellanbieter übertragen.
-        </Copy>
+    <View style={styles.screen}>
+      <View style={styles.head}>
+        <Title>Trainingschat</Title>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Chat-Optionen"
+          onPress={() => setOptionsOpen(true)}
+          style={({ pressed }) => [styles.headAction, pressed && styles.pressed]}
+        >
+          <Text style={styles.headActionText}>Optionen</Text>
+        </Pressable>
       </View>
 
-      <View style={styles.accessRow}>
-        <View style={styles.accessText}>
-          <Text style={styles.label}>Trainingsdaten einbeziehen</Text>
-          <Text style={styles.hint}>
-            {includeTraining
-              ? 'Profil, Läufe, Laufgefühl und Notizen. Nur lesend.'
-              : 'Nur ein allgemeiner Chat ohne Zugriff auf Trainingsdaten.'}
-          </Text>
+      <FlatList
+        ref={listRef}
+        data={displayedMessages}
+        keyExtractor={(item, index) => `${index}-${item.role}`}
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        onContentSizeChange={() =>
+          listRef.current?.scrollToEnd({ animated: false })
+        }
+        renderItem={({ item }) => (
+          <View
+            accessibilityRole="text"
+            accessibilityLabel={`${item.role === 'user' ? 'Du' : 'Runback'}: ${
+              item.content
+            }`}
+            style={[
+              styles.bubble,
+              item.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant,
+            ]}
+          >
+            <Text style={styles.bubbleText}>{item.content}</Text>
+          </View>
+        )}
+        ListEmptyComponent={
+          loading ? (
+            <Copy muted>Unterhaltung wird geladen …</Copy>
+          ) : (
+            <View style={styles.emptyWrap}>
+              <EmptyState
+                title="Stelle eine Frage zu deinem Training"
+                copy={
+                  ready
+                    ? 'Runback antwortet mit deinen freigegebenen Trainingsdaten.'
+                    : 'Dafür fehlt noch der OpenRouter-Zugang.'
+                }
+                action={
+                  ready
+                    ? undefined
+                    : { title: 'OpenRouter einrichten', onPress: onSettings }
+                }
+              />
+              <View style={styles.chips}>
+                {SUGGESTIONS.map(prompt => (
+                  <Pressable
+                    key={prompt}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Frage verwenden: ${prompt}`}
+                    disabled={busy}
+                    onPress={() => setDraft(prompt)}
+                    style={({ pressed }) => [
+                      styles.chip,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.chipText}>{prompt}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )
+        }
+        ListFooterComponent={
+          busy ? (
+            <Text accessibilityLiveRegion="polite" style={styles.pending}>
+              Runback antwortet …
+            </Text>
+          ) : null
+        }
+      />
+
+      {error ? (
+        <View style={styles.noticeSlot}>
+          <Notice onDismiss={() => setError('')}>{error}</Notice>
         </View>
-        <Switch
-          accessibilityLabel="Trainingsdaten einbeziehen"
-          accessibilityState={{
-            checked: includeTraining,
-            disabled: busy || loading,
-          }}
-          disabled={busy || loading}
-          value={includeTraining}
-          onValueChange={value => void changeTrainingAccess(value)}
-          trackColor={{ false: color.line, true: color.green }}
-          thumbColor={includeTraining ? color.ink : color.muted}
-        />
-      </View>
-
-      {loading ? <Copy muted>Unterhaltung wird geladen …</Copy> : null}
-      {!loading && !ready ? (
-        <Button secondary title="OpenRouter einrichten" onPress={onSettings} />
       ) : null}
-      {displayedMessages.map((message, index) => (
-        <View
-          key={`${index}-${message.role}-${message.content.slice(0, 16)}`}
-          accessibilityRole="text"
-          accessibilityLabel={`${message.role === 'user' ? 'Du' : 'Runback'}: ${
-            message.content
-          }`}
-          style={[
-            styles.message,
-            message.role === 'user' && styles.userMessage,
+      {loadingFailed ? (
+        <View style={styles.noticeSlot}>
+          <Button
+            secondary
+            small
+            title="Erneut laden"
+            disabled={busy}
+            onPress={() => {
+              setLoadingFailed(false);
+              setLoading(true);
+              setError('');
+              setReloadToken(value => value + 1);
+            }}
+          />
+        </View>
+      ) : null}
+
+      <View style={styles.composer}>
+        <TextInput
+          accessibilityLabel="Nachricht an den Trainingschat"
+          accessibilityHint="Frage eingeben und anschließend senden"
+          multiline
+          editable={!busy}
+          maxLength={6000}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Frage stellen …"
+          placeholderTextColor={color.muted}
+          selectionColor={color.green}
+          style={styles.input}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Senden"
+          accessibilityState={{ disabled: !canSend }}
+          disabled={!canSend}
+          onPress={() => void send()}
+          style={({ pressed }) => [
+            styles.send,
+            !canSend && styles.sendDisabled,
+            pressed && styles.pressed,
           ]}
         >
-          <Text style={styles.messageRole}>
-            {message.role === 'user' ? 'Du' : 'Runback'}
-          </Text>
-          <Text style={styles.messageText}>{message.content}</Text>
-        </View>
-      ))}
-
-      {displayedMessages.length === 0 && !loading ? (
-        <Copy muted>Stelle eine Frage zu deinem Training.</Copy>
-      ) : null}
-
-      <View style={styles.chips}>
-        {[
-          'Was steht diese Woche an?',
-          'Wie war mein letzter Lauf?',
-          'Erkläre mein Experiment',
-        ].map(prompt => (
-          <Pressable
-            key={prompt}
-            accessibilityRole="button"
-            accessibilityLabel={`Frage verwenden: ${prompt}`}
-            disabled={busy}
-            onPress={() => setDraft(prompt)}
-            style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
-          >
-            <Text style={styles.chipText}>{prompt}</Text>
-          </Pressable>
-        ))}
+          <Text style={styles.sendText}>↑</Text>
+        </Pressable>
       </View>
 
-      <TextInput
-        accessibilityLabel="Nachricht an den Trainingschat"
-        accessibilityHint="Frage eingeben und anschließend Senden drücken"
-        multiline
-        editable={!busy}
-        maxLength={6000}
-        value={draft}
-        onChangeText={setDraft}
-        onSubmitEditing={() => void send()}
-        placeholder="Zum Beispiel: Wie sollte ich diese Woche trainieren?"
-        placeholderTextColor={color.muted}
-        style={styles.input}
-      />
-      <Button
-        title={busy ? 'Wird gesendet …' : 'Senden'}
-        disabled={busy || !draft.trim() || !ready}
-        onPress={() => void send()}
-      />
-      {loadingFailed ? (
-        <Button
-          secondary
-          small
-          title="Erneut laden"
-          disabled={busy}
-          onPress={() => {
-            setLoadingFailed(false);
-            setLoading(true);
-            setError('');
-            setReloadToken(value => value + 1);
-          }}
-        />
-      ) : null}
-      <Button
-        secondary
-        small
-        title="OpenRouter-Einstellungen"
-        disabled={busy}
-        onPress={onSettings}
-      />
-      <Button
-        secondary
-        small
-        title="Unterhaltung löschen"
-        disabled={busy || messages.length === 0}
-        onPress={() => void clearConversation()}
-      />
-      {model ? <Copy muted>Modell: {model}</Copy> : null}
-      <Copy muted>
-        KI-Antworten sind Einschätzungen und ändern keine Auswertung oder
-        Experimente. Der automatische Datenzugriff enthält keine GPS-Koordinaten
-        oder Rohsamples. Die letzten 40 Nachrichten bleiben lokal gespeichert;
-        davon werden bis zu 18 als Gesprächskontext gesendet.
-      </Copy>
-      {error ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          accessibilityRole="alert"
-          style={styles.error}
-        >
-          {error}
-        </Text>
-      ) : null}
-    </Section>
+      <Modal
+        visible={optionsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOptionsOpen(false)}
+      >
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Chat-Optionen</Text>
+            <View style={styles.accessRow}>
+              <View style={styles.accessText}>
+                <Text style={styles.label}>Trainingsdaten einbeziehen</Text>
+                <Text style={styles.hint}>
+                  {includeTraining
+                    ? 'Profil, Läufe, Laufgefühl und Notizen. Nur lesend.'
+                    : 'Allgemeiner Chat ohne Zugriff auf Trainingsdaten.'}
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="Trainingsdaten einbeziehen"
+                accessibilityState={{
+                  checked: includeTraining,
+                  disabled: busy || loading,
+                }}
+                disabled={busy || loading}
+                value={includeTraining}
+                onValueChange={value => void changeTrainingAccess(value)}
+                trackColor={{ false: color.line, true: color.green }}
+                thumbColor={includeTraining ? color.ink : color.muted}
+              />
+            </View>
+            {model ? <Copy muted>Modell: {model}</Copy> : null}
+            <Copy muted>
+              Nachrichten und freigegebene Trainingsdaten gehen an OpenRouter und
+              den gewählten Modellanbieter. GPS-Koordinaten und Rohsamples nicht.
+            </Copy>
+            <Copy muted>
+              Antworten sind Einschätzungen und ändern keine Auswertung.
+            </Copy>
+            <Button
+              secondary
+              title="OpenRouter-Einstellungen"
+              disabled={busy}
+              onPress={() => {
+                setOptionsOpen(false);
+                onSettings();
+              }}
+            />
+            <Button
+              danger
+              title="Unterhaltung löschen"
+              disabled={busy || messages.length === 0}
+              onPress={() => void clearConversation()}
+            />
+            <Button
+              secondary
+              small
+              title="Schließen"
+              onPress={() => setOptionsOpen(false)}
+            />
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  intro: { gap: 8 },
-  title: { color: color.text, fontSize: 17, fontWeight: '600' },
+  screen: { flex: 1 },
+  head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingBottom: space.xs,
+    gap: space.sm,
+  },
+  headAction: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: space.xs,
+  },
+  headActionText: { color: color.green, ...type.label, fontWeight: '600' },
+  list: {
+    paddingHorizontal: space.lg,
+    paddingBottom: space.md,
+    gap: space.sm,
+    flexGrow: 1,
+  },
+  emptyWrap: { gap: space.md },
+  bubble: {
+    borderRadius: radius.lg,
+    maxWidth: '92%',
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  bubbleAssistant: {
+    alignSelf: 'flex-start',
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderWidth: 1,
+  },
+  bubbleUser: { alignSelf: 'flex-end', backgroundColor: color.raised },
+  bubbleText: { color: color.text, ...type.body },
+  pending: {
+    color: color.muted,
+    ...type.label,
+    fontWeight: '400',
+    paddingTop: space.xs,
+  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  chip: {
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: space.md,
+  },
+  chipText: { color: color.text, ...type.label, fontWeight: '400' },
+  pressed: { opacity: 0.72 },
+  noticeSlot: { paddingHorizontal: space.lg, paddingBottom: space.xs },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: space.xs,
+    paddingHorizontal: space.lg,
+    paddingTop: space.xs,
+    paddingBottom: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: color.line,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    color: color.text,
+    ...type.body,
+    maxHeight: 140,
+    minHeight: 52,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    textAlignVertical: 'top',
+  },
+  send: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    backgroundColor: color.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendDisabled: { opacity: 0.4 },
+  sendText: { color: color.ink, fontSize: 24, fontWeight: '700' },
+  backdrop: {
+    flex: 1,
+    backgroundColor: '#000000AA',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: color.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    padding: space.lg,
+    gap: space.sm,
+  },
+  sheetTitle: { color: color.text, ...type.heading },
   accessRow: {
     alignItems: 'center',
     borderBottomColor: color.line,
     borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 12,
+    gap: space.sm,
+    paddingBottom: space.sm,
   },
-  accessText: { flex: 1, gap: 4 },
-  label: { color: color.text, fontSize: 16, fontWeight: '500' },
-  hint: { color: color.muted, fontSize: 14, lineHeight: 20 },
-  message: {
-    alignSelf: 'flex-start',
-    backgroundColor: color.surface,
-    borderColor: color.line,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 5,
-    maxWidth: '92%',
-    padding: 13,
-  },
-  userMessage: { alignSelf: 'flex-end', backgroundColor: color.raised },
-  messageRole: { color: color.green, fontSize: 12, fontWeight: '700' },
-  messageText: { color: color.text, fontSize: 16, lineHeight: 23 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    backgroundColor: color.surface,
-    borderColor: color.line,
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  chipText: { color: color.text, fontSize: 14 },
-  pressed: { opacity: 0.72 },
-  input: {
-    backgroundColor: color.surface,
-    borderColor: color.line,
-    borderRadius: 8,
-    borderWidth: 1,
-    color: color.text,
-    fontSize: 16,
-    lineHeight: 22,
-    minHeight: 88,
-    padding: 14,
-    textAlignVertical: 'top',
-  },
-  settingsPrompt: { gap: 10 },
-  error: { color: color.text, fontSize: 15, lineHeight: 22 },
+  accessText: { flex: 1, gap: space.xxs },
+  label: { color: color.text, ...type.body, fontWeight: '500' },
+  hint: { color: color.muted, ...type.label, fontWeight: '400' },
 });

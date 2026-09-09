@@ -27,6 +27,39 @@ automatische Cloud-Synchronisierung und keinen Account.
 
 Hevy- und FitNotes-CSVs mit Strong-ähnlichem Aufbau werden wie Strong erkannt.
 
+## Bereinigung beim Import
+
+Exporte enthalten meist die gesamte Aktivitätshistorie. Spaziergänge und
+Radfahrten würden dort jede Tempoauswertung und die Wochenstatistik verzerren.
+Runback filtert sie deshalb beim Import:
+
+1. **Bekannte Sportart entscheidet allein.** FIT-Session-Sport, das
+   `Sport`-Attribut in TCX, `<type>` in GPX sowie Typspalten in CSV/JSON werden
+   ausgewertet. Laufbegriffe (`run`, `running`, `jog`, `trail`, `treadmill`,
+   `lauf`, `跑`) gewinnen gegen Gegenbegriffe, damit „Trail Running“ und
+   „Laufband“ nicht an einem Teilwort scheitern.
+2. **Ohne Sportart entscheidet das Tempofenster.** Akzeptiert wird eine
+   Durchschnittsgeschwindigkeit zwischen 1,5 m/s (≈ 11:07 min/km) und
+   6,5 m/s (≈ 2:34 min/km). Darunter liegt Gehen, darüber Radfahren.
+3. **Fehlt Distanz oder Dauer, wird nicht gefiltert.** Ohne beide Werte gibt es
+   kein Tempo; die Auswertung markiert solche Läufe ohnehin als nicht
+   tempotauglich.
+
+Aussortierte Aktivitäten werden **nicht gelöscht, sondern nicht als Lauf
+angelegt**. Der Importbericht zählt sie getrennt als „Keine Läufe“. Health
+Connect filtert bereits an der Quelle auf `EXERCISE_TYPE_RUNNING`.
+
+## Benennung importierter Läufe
+
+Dateinamen wie `activity_12345678.fit` sind keine Lauftitel. Der Import
+speichert deshalb den besten verfügbaren Namen — den Streckennamen aus
+`<trk><name>` bzw. dem Anbieter-Feld, sonst den Dateinamen. Die Oberfläche
+entscheidet anschließend über `runTitle()`
+(siehe [Design Language](design-language.md) § 13): sprechender Name, sonst
+Trainingszweck, sonst Tageszeit („Morgenlauf“, „Abendlauf“). Technische Namen
+(IDs, Zeitstempel, GUIDs, Anbieter-Platzhalter wie „Garmin Lauf“) werden
+verworfen.
+
 ## Welche Daten Runback wofür nutzt
 
 - **Läufe mit GPS-Spur (FIT/GPX/TCX, Apple-Routen, Mi-Einzeldateien):**

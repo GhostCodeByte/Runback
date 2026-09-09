@@ -52,6 +52,67 @@ object VendorImports {
         val calories: Double? = null,
     )
 
+    // ---- Laufaktivitaeten von Gehen, Radfahren & Co. trennen ----
+
+    /** Woerter, die eine Laufaktivitaet belegen. Deutsche Komposita ("Waldlauf") als Teilwort. */
+    private val RUN_PARTS = listOf("lauf", "jog", "trail", "treadmill")
+    private val RUN_WORDS = listOf("run", "running")
+    /** Woerter, die eine andere Sportart belegen. */
+    private val OTHER_PARTS = listOf(
+        "walk", "hik", "wander", "spazier", "nordic", "cycl", "bike", "biking", "fahrrad",
+        "radfahr", "radeln", "radtour", "rennrad",
+        "swim", "schwimm", "row", "rudern", "ski", "skat", "elliptical", "crosstrainer",
+        "yoga", "climb", "kletter", "paddle", "kayak", "surf", "dance", "tanz",
+        "stair", "treppe", "golf", "tennis", "soccer", "fussball", "basketball",
+    )
+    private val OTHER_WORDS = listOf("rad", "ride", "riding", "geh", "gehen", "walking")
+
+    private fun containsWord(text: String, word: String) =
+        Regex("(^|[^a-z])" + Regex.escape(word) + "([^a-z]|$)").containsMatchIn(text)
+
+    /**
+     * true = Lauf, false = andere Sportart, null = keine Aussage moeglich.
+     * Laufwoerter gewinnen, damit "Trail Running" oder "Laufband" nicht an
+     * einem Teilwort der Gegenliste scheitern.
+     */
+    fun isRunningActivityType(raw: String?): Boolean? {
+        val text = raw?.trim()?.lowercase(Locale.ROOT)?.replace('_', ' ') ?: return null
+        if (text.isEmpty()) return null
+        if (text.contains("跑")) return true
+        if (RUN_PARTS.any { text.contains(it) } || RUN_WORDS.any { containsWord(text, it) }) return true
+        if (text.contains("步行") || text.contains("骑")) return false
+        if (OTHER_PARTS.any { text.contains(it) } || OTHER_WORDS.any { containsWord(text, it) }) return false
+        return null
+    }
+
+    /**
+     * Plausibilitaetsfenster fuer Laufgeschwindigkeit. Darunter liegt Gehen,
+     * darueber Radfahren — beides verzerrt sonst jede Tempoauswertung.
+     */
+    const val MIN_RUN_SPEED_MPS = 1.5
+    const val MAX_RUN_SPEED_MPS = 6.5
+
+    fun plausibleRunSpeed(distanceMeters: Double, durationSeconds: Double): Boolean {
+        if (!distanceMeters.isFinite() || !durationSeconds.isFinite()) return true
+        // Ohne Distanz oder Dauer laesst sich kein Tempo bilden; die Auswertung
+        // markiert solche Laeufe ohnehin als nicht tempotauglich.
+        if (distanceMeters <= 0 || durationSeconds <= 0) return true
+        val speed = distanceMeters / durationSeconds
+        return speed >= MIN_RUN_SPEED_MPS && speed <= MAX_RUN_SPEED_MPS
+    }
+
+    /**
+     * Importfilter: Eine bekannte Sportart entscheidet allein, sonst das
+     * Tempofenster. So landen Spaziergaenge und Radfahrten nicht in der
+     * Laufhistorie und verzerren weder Paces noch Statistik.
+     */
+    fun acceptAsRun(activityType: String?, distanceMeters: Double, durationSeconds: Double): Boolean =
+        when (isRunningActivityType(activityType)) {
+            true -> true
+            false -> false
+            null -> plausibleRunSpeed(distanceMeters, durationSeconds)
+        }
+
     const val MAX_CSV_ROWS = 60000
     const val MAX_JSON_WELLNESS = 20000
     const val MAX_APPLE_RECORDS = 120000
@@ -352,12 +413,8 @@ object VendorImports {
             val cells = splitCsvLine(raw, delimiter)
             fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
             val start = parseTimeFlexible(get(cDate)) ?: run { skipped++; return@forEach }
-            if (cType >= 0) {
-                val t = get(cType).lowercase(Locale.ROOT)
-                val isRun = t.contains("run") || t.contains("lauf") || t.contains("jog") || t.contains("treadmill") ||
-                    t.contains("trail") || t.isBlank()
-                if (!isRun) { skipped++; return@forEach }
-            }
+            val activityType = if (cType >= 0) get(cType) else null
+            if (isRunningActivityType(activityType) == false) { skipped++; return@forEach }
             val distance = parseDoubleFlexible(get(cDist))?.let {
                 guessDistanceMeters(it, "${if (cDist >= 0) header[cDist] else ""} ${get(cDist)}")
             } ?: 0.0
@@ -370,6 +427,7 @@ object VendorImports {
             }
             val duration = parsedDuration ?: 0.0
             if (distance <= 0 && duration <= 0) { skipped++; return@forEach }
+            if (!acceptAsRun(activityType, distance, duration)) { skipped++; return@forEach }
             val end = start + (duration * 1000).toLong().coerceIn(0, 24 * 3600 * 1000L)
             runs.add(RunDraft(start, if (end > start) end else start, duration, distance,
                 get(cName).ifBlank { "Importierter Lauf" }.take(120), source,

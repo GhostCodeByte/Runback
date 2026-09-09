@@ -1,7 +1,13 @@
-import React, { memo, type PropsWithChildren } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { memo, type PropsWithChildren, type ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { RoutePoint } from '../native';
+
+/**
+ * Design-Token und Bausteine der gesamten Oberfläche. Verbindliche Regeln zu
+ * Verwendung, Text und Affordanzen stehen in docs/design-language.md. Bildschirme
+ * definieren keine eigenen Farben, Abstände oder Schriftgrößen.
+ */
 export const color = {
   bg: '#101210',
   surface: '#1A1D1A',
@@ -10,12 +16,47 @@ export const color = {
   text: '#F2F4EF',
   muted: '#ADB5AB',
   green: '#A5D879',
+  greenSoft: '#26331E',
   ink: '#14200E',
+  danger: '#E4796B',
 };
+
+export const space = {
+  xxs: 4,
+  xs: 8,
+  sm: 12,
+  md: 16,
+  ml: 20,
+  lg: 24,
+  xl: 32,
+  xxl: 40,
+};
+
+export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
+
+export const type = {
+  display: { fontSize: 56, lineHeight: 60, fontWeight: '400' as const },
+  title: { fontSize: 28, lineHeight: 34, fontWeight: '600' as const },
+  heading: { fontSize: 20, lineHeight: 26, fontWeight: '600' as const },
+  value: { fontSize: 26, lineHeight: 30, fontWeight: '500' as const },
+  body: { fontSize: 16, lineHeight: 24, fontWeight: '400' as const },
+  label: { fontSize: 14, lineHeight: 20, fontWeight: '500' as const },
+  micro: { fontSize: 12, lineHeight: 16, fontWeight: '500' as const },
+};
+
+export function Title({ children }: PropsWithChildren) {
+  return (
+    <Text accessibilityRole="header" style={s.title}>
+      {children}
+    </Text>
+  );
+}
+
 export function Button({
   title,
   onPress,
   secondary = false,
+  danger = false,
   disabled = false,
   small = false,
   label,
@@ -23,11 +64,13 @@ export function Button({
   title: string;
   onPress: () => void;
   secondary?: boolean;
+  danger?: boolean;
   disabled?: boolean;
   small?: boolean;
   /** Vorlesetext, wenn die Beschriftung allein nicht eindeutig ist. */
   label?: string;
 }) {
+  const outlined = secondary || danger;
   return (
     <Pressable
       accessibilityLabel={label ?? title}
@@ -37,16 +80,25 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [
         s.button,
-        secondary && s.secondary,
+        outlined && s.secondary,
         small && s.small,
         disabled && s.disabled,
         pressed && s.pressed,
       ]}
     >
-      <Text style={[s.buttonText, secondary && s.secondaryText]}>{title}</Text>
+      <Text
+        style={[
+          s.buttonText,
+          outlined && s.secondaryText,
+          danger && s.dangerText,
+        ]}
+      >
+        {title}
+      </Text>
     </Pressable>
   );
 }
+
 export function Copy({
   children,
   muted = false,
@@ -54,17 +106,28 @@ export function Copy({
 }: PropsWithChildren<{ muted?: boolean; style?: object }>) {
   return <Text style={[s.copy, muted && s.muted, style]}>{children}</Text>;
 }
+
+export function Card({
+  children,
+  style,
+}: PropsWithChildren<{ style?: object }>) {
+  return <View style={[s.card, style]}>{children}</View>;
+}
+
 export function Section({
   title,
   children,
 }: PropsWithChildren<{ title: string }>) {
   return (
     <View style={s.section}>
-      <Text style={s.sectionTitle}>{title}</Text>
+      <Text accessibilityRole="header" style={s.sectionTitle}>
+        {title}
+      </Text>
       {children}
     </View>
   );
 }
+
 export function Row({
   title,
   subtitle,
@@ -97,6 +160,134 @@ export function Row({
     <View style={s.row}>{content}</View>
   );
 }
+
+/**
+ * Einfachauswahl direkt auf der Seite. Ersetzt Dialoge, deren Optionen in eine
+ * Zeile passen — ein Chip sieht auswählbar aus und verhält sich auch so.
+ */
+export function ChipGroup<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel={label}
+      style={s.chips}
+    >
+      {options.map(option => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected, checked: selected, disabled }}
+            disabled={disabled}
+            onPress={() => onChange(option.value)}
+            style={({ pressed }) => [
+              s.chip,
+              selected && s.chipSelected,
+              pressed && s.pressed,
+            ]}
+          >
+            <Text style={[s.chipText, selected && s.chipTextSelected]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+export function Field({
+  label,
+  hint,
+  children,
+}: PropsWithChildren<{ label: string; hint?: string }>) {
+  return (
+    <View style={s.field}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      {children}
+      {hint ? <Text style={s.rowSubtitle}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+export function Input({
+  label,
+  ...props
+}: { label: string } & React.ComponentProps<typeof TextInput>) {
+  return (
+    <TextInput
+      accessibilityLabel={label}
+      placeholderTextColor={color.muted}
+      selectionColor={color.green}
+      {...props}
+      style={[s.input, props.multiline && s.inputMultiline, props.style]}
+    />
+  );
+}
+
+export function Notice({
+  children,
+  title,
+  onDismiss,
+}: PropsWithChildren<{ title?: string; onDismiss?: () => void }>) {
+  const body = (
+    <>
+      {title ? <Text style={s.noticeTitle}>{title}</Text> : null}
+      <Text style={s.copy}>{children}</Text>
+    </>
+  );
+  return onDismiss ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Meldung schließen"
+      accessibilityLiveRegion="polite"
+      onPress={onDismiss}
+      style={({ pressed }) => [s.notice, pressed && s.pressed]}
+    >
+      {body}
+    </Pressable>
+  ) : (
+    <View accessibilityLiveRegion="polite" style={s.notice}>
+      {body}
+    </View>
+  );
+}
+
+/** Leerer Zustand: Titel, ein Satz, genau eine Aktion. */
+export function EmptyState({
+  title,
+  copy,
+  action,
+}: {
+  title: string;
+  copy: string;
+  action?: { title: string; onPress: () => void };
+}) {
+  return (
+    <View style={s.empty}>
+      <Text accessibilityRole="header" style={s.emptyTitle}>
+        {title}
+      </Text>
+      <Copy muted>{copy}</Copy>
+      {action ? <Button title={action.title} onPress={action.onPress} /> : null}
+    </View>
+  );
+}
+
 export function Stat({
   value,
   label,
@@ -119,6 +310,7 @@ export function Stat({
     </View>
   );
 }
+
 export function Icon({
   name,
   selected = false,
@@ -145,12 +337,13 @@ export function Icon({
     </Svg>
   );
 }
+
 export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
   const valid = points
     .filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
     .slice(0, 512);
   if (valid.length < 2) {
-    return <Copy muted>Keine darstellbare GPS-Strecke vorhanden.</Copy>;
+    return <Copy muted>Keine GPS-Strecke aufgezeichnet.</Copy>;
   }
   const lat = valid.map(p => p.latitude),
     lon = valid.map(p => p.longitude);
@@ -204,51 +397,102 @@ export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
     </View>
   );
 });
+
+export type { ReactNode };
+
 export const s = StyleSheet.create({
+  title: { color: color.text, ...type.title, letterSpacing: -0.6 },
   button: {
     minHeight: 54,
-    borderRadius: 8,
+    borderRadius: radius.md,
     backgroundColor: color.green,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: space.ml,
+    paddingVertical: space.md,
   },
   secondary: {
     backgroundColor: color.surface,
     borderColor: color.line,
     borderWidth: 1,
   },
-  small: { minHeight: 44, paddingVertical: 10 },
+  small: { minHeight: 48, paddingVertical: space.sm },
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.72 },
-  buttonText: { color: color.ink, fontSize: 16, fontWeight: '700' },
+  buttonText: { color: color.ink, ...type.body, fontWeight: '700' },
   secondaryText: { color: color.text },
-  copy: { color: color.text, fontSize: 16, lineHeight: 24 },
+  dangerText: { color: color.danger },
+  copy: { color: color.text, ...type.body },
   muted: { color: color.muted },
-  section: { marginTop: 28, gap: 12 },
-  sectionTitle: { fontSize: 19, color: color.text, fontWeight: '600' },
+  card: {
+    backgroundColor: color.surface,
+    borderRadius: radius.md,
+    padding: space.lg,
+    gap: space.md,
+  },
+  section: { marginTop: space.xl, gap: space.sm },
+  sectionTitle: { color: color.text, ...type.heading },
   row: {
-    minHeight: 68,
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 16,
+    gap: space.sm,
+    paddingVertical: space.md,
     borderBottomWidth: 1,
     borderBottomColor: color.line,
   },
-  rowText: { flex: 1, gap: 5 },
-  rowTitle: { color: color.text, fontSize: 16, fontWeight: '500' },
-  rowSubtitle: { color: color.muted, fontSize: 14, lineHeight: 21 },
-  chevron: { fontSize: 28, color: color.muted },
-  stat: { flex: 1, gap: 5 },
+  rowText: { flex: 1, gap: space.xxs },
+  rowTitle: { color: color.text, ...type.body, fontWeight: '500' },
+  rowSubtitle: { color: color.muted, ...type.label, fontWeight: '400' },
+  chevron: { fontSize: 26, color: color.muted },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  chip: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: color.surface,
+  },
+  chipSelected: {
+    backgroundColor: color.greenSoft,
+    borderColor: color.green,
+  },
+  chipText: { color: color.muted, ...type.label },
+  chipTextSelected: { color: color.text, fontWeight: '600' },
+  field: { gap: space.xs },
+  fieldLabel: { color: color.text, ...type.label },
+  input: {
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
+    color: color.text,
+    backgroundColor: color.surface,
+    ...type.body,
+    minHeight: 52,
+  },
+  inputMultiline: { minHeight: 96, textAlignVertical: 'top' },
+  notice: {
+    backgroundColor: color.raised,
+    borderRadius: radius.sm,
+    padding: space.md,
+    gap: space.xxs,
+    borderLeftWidth: 3,
+    borderLeftColor: color.green,
+  },
+  noticeTitle: { color: color.text, ...type.label, fontWeight: '700' },
+  empty: { paddingVertical: space.xxl, gap: space.md },
+  emptyTitle: { color: color.text, ...type.heading },
+  stat: { flex: 1, gap: space.xxs },
   statValue: {
     color: color.text,
-    fontSize: 28,
-    fontWeight: '500',
+    ...type.value,
     fontVariant: ['tabular-nums'],
   },
-  statLarge: { fontSize: 66, fontWeight: '400' },
-  statLabel: { color: color.muted, fontSize: 14 },
-  route: { backgroundColor: color.surface, marginVertical: 8 },
+  statLarge: { ...type.display },
+  statLabel: { color: color.muted, ...type.label, fontWeight: '400' },
+  route: { backgroundColor: color.surface, borderRadius: radius.sm },
 });

@@ -58,7 +58,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         expandedBytes = 0
         update { progress = JSONObject().put("state", "running").put("totalFiles", uris.size)
             .put("processed", 0).put("imported", 0).put("duplicates", 0).put("deleted", 0)
-            .put("failed", 0).put("skipped", 0).put("errors", JSONArray()) }
+            .put("failed", 0).put("skipped", 0).put("nonRunning", 0).put("errors", JSONArray()) }
         try {
             require(uris.size <= MAX_ENTRIES) { "Zu viele Dateien (maximal $MAX_ENTRIES)" }
             for (uri in uris) {
@@ -141,7 +141,16 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         if (name.lowercase(Locale.ROOT).removeSuffix(".gz").endsWith(".fit")) parseFit(file, builder)
         else file.inputStream().buffered().use { parseXml(it, builder) }
         checkCancelled()
-        val result = store.addImportedRun(builder.summary(), builder.samples, sha256(file))
+        val summary = builder.summary()
+        // Spaziergaenge und Radfahrten werden nicht als Lauf gespeichert: sie
+        // verzerren sonst jede Tempoauswertung und die Wochenstatistik.
+        if (!VendorImports.acceptAsRun(builder.activityType,
+                summary.optDouble("distanceMeters", 0.0), summary.optDouble("durationSeconds", 0.0))) {
+            increment("nonRunning")
+            increment("processed")
+            return
+        }
+        val result = store.addImportedRun(summary, builder.samples, sha256(file))
         if (result.optString("status") == "imported") {
             val id = result.optString("id", result.optJSONObject("run")?.optString("id") ?: "")
             if (id.isNotBlank()) store.storeImportedSource(id, original, name)
@@ -234,6 +243,13 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         return true
     }
 
+    /** Gibt true zurueck, wenn der Entwurf als Lauf gespeichert werden darf. */
+    private fun acceptDraft(draft: VendorImports.RunDraft, activityType: String? = null): Boolean {
+        if (VendorImports.acceptAsRun(activityType, draft.distanceMeters, draft.durationSeconds)) return true
+        increment("nonRunning")
+        return false
+    }
+
     private fun summaryFromDraft(draft: VendorImports.RunDraft): JSONObject =
         JSONObject().put("name", draft.name).put("startTime", draft.startTime).put("endTime", draft.endTime)
             .put("durationSeconds", draft.durationSeconds).put("distanceMeters", draft.distanceMeters)
@@ -277,6 +293,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                         "Mi Fitness Lauf", "mi_fitness",
                         VendorImports.parseDoubleFlexible(get(cHr))?.takeIf { it in 30.0..240.0 },
                         VendorImports.parseDoubleFlexible(get(cCal)))
+                    if (!acceptDraft(draft, type)) continue
                     recordImported(store.addSummaryRun(summaryFromDraft(draft),
                         "vendor:mi_fitness:${sha256(file)}:$start"), "mi_fitness")
                 }
@@ -340,6 +357,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 val draft = VendorImports.RunDraft(start, if (end > start) end else start, duration, distance,
                     "Samsung Health Lauf", "samsung_health", null,
                     VendorImports.parseDoubleFlexible(get(cCal)))
+                if (!acceptDraft(draft)) continue
                 recordImported(store.addSummaryRun(summaryFromDraft(draft),
                     "vendor:samsung:${sha256(file)}:$start"), "samsung")
             }
@@ -528,6 +546,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                     if (distance <= 0 && duration <= 0) continue
                     val draft = VendorImports.RunDraft(start, end, duration, distance,
                         obj.optString("name", "Google Fit Lauf").take(120), "google_fit")
+                    if (!acceptDraft(draft, type)) continue
                     when (store.addSummaryRun(summaryFromDraft(draft), "vendor:google_fit:$start").optString("status")) {
                         "imported" -> runs++
                         "duplicate" -> dups++
@@ -571,6 +590,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                         obj.optString("name", "Garmin Lauf").take(120), "garmin",
                         obj.optDouble("avgHr", Double.NaN).takeIf { it in 30.0..240.0 },
                         obj.optDouble("calories", Double.NaN).takeIf { it in 0.0..20000.0 })
+                    if (!acceptDraft(draft, type)) continue
                     when (store.addSummaryRun(summaryFromDraft(draft), "vendor:garmin:$start").optString("status")) {
                         "imported" -> runs++
                         "duplicate" -> dups++
@@ -643,7 +663,8 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                                     val distAttr = parser.getAttributeValue(null, "totalDistance")?.toDoubleOrNull() ?: 0.0
                                     val distUnit = parser.getAttributeValue(null, "totalDistanceUnit") ?: "km"
                                     val distance = VendorImports.toMeters(distAttr, distUnit) ?: 0.0
-                                    if (distance > 0 || duration > 0) {
+                                    if ((distance > 0 || duration > 0) &&
+                                        VendorImports.plausibleRunSpeed(distance, duration)) {
                                         val draft = VendorImports.RunDraft(start, end, duration, distance,
                                             "Apple Health Lauf", "apple_health")
                                         when (store.addSummaryRun(summaryFromDraft(draft),
@@ -765,6 +786,9 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         var leaf = ""
         val text = StringBuilder()
         var depth = 0
+        // Nur <name>/<type> innerhalb von <trk> beschreiben die Aktivität. In
+        // <metadata> oder <Creator> steht der Dateiautor bzw. das Uhrenmodell.
+        var inTrack = false
         while (parser.eventType != XmlPullParser.END_DOCUMENT) {
             checkCancelled()
             when (parser.eventType) {
@@ -773,6 +797,10 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                     require(++depth <= 64) { "XML ist zu tief verschachtelt" }
                     leaf = parser.name.lowercase(Locale.ROOT)
                     text.setLength(0)
+                    if (leaf == "trk") inTrack = true
+                    if (leaf == "activity" && builder.activityType == null) {
+                        parser.getAttributeValue(null, "Sport")?.let { builder.activityType = it.take(60) }
+                    }
                     if (leaf == "trkpt" || leaf == "rtept" || leaf == "trackpoint") {
                         point = mutableMapOf()
                         parser.getAttributeValue(null, "lat")?.let { point?.put("lat", it) }
@@ -786,6 +814,14 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 XmlPullParser.END_TAG -> {
                     val tag = parser.name.lowercase(Locale.ROOT)
                     if (tag == leaf && point != null) point[tag] = text.toString().trim()
+                    if (inTrack && point == null) {
+                        val value = text.toString().trim()
+                        if (value.isNotEmpty()) {
+                            if (tag == "name" && builder.trackName == null) builder.trackName = value.take(120)
+                            if (tag == "type" && builder.activityType == null) builder.activityType = value.take(60)
+                        }
+                    }
+                    if (tag == "trk") inTrack = false
                     if (tag == "trkpt" || tag == "rtept" || tag == "trackpoint") {
                         val p = point ?: emptyMap()
                         val time = parseTime(p["time"])
@@ -820,6 +856,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
             record.distance?.toDouble()?.let { builder.reportedDistance = maxOf(builder.reportedDistance, it) }
         })
         broadcaster.addListener(SessionMesgListener { session ->
+            if (builder.activityType == null) session.sport?.let { builder.activityType = it.name }
             session.totalDistance?.toDouble()?.let { builder.reportedDistance = maxOf(builder.reportedDistance, it) }
             session.totalTimerTime?.toDouble()?.let { builder.reportedDuration = it }
         })
@@ -910,6 +947,10 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         val samples = JSONArray()
         var reportedDistance = 0.0
         var reportedDuration: Double? = null
+        /** Sportart aus der Datei (FIT-Session, TCX-Activity, GPX-<type>). */
+        var activityType: String? = null
+        /** Streckenname aus der Datei; besser als der Dateiname. */
+        var trackName: String? = null
         private var start = Long.MAX_VALUE
         private var end = 0L
         private var distance = 0.0
@@ -941,7 +982,11 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         }
         fun summary(): JSONObject {
             require(samples.length() > 0 && start != Long.MAX_VALUE) { "Keine zeitgestempelten Aktivitätsdaten gefunden" }
-            return JSONObject().put("name", name.removeSuffix(".gz").substringBeforeLast('.').take(120))
+            // Der Streckenname der Datei schlaegt den Dateinamen; die Oberflaeche
+            // verwirft technische Namen anschliessend ueber runTitle().
+            val title = trackName?.takeIf { it.isNotBlank() }
+                ?: name.removeSuffix(".gz").substringBeforeLast('.')
+            return JSONObject().put("name", title.take(120))
                 .put("startTime", start).put("endTime", end)
                 .put("durationSeconds", reportedDuration?.takeIf { it.isFinite() && it >= 0 } ?: ((end - start) / 1000.0))
                 .put("distanceMeters", if (reportedDistance.isFinite() && reportedDistance > 0) reportedDistance else distance)

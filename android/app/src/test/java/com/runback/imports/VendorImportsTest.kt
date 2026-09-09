@@ -48,6 +48,48 @@ class VendorImportsTest {
         assertEquals("rem", VendorImports.mapSamsungSleepStage("40004"))
     }
 
+    @Test fun runningActivityTypeDetection() {
+        assertEquals(true, VendorImports.isRunningActivityType("Running"))
+        assertEquals(true, VendorImports.isRunningActivityType("Trail Running"))
+        assertEquals(true, VendorImports.isRunningActivityType("Waldlauf"))
+        assertEquals(true, VendorImports.isRunningActivityType("treadmill_running"))
+        assertEquals(false, VendorImports.isRunningActivityType("Walking"))
+        assertEquals(false, VendorImports.isRunningActivityType("Nordic Walking"))
+        assertEquals(false, VendorImports.isRunningActivityType("Ride"))
+        assertEquals(false, VendorImports.isRunningActivityType("CYCLING"))
+        assertEquals(false, VendorImports.isRunningActivityType("Radfahren"))
+        assertNull(VendorImports.isRunningActivityType(""))
+        assertNull(VendorImports.isRunningActivityType(null))
+        assertNull(VendorImports.isRunningActivityType("Cardio"))
+    }
+
+    @Test fun unknownActivitiesFallBackToThePaceWindow() {
+        // 5 km in 25 min -> Laufen.
+        assertTrue(VendorImports.acceptAsRun(null, 5000.0, 1500.0))
+        // 5 km in 60 min (12:00 min/km) -> Gehen.
+        assertFalse(VendorImports.acceptAsRun(null, 5000.0, 3600.0))
+        // 30 km in 60 min -> Radfahren.
+        assertFalse(VendorImports.acceptAsRun("Cardio", 30000.0, 3600.0))
+        // Ohne Distanz oder Dauer laesst sich kein Tempo bilden.
+        assertTrue(VendorImports.acceptAsRun(null, 0.0, 3600.0))
+    }
+
+    @Test fun knownSportBeatsThePaceWindow() {
+        assertTrue(VendorImports.acceptAsRun("Running", 5000.0, 3600.0))
+        assertFalse(VendorImports.acceptAsRun("Walking", 5000.0, 1500.0))
+    }
+
+    @Test fun genericActivitiesCsvSkipsWalksAndRides() {
+        val csv = "Activity ID,Name,Type,Date,Distance,Elapsed\n" +
+            "1,Morning Run,Run,2024-05-01 07:00:00,5.2,1800\n" +
+            "2,Abendspaziergang,Walk,2024-05-02 18:00:00,4,3600\n" +
+            "3,Feierabendrunde,,2024-05-03 18:00:00,30,3600\n"
+        val parsed = VendorImports.parseActivitiesCsv(csv, "strava")
+        assertEquals(1, parsed.runs.size)
+        assertEquals("Morning Run", parsed.runs.first().name)
+        assertEquals(2, parsed.skipped)
+    }
+
     @Test fun genericActivitiesCsvParsesRunningRows() {
         val csv = "Activity ID,Name,Type,Date,Distance,Elapsed,Avg HR\n" +
             "1,Morning Run,Run,2024-05-01 07:00:00,5.2,1800,150\n" +

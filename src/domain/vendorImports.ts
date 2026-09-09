@@ -37,6 +37,12 @@ export interface VendorInfo {
   name: string;
   short: string;
   exportSteps: string[];
+  /**
+   * Besonderheiten genau dieser Quelle (etwa das ZIP-Passwort, das nur Mi
+   * Fitness verschickt). Sie werden erst nach der Auswahl gezeigt, damit die
+   * Übersicht nicht die Hinweise aller Anbieter gleichzeitig trägt.
+   */
+  notes?: string[];
   filePatterns: string[];
   useful: VendorUsefulData[];
   limitations: string[];
@@ -180,6 +186,10 @@ export const VENDOR_INFOS: VendorInfo[] = [
       'Gesamtarchiv (DSGVO): Mi-Fitness-Einstellungen bzw. user.huami.com/privacy → Daten exportieren.',
       'Beides in Runback importieren: Einzeldateien für GPS, Archiv-CSVs für Puls- und Schritt-Kontext.',
     ],
+    notes: [
+      'Das Gesamtarchiv kommt als passwortgeschütztes ZIP; das Passwort steht in der E-Mail von Xiaomi.',
+      'Runback kann verschlüsselte ZIPs nicht öffnen: erst mit dem Passwort entpacken, dann die entpackten Dateien wählen.',
+    ],
     filePatterns: [
       'Einzel-GPX/TCX/FIT je Outdoor-Training (mit Route)',
       'SPORT*.csv (Trainingszusammenfassungen)',
@@ -218,6 +228,9 @@ export const VENDOR_INFOS: VendorInfo[] = [
       'iPhone: Health-App → Profilbild → Alle Gesundheitsdaten exportieren.',
       'Die export.zip ans Android-Telefon geben (Datei, Drive, USB).',
       'ZIP in Runback importieren. Routen liegen als workout-routes/*.gpx bei und werden mit eingelesen.',
+    ],
+    notes: [
+      'export.xml kann bei langer Historie mehrere hundert MB groß sein; der Import läuft dann einige Minuten.',
     ],
     filePatterns: [
       'export.zip mit export.xml',
@@ -397,6 +410,9 @@ export const VENDOR_INFOS: VendorInfo[] = [
       'Huawei Health → Ich → Einstellungen → Daten exportieren bzw. Datenschutzanfrage stellen.',
       'Einzelne Outdoor-Läufe zusätzlich als TCX/GPX sichern, falls angeboten.',
       'Alle Dateien zusammen in Runback importieren.',
+    ],
+    notes: [
+      'Kommt der Export passwortgeschützt, zuerst mit dem zugesandten Passwort entpacken.',
     ],
     filePatterns: ['Huawei-Export (CSV/JSON, je nach Version)', 'Einzel-TCX/GPX je Lauf (falls angeboten)'],
     useful: [
