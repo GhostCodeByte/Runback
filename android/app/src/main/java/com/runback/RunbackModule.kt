@@ -125,14 +125,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
 
     @ReactMethod fun getStrengthState(promise: Promise) = task(promise) { strengthState() }
     @ReactMethod fun getStrengthSessions(limit: Int, promise: Promise) = task(promise) {
-        val sessions = JSONArray()
-        val history = strengthIndex().optJSONArray("sessions") ?: JSONArray()
-        val end = minOf(limit.coerceIn(1, 500), history.length())
-        for (i in history.length() - 1 downTo history.length() - end) {
-            val id = history.optJSONObject(i)?.optString("id") ?: continue
-            store.getDocument("strength_session_$id")?.let(sessions::put)
-        }
-        JSONObject().put("sessions", sessions)
+        JSONObject().put("sessions", store.strengthSessions(limit))
     }
     @ReactMethod fun saveStrengthTemplates(json: String, promise: Promise) = task(promise) {
         store.putDocument("strength_templates", JSONObject().put("templates", JSONArray(json))); strengthState()
@@ -145,7 +138,6 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
     @ReactMethod fun finishStrengthSession(json: String, summaryJson: String, promise: Promise) = task(promise) {
         val session = JSONObject(json)
-        val id = session.optString("id").ifBlank { error("Einheit ohne Kennung kann nicht gespeichert werden.") }
         store.finishStrengthSession(session, JSONObject(summaryJson))
         strengthState()
     }

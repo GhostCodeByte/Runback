@@ -144,22 +144,6 @@ class RunStoreTest {
     }
 
     @Test
-    fun relatedDocumentWritesRollBackTogether() {
-        try {
-            store.updateDocumentsAtomically(
-                puts = mapOf(
-                    "written-before-failure" to JSONObject().put("value", 1),
-                    "x".repeat(201) to JSONObject()
-                )
-            )
-            fail("oversized document key should be rejected")
-        } catch (_: IllegalArgumentException) {
-            // The transaction must roll back the preceding document write too.
-        }
-        assertNull(store.getDocument("written-before-failure"))
-    }
-
-    @Test
     fun strengthFinishAndDeleteKeepIndexAndPayloadConsistent() {
         val session = JSONObject().put("id", "strength-1").put("startedAt", 100L)
         val summary = JSONObject().put("id", "strength-1").put("at", 200L)
@@ -173,6 +157,18 @@ class RunStoreTest {
         store.deleteStrengthSession("strength-1")
         assertNull(store.getDocument("strength_session_strength-1"))
         assertEquals(0, store.getDocument("strength_index")!!.getJSONArray("sessions").length())
+    }
+
+    @Test
+    fun strengthSessionsAreCappedByStartTimeRatherThanFinishOrder() {
+        val older = JSONObject().put("id", "older").put("startTime", 100L)
+        val newer = JSONObject().put("id", "newer").put("startTime", 300L)
+        store.finishStrengthSession(newer, JSONObject().put("id", "newer").put("startTime", 300L))
+        store.finishStrengthSession(older, JSONObject().put("id", "older").put("startTime", 100L))
+
+        val sessions = store.strengthSessions(1)
+        assertEquals(1, sessions.length())
+        assertEquals("newer", sessions.getJSONObject(0).getString("id"))
     }
 
     @Test
@@ -192,6 +188,14 @@ class RunStoreTest {
         val sessions = store.getDocument("strength_index")!!.getJSONArray("sessions")
         assertEquals(1, sessions.length())
         assertEquals("old", sessions.getJSONObject(0).getString("id"))
+
+        try {
+            store.finishStrengthSession(JSONObject().put("id", "different"), JSONObject().put("id", "other"))
+            fail("mismatched summary should be rejected")
+        } catch (_: IllegalArgumentException) {
+            // No payload or index write may happen before validation.
+        }
+        assertNull(store.getDocument("strength_session_different"))
     }
 
     @Test

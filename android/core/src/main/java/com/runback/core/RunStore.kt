@@ -219,27 +219,16 @@ class RunStore(context: Context) {
         if(it.moveToFirst()) JSONObject(it.getString(0)) else null } }
     fun putDocument(key: String, value: JSONObject) = locked {
         require(key.length<=200)
-        db.insertWithOnConflict("documents",null,ContentValues().apply { put("key",key);put("json",value.toString()) },SQLiteDatabase.CONFLICT_REPLACE); Unit
+        check(db.insertWithOnConflict("documents",null,ContentValues().apply { put("key",key);put("json",value.toString()) },SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "Dokument konnte nicht gespeichert werden" }
     }
     fun deleteDocument(key: String) = locked { db.delete("documents","key=?",arrayOf(key)); Unit }
-    /** Apply related document writes/deletes in one SQLite transaction. */
-    fun updateDocumentsAtomically(puts: Map<String, JSONObject>, deletes: List<String> = emptyList()) = locked {
-        transaction {
-            puts.forEach { (key, value) ->
-                require(key.length <= 200)
-                db.insertWithOnConflict("documents", null, ContentValues().apply {
-                    put("key", key); put("json", value.toString())
-                }, SQLiteDatabase.CONFLICT_REPLACE)
-            }
-            deletes.forEach { key -> db.delete("documents", "key=?", arrayOf(key)) }
-        }
-    }
     /** Finish or delete a strength session while serializing the index and payload update. */
     fun finishStrengthSession(session: JSONObject, summary: JSONObject) = locked {
         val id = session.optString("id").ifBlank { error("Einheit ohne Kennung kann nicht gespeichert werden.") }
+        require(summary.optString("id") == id) { "Zusammenfassung gehört zu einer anderen Einheit." }
         transaction {
-            putDocumentLocked("strength_session_$id", session)
-            val index = getDocumentLocked("strength_index") ?: JSONObject().put("sessions", JSONArray())
+            putDocument("strength_session_$id", session)
+            val index = getDocument("strength_index") ?: JSONObject().put("sessions", JSONArray())
             val current = index.optJSONArray("sessions") ?: JSONArray()
             val kept = JSONArray()
             for (i in 0 until current.length()) {
@@ -247,31 +236,36 @@ class RunStore(context: Context) {
                 if (entry.optString("id") != id) kept.put(entry)
             }
             kept.put(summary)
-            putDocumentLocked("strength_index", index.put("sessions", kept))
+            putDocument("strength_index", index.put("sessions", kept))
             db.delete("documents", "key=?", arrayOf("strength_active"))
         }
     }
     fun deleteStrengthSession(id: String) = locked {
         transaction {
-            val index = getDocumentLocked("strength_index") ?: JSONObject().put("sessions", JSONArray())
+            val index = getDocument("strength_index") ?: JSONObject().put("sessions", JSONArray())
             val current = index.optJSONArray("sessions") ?: JSONArray()
             val kept = JSONArray()
             for (i in 0 until current.length()) {
                 val entry = current.optJSONObject(i) ?: continue
                 if (entry.optString("id") != id) kept.put(entry)
             }
-            putDocumentLocked("strength_index", index.put("sessions", kept))
+            putDocument("strength_index", index.put("sessions", kept))
             db.delete("documents", "key=?", arrayOf("strength_session_$id"))
         }
     }
-    private fun getDocumentLocked(key: String): JSONObject? = db.rawQuery("SELECT json FROM documents WHERE key=?", arrayOf(key)).use {
-        if (it.moveToFirst()) JSONObject(it.getString(0)) else null
-    }
-    private fun putDocumentLocked(key: String, value: JSONObject) {
-        require(key.length <= 200)
-        db.insertWithOnConflict("documents", null, ContentValues().apply {
-            put("key", key); put("json", value.toString())
-        }, SQLiteDatabase.CONFLICT_REPLACE)
+    fun strengthSessions(limit: Int = 100): JSONArray = locked {
+        val index = getDocument("strength_index") ?: JSONObject().put("sessions", JSONArray())
+        val summaries = (0 until (index.optJSONArray("sessions")?.length() ?: 0))
+            .mapNotNull { index.optJSONArray("sessions")?.optJSONObject(it) }
+            .sortedWith(compareByDescending<JSONObject> { it.optLong("startTime") }
+                .thenByDescending { it.optLong("endTime") }
+                .thenByDescending { it.optString("id") })
+            .take(limit.coerceIn(1, 500))
+        JSONArray().also { result ->
+            summaries.forEach { summary ->
+                getDocument("strength_session_${summary.optString("id")}")?.let(result::put)
+            }
+        }
     }
     fun settings(): JSONObject = getDocument("settings") ?: JSONObject().put("rawBudgetMb",512).put("weatherEnabled",false)
     fun saveSettings(value: JSONObject) { putDocument("settings",value) }
