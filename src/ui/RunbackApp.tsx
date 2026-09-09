@@ -52,11 +52,7 @@ import {
   evaluateExperiment,
   transitionExperiment,
 } from '../domain';
-import type {
-  ExperimentStatus,
-  Recommendation,
-  RunPurpose,
-} from '../domain/types';
+import type { ExperimentStatus, Recommendation } from '../domain/types';
 import {
   native,
   nativeCall,
@@ -67,37 +63,31 @@ import {
 } from '../native';
 import {
   Button,
+  Card,
+  ChipGroup,
   Copy,
+  EmptyState,
+  Field,
   Icon,
+  Notice,
   Route,
   Row,
   Section,
   Stat,
+  Title,
   color,
+  radius,
+  space,
+  type,
 } from './components';
+import {
+  RUN_PURPOSES,
+  hasNamedPurpose,
+  purposeLabel,
+  runTitle,
+} from '../domain/runTitle';
 
-const purposes: { value: RunPurpose; label: string; description: string }[] = [
-  { value: 'free', label: 'Freier Lauf', description: 'Ohne feste Vorgabe' },
-  {
-    value: 'easy',
-    label: 'Locker',
-    description: 'Ein ruhiger, gleichmäßiger Lauf',
-  },
-  { value: 'long', label: 'Lang', description: 'Zeit auf den Beinen' },
-  {
-    value: 'intervals',
-    label: 'Intervalle',
-    description: 'Belastung und Erholung im Wechsel',
-  },
-  { value: 'race', label: 'Wettkampf', description: 'Laufen auf Leistung' },
-  {
-    value: 'unknown',
-    label: 'Noch offen',
-    description: 'Zweck später ergänzen',
-  },
-];
-const purposeLabel = (value: RunPurpose) =>
-  purposes.find(p => p.value === value)?.label || 'Lauf';
+const purposes = RUN_PURPOSES;
 const number = (value: number, digits = 1) =>
   Number.isFinite(value) ? value.toFixed(digits).replace('.', ',') : '–';
 const distance = (run: Run) => number(run.distanceMeters / 1000, 2);
@@ -120,6 +110,22 @@ const dateFormatter = new Intl.DateTimeFormat('de-DE', {
   month: 'long',
 });
 const date = (timestamp: number) => dateFormatter.format(new Date(timestamp));
+const DAY = 24 * 3600 * 1000;
+/** Tage zwischen zwei Zeitpunkten, auf Kalendertage gerundet. */
+const daysAgo = (timestamp: number, now = Date.now()) =>
+  Math.max(0, Math.floor((now - timestamp) / DAY));
+const lastRunLabel = (run: Run | undefined, now = Date.now()) => {
+  if (!run) {
+    return 'Noch kein Lauf';
+  }
+  const days = daysAgo(run.startTime, now);
+  return days === 0 ? 'Heute' : days === 1 ? 'Gestern' : `vor ${days} Tagen`;
+};
+/** Kilometer der letzten sieben Tage. */
+const weekKilometers = (runs: Run[], now = Date.now()) =>
+  runs
+    .filter(run => now - run.startTime < 7 * DAY)
+    .reduce((sum, run) => sum + run.distanceMeters, 0) / 1000;
 const initial: AppState = {
   runs: [],
   recording: null,
@@ -145,18 +151,26 @@ const RunRow = memo(function RunRow({
   run: Run;
   open: (id: string) => void;
 }) {
+  const title = runTitle(run);
+  const purposeNote =
+    hasNamedPurpose(run.purpose) && purposeLabel(run.purpose) !== title
+      ? ` · ${purposeLabel(run.purpose)}`
+      : '';
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${purposeLabel(run.purpose)}, ${date(
-        run.startTime,
-      )}, ${distance(run)} Kilometer`}
+      accessibilityLabel={`${title}, ${date(run.startTime)}, ${distance(
+        run,
+      )} Kilometer`}
       onPress={() => open(run.id)}
       style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}
     >
       <View style={styles.runTop}>
-        <Text style={styles.runTitle}>{purposeLabel(run.purpose)}</Text>
-        <Text style={styles.muted}>{date(run.startTime)}</Text>
+        <Text style={styles.runTitle}>{title}</Text>
+        <Text style={styles.muted}>
+          {date(run.startTime)}
+          {purposeNote}
+        </Text>
       </View>
       <View style={styles.runBottom}>
         <Text style={styles.runDistance}>
@@ -189,6 +203,7 @@ export function RunbackApp() {
   const [note, setNote] = useState('');
   const [importStatus, setImportStatus] = useState<any>(null);
   const [moreDetails, setMoreDetails] = useState(false);
+  const [criteriaOpen, setCriteriaOpen] = useState(false);
   const [goalInput, setGoalInput] = useState('');
   const [minuteInput, setMinuteInput] = useState('30');
   const [presetName, setPresetName] = useState('');
@@ -219,7 +234,6 @@ export function RunbackApp() {
         a.analysis.recommendation.id,
       ),
   )?.analysis.recommendation;
-  const latest = analyses[0];
   const purpose = settings.purpose || 'free';
 
   const refresh = useCallback(async () => {
@@ -538,72 +552,52 @@ export function RunbackApp() {
   const importSummary = importStatus
     ? `Importiert: ${importStatus.imported ?? 0} · Doppelt: ${
         importStatus.duplicates ?? 0
-      } · Übersprungen: ${importStatus.skipped ?? 0} · Fehlgeschlagen: ${
-        importStatus.failed ?? 0
-      } · Kontextwerte: ${importStatus.wellness ?? 0} · Krafteinheiten: ${
-        importStatus.strength ?? 0
-      }`
+      } · Keine Läufe: ${importStatus.nonRunning ?? 0} · Übersprungen: ${
+        importStatus.skipped ?? 0
+      } · Fehlgeschlagen: ${importStatus.failed ?? 0} · Kontextwerte: ${
+        importStatus.wellness ?? 0
+      } · Krafteinheiten: ${importStatus.strength ?? 0}`
     : '';
   const snapshot = selected ? analyzeRun(selected, experiment) : null;
 
+  // Startseite: eine Handlung (Lauf starten), darunter nur Kontext, der diese
+  // Handlung stützt. Kein Datum, keine Zustandsprosa, kein fiktiver „geplanter
+  // Lauf“ — der Zweck ist eine sichtbare Auswahl und bleibt später änderbar.
   const renderHome = () => (
     <>
-      <Text style={styles.title}>Dein nächster Lauf</Text>
-      <Copy muted>{date(Date.now())}</Copy>
-      <View style={styles.plan}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Trainingszweck ändern"
-          onPress={() => setPurposePicker(true)}
-          style={styles.planPurpose}
-        >
-          <Text style={styles.planTitle}>{purposeLabel(purpose)}</Text>
-          <Text style={styles.arrow}>⌄</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => openPage('profile')}
-        >
-          <Text style={styles.planTime}>
-            {settings.minutes || 30}{' '}
-            <Text style={styles.planTimeUnit}>Minuten eingeplant</Text>
-          </Text>
-        </Pressable>
+      <Title>Heute</Title>
+      <Card style={styles.startCard}>
+        <View style={styles.cardMetrics}>
+          <Stat value={lastRunLabel(runs[0])} label="Letzter Lauf" />
+          <Stat
+            value={number(weekKilometers(runs), 1)}
+            label="km in 7 Tagen"
+          />
+        </View>
         {experiment?.status === 'active' ? (
           <Copy>{experiment.recommendation.action}</Copy>
-        ) : (
-          <Copy muted>
-            {purpose === 'free'
-              ? 'Starte einfach. Deinen Trainingszweck kannst du später ergänzen.'
-              : purposes.find(p => p.value === purpose)?.description}
-          </Copy>
-        )}
-        {settings.postponedUntil && settings.postponedUntil > Date.now() ? (
-          <Copy muted>
-            Auf morgen verschoben. Du kannst trotzdem jederzeit starten.
-          </Copy>
         ) : null}
         <Button title="Lauf starten" onPress={start} disabled={busy} />
-        <Pressable
-          accessibilityRole="button"
-          onPress={() =>
-            save({ postponedUntil: Date.now() + 24 * 3600 * 1000 })
-          }
-          style={styles.textButton}
-        >
-          <Text style={styles.muted}>Passt heute nicht</Text>
-        </Pressable>
-      </View>
+        <Field label="Zweck">
+          <ChipGroup
+            label="Zweck dieses Laufs"
+            options={purposes.map(p => ({ value: p.value, label: p.label }))}
+            value={purpose}
+            onChange={value => save({ purpose: value })}
+            disabled={busy}
+          />
+        </Field>
+      </Card>
       <Section title="Krafttraining">
         {strength.active ? (
           <>
             <Copy muted>
-              {strength.active.name} läuft seit{' '}
+              {strength.active.name} · seit{' '}
               {Math.max(
                 1,
                 Math.round((Date.now() - strength.active.startTime) / 60000),
               )}{' '}
-              Minuten.
+              Minuten
             </Copy>
             <Button
               title="Training fortsetzen"
@@ -615,13 +609,12 @@ export function RunbackApp() {
           </>
         ) : (
           <>
-            <Copy muted>
-              {todaysTemplate
-                ? `Für heute ist ${todaysTemplate.name} vorgesehen. Du kannst auch etwas anderes machen.`
-                : 'Kein Plan für heute hinterlegt. Du kannst frei trainieren und Übungen unterwegs hinzufügen.'}
-            </Copy>
+            {todaysTemplate ? (
+              <Copy muted>Heute vorgesehen: {todaysTemplate.name}</Copy>
+            ) : null}
             <Button
               disabled={busy}
+              secondary
               title={
                 todaysTemplate
                   ? `${todaysTemplate.name} starten`
@@ -641,7 +634,7 @@ export function RunbackApp() {
         )}
       </Section>
       {experiment ? (
-        <Section title="Dein Arbeitsthema">
+        <Section title="Dein Fokus">
           <Row
             title={experiment.recommendation.title}
             subtitle={
@@ -653,33 +646,35 @@ export function RunbackApp() {
           />
         </Section>
       ) : null}
-      {latest ? (
-        <Section title="Nach deinem letzten Lauf">
-          <Copy>{latest.analysis.classification}</Copy>
-          <Row
-            title={purposeLabel(latest.run.purpose)}
-            subtitle={`${distance(latest.run)} km · ${date(
-              latest.run.startTime,
-            )}`}
-            onPress={() => openRun(latest.run.id)}
-          />
+      {runs.length ? (
+        <Section title="Letzte Läufe">
+          {runs.slice(0, 3).map(run => (
+            <Row
+              key={run.id}
+              title={runTitle(run)}
+              subtitle={`${date(run.startTime)} · ${distance(run)} km · ${pace(
+                run,
+              )} /km`}
+              onPress={() => openRun(run.id)}
+            />
+          ))}
+          {runs.length > 3 ? (
+            <Button
+              secondary
+              small
+              title="Alle Läufe ansehen"
+              onPress={() => switchTab('Läufe')}
+            />
+          ) : null}
         </Section>
       ) : (
-        <Section title="Deine Läufe, auf deinem Gerät">
-          <Copy muted>
-            Zeichne deinen ersten Lauf auf oder nimm deine bisherige Historie
-            mit. Eine Uhr und ein Konto brauchst du dafür nicht.
-          </Copy>
-          <Button
-            secondary
-            title="Läufe importieren"
-            onPress={runImport}
-            disabled={busy}
-          />
-        </Section>
+        <EmptyState
+          title="Noch keine Läufe"
+          copy="Dein erster Lauf erscheint hier. Vorhandene Historie importierst du unter Mehr → Daten & Speicher."
+        />
       )}
       {settings.presets?.length ? (
-        <Section title="Gespeicherte Läufe">
+        <Section title="Laufvorlagen">
           {settings.presets.map(p => (
             <Row
               key={p.id}
@@ -774,41 +769,44 @@ export function RunbackApp() {
       </>
     ) : null;
 
+  // Prüfkriterien bleiben nachvollziehbar, stehen aber hinter einem Schalter:
+  // Auf der Seite steht die Handlung, nicht das Verfahren.
+  const renderCriteria = (recommendation: Recommendation) => (
+    <>
+      <Copy muted>{recommendation.goal}</Copy>
+      <Copy muted>
+        {recommendation.criteria.minimumObservations} geeignete Läufe über
+        mindestens {recommendation.criteria.minimumDays} Tage ·{' '}
+        {recommendation.criteria.minimumRelevantChangePercentPoints}{' '}
+        Prozentpunkte weniger Tempoabfall
+      </Copy>
+      {recommendation.criteria.exclusions.map((text, i) => (
+        <Copy muted key={i}>
+          {text}
+        </Copy>
+      ))}
+    </>
+  );
+
   const renderRecommendation = (recommendation: Recommendation) => (
     <>
-      <Text style={styles.subTitle}>{recommendation.title}</Text>
       <Copy>{recommendation.action}</Copy>
       <Copy muted>{recommendation.reason}</Copy>
-      <Section title="Vorher festgelegte Prüfung">
-        <Copy>{recommendation.goal}</Copy>
-        <Copy muted>
-          Vergleich mit {recommendation.criteria.baselineRunIds.length}{' '}
-          Ausgangslauf. Mindestens {recommendation.criteria.minimumObservations}{' '}
-          geeignete Läufe über {recommendation.criteria.minimumDays} Tage.
-          Relevante Änderung:{' '}
-          {recommendation.criteria.minimumRelevantChangePercentPoints}{' '}
-          Prozentpunkte weniger Tempoabfall.
-        </Copy>
-        <Copy muted>
-          Umfang und Trainingszweck bleiben erhalten. Ein besseres Ergebnis
-          allein belegt noch keine Ursache.
-        </Copy>
-      </Section>
       <Button
-        title="Arbeitsthema annehmen"
+        title="Fokus übernehmen"
         onPress={() => accept(recommendation)}
         disabled={busy}
       />
       <Button
         secondary
-        title="Später entscheiden"
-        onPress={() => {
-          setMessage('Der Vorschlag bleibt im Fokus verfügbar.');
-          setTab('Heute');
-        }}
+        small
+        title={criteriaOpen ? 'Prüfkriterien ausblenden' : 'Wie wird geprüft?'}
+        onPress={() => setCriteriaOpen(value => !value)}
       />
+      {criteriaOpen ? renderCriteria(recommendation) : null}
       <Button
         secondary
+        small
         title="Vorschlag ablehnen"
         onPress={() =>
           save({
@@ -826,114 +824,122 @@ export function RunbackApp() {
     const evaluation = experiment
       ? evaluateExperiment(experiment, runs, settings.adherence)
       : null;
+    const needsPurpose = runs.some(run => !hasNamedPurpose(run.purpose));
+    const missing = !runs.length
+      ? 'Dafür fehlt noch ein aufgezeichneter Lauf.'
+      : needsPurpose
+      ? 'Dafür fehlt bei mindestens einem Lauf der Trainingszweck.'
+      : 'Vorschläge entstehen aus lockeren und langen Läufen mit mindestens vier gleichmäßigen Abschnitten ab 500 m.';
+    const past = (settings.experiments || []).filter(
+      e => e.status === 'completed' || e.status === 'aborted',
+    );
     return (
       <>
-        <Text style={styles.title}>Dein Fokus</Text>
-        <Copy muted>Eine Änderung. Eine nachvollziehbare Prüfung.</Copy>
+        <Title>Dein Fokus</Title>
         {experiment ? (
-          <Section title={experiment.recommendation.title}>
-            <Copy>{experiment.recommendation.action}</Copy>
-            <Copy muted>
-              {experiment.status === 'paused'
-                ? 'Dieser Versuch ist pausiert.'
-                : `Aktiv seit ${date(experiment.acceptedAt)}`}
-            </Copy>
-            <Section title="Bisheriges Ergebnis">
+          <>
+            <Card>
+              <Text style={styles.cardTitle}>
+                {experiment.recommendation.title}
+              </Text>
+              <Copy>{experiment.recommendation.action}</Copy>
+              <Copy muted>
+                {experiment.status === 'paused'
+                  ? 'Pausiert'
+                  : `Aktiv seit ${date(experiment.acceptedAt)}`}
+              </Copy>
+            </Card>
+            <Section title="Ergebnis bisher">
               <Copy>{evaluation?.summary}</Copy>
               <Copy muted>
-                {evaluation?.eligibleRunIds.length || 0} geeignete Folgeläufe ·
-                Umsetzung wird separat geprüft
+                {evaluation?.eligibleRunIds.length || 0} geeignete Läufe seit
+                dem Start
               </Copy>
+              <Button
+                secondary
+                small
+                title={
+                  criteriaOpen ? 'Prüfkriterien ausblenden' : 'Wie wird geprüft?'
+                }
+                onPress={() => setCriteriaOpen(value => !value)}
+              />
+              {criteriaOpen ? renderCriteria(experiment.recommendation) : null}
             </Section>
-            <Section title="So wird geprüft">
-              <Copy>{experiment.recommendation.goal}</Copy>
-              <Copy muted>
-                {experiment.recommendation.criteria.minimumObservations}{' '}
-                geeignete Läufe, mindestens{' '}
-                {experiment.recommendation.criteria.minimumDays} Tage.
-                Mindeständerung:{' '}
-                {
-                  experiment.recommendation.criteria
-                    .minimumRelevantChangePercentPoints
-                }{' '}
-                Prozentpunkte.
-              </Copy>
-              {experiment.recommendation.criteria.exclusions.map((text, i) => (
-                <Copy muted key={i}>
-                  {text}
-                </Copy>
-              ))}
+            <Section title="Fokus verwalten">
+              <Button
+                secondary
+                title={
+                  experiment.status === 'paused'
+                    ? 'Fokus fortsetzen'
+                    : 'Fokus pausieren'
+                }
+                onPress={() =>
+                  changeExperiment(
+                    experiment.status === 'paused' ? 'active' : 'paused',
+                  )
+                }
+              />
+              <Button
+                secondary
+                title="Fokus abschließen"
+                onPress={() => changeExperiment('completed')}
+              />
+              <Button
+                danger
+                title="Fokus abbrechen"
+                onPress={() =>
+                  Alert.alert(
+                    'Fokus abbrechen?',
+                    'Die bisherige Prüfung bleibt gespeichert.',
+                    [
+                      { text: 'Zurück', style: 'cancel' },
+                      {
+                        text: 'Abbrechen',
+                        onPress: () => changeExperiment('aborted'),
+                      },
+                    ],
+                  )
+                }
+              />
             </Section>
-            <Button
-              secondary
-              title={
-                experiment.status === 'paused'
-                  ? 'Versuch fortsetzen'
-                  : 'Versuch pausieren'
-              }
-              onPress={() =>
-                changeExperiment(
-                  experiment.status === 'paused' ? 'active' : 'paused',
-                )
-              }
-            />
-            <Button
-              secondary
-              title="Versuch abschließen"
-              onPress={() => changeExperiment('completed')}
-            />
-            <Button
-              secondary
-              title="Versuch abbrechen"
-              onPress={() =>
-                Alert.alert(
-                  'Versuch abbrechen?',
-                  'Die bisherige Prüfung bleibt gespeichert.',
-                  [
-                    { text: 'Zurück', style: 'cancel' },
-                    {
-                      text: 'Abbrechen',
-                      onPress: () => changeExperiment('aborted'),
-                    },
-                  ],
-                )
-              }
-            />
-          </Section>
+          </>
         ) : candidate ? (
-          <Section title="Ein möglicher nächster Schritt">
+          <Section title={candidate.title}>
             {renderRecommendation(candidate)}
           </Section>
         ) : (
-          <Section title="Noch kein Arbeitsthema">
-            <Copy>
-              {latest?.analysis.nextAction ||
-                'Nach deinem ersten Lauf ordnet Runback die vorhandenen Daten ein. Eine Änderung wird nur vorgeschlagen, wenn sie begründbar und prüfbar ist.'}
-            </Copy>
-            <Button
-              secondary
-              title="Zum nächsten Lauf"
-              onPress={() => switchTab('Heute')}
+          <>
+            <EmptyState
+              title="Noch kein Fokus"
+              copy="Ein Fokus ist eine einzelne Änderung, die Runback über mehrere Läufe hinweg überprüft."
+              action={
+                runs.length
+                  ? {
+                      title: needsPurpose
+                        ? 'Zweck deiner Läufe ergänzen'
+                        : 'Läufe ansehen',
+                      onPress: () => switchTab('Läufe'),
+                    }
+                  : {
+                      title: 'Ersten Lauf starten',
+                      onPress: () => switchTab('Heute'),
+                    }
+              }
             />
-          </Section>
+            <Copy muted>{missing}</Copy>
+          </>
         )}
-        {settings.experiments?.filter(
-          e => e.status === 'completed' || e.status === 'aborted',
-        ).length ? (
-          <Section title="Frühere Versuche">
-            {settings.experiments
-              .filter(e => e.status === 'completed' || e.status === 'aborted')
-              .map(e => (
-                <Row
-                  key={e.id}
-                  title={e.recommendation.title}
-                  subtitle={`${
-                    e.status === 'completed' ? 'Abgeschlossen' : 'Abgebrochen'
-                  } · ${
-                    evaluateExperiment(e, runs, settings.adherence).summary
-                  }`}
-                />
-              ))}
+        {past.length ? (
+          <Section title="Frühere Fokusthemen">
+            {past.map(e => (
+              <Row
+                key={e.id}
+                title={e.recommendation.title}
+                subtitle={`${
+                  e.status === 'completed' ? 'Abgeschlossen' : 'Abgebrochen'
+                } · ${evaluateExperiment(e, runs, settings.adherence).summary}`}
+              />
+            ))}
           </Section>
         ) : null}
       </>
@@ -991,40 +997,64 @@ export function RunbackApp() {
     </View>
   );
 
+  // Lauf-Detail: Werte zuerst, dann die eine offene Entscheidung (Zweck), dann
+  // der nächste Schritt. Modellgrundlagen und Verwaltung liegen hinter „Details“.
   const renderDetail = () =>
     selected && snapshot ? (
       <>
-        <Text style={styles.title}>{purposeLabel(selected.purpose)}</Text>
+        <Title>{runTitle(selected)}</Title>
         <Copy muted>{date(selected.startTime)}</Copy>
         <View style={styles.metrics}>
           <Stat value={distance(selected)} label="Kilometer" />
           <Stat value={duration(selected.durationSeconds)} label="Laufzeit" />
           <Stat value={pace(selected)} label="Ø min / km" />
         </View>
-        <View style={styles.feedbackSlot}>
-          <Text style={styles.slotTitle}>Einordnung</Text>
-          <Copy>{snapshot.classification}</Copy>
-        </View>
-        <View style={styles.feedbackSlot}>
-          <Text style={styles.slotTitle}>Wichtig für dich</Text>
-          <Copy>{snapshot.focus}</Copy>
-        </View>
-        <View style={styles.feedbackSlot}>
-          <Text style={styles.slotTitle}>Nächster Schritt</Text>
+        {selected.avgHeartRate ? (
+          <View style={styles.metrics}>
+            <Stat
+              value={`${Math.round(selected.avgHeartRate)}`}
+              label="Ø bpm"
+            />
+            {selected.avgCadence ? (
+              <Stat
+                value={`${Math.round(selected.avgCadence)}`}
+                label="Ø Schritte / min"
+              />
+            ) : null}
+          </View>
+        ) : null}
+        <Field label="Zweck">
+          <ChipGroup
+            label="Trainingszweck dieses Laufs"
+            options={purposes.map(p => ({ value: p.value, label: p.label }))}
+            value={selected.purpose}
+            onChange={value => updateFeedback({ purpose: value })}
+            disabled={busy}
+          />
+        </Field>
+        <Section title="Nächster Schritt">
           <Copy>{snapshot.nextAction}</Copy>
           {snapshot.recommendation && !experiment ? (
             <Button
-              secondary
-              title="Vorschlag ansehen"
+              title="Als Fokus prüfen"
               onPress={() => {
                 setSelected(null);
                 setTab('Fokus');
               }}
             />
           ) : null}
-        </View>
-        <Section title="Wie hat es sich angefühlt?">
-          <Copy muted>Freiwillig. Jede Bewertung wird direkt gespeichert.</Copy>
+        </Section>
+        {snapshot.quality.issues.length ? (
+          <Section title="Auffälligkeiten">
+            {snapshot.quality.issues.map((issue, i) => (
+              <Copy muted key={i}>
+                {issue.suspected ? 'Vermutet: ' : ''}
+                {issue.message}
+              </Copy>
+            ))}
+          </Section>
+        ) : null}
+        <Section title="Laufgefühl">
           {renderRpe('legs', 'Beine')}
           {renderRpe('breathing', 'Atmung')}
           <Text style={styles.fieldLabel}>Notiz</Text>
@@ -1047,7 +1077,7 @@ export function RunbackApp() {
           />
         </Section>
         {experiment && selected.startTime > experiment.acceptedAt ? (
-          <Section title="Hast du die Änderung umgesetzt?">
+          <Section title="Fokus umgesetzt?">
             <View style={styles.choiceRow}>
               {(
                 [
@@ -1077,59 +1107,25 @@ export function RunbackApp() {
             </View>
           </Section>
         ) : null}
-        {snapshot.question ? (
-          <Section title={snapshot.question.text}>
-            <Copy muted>{snapshot.question.reason}</Copy>
-            <Button
-              secondary
-              title="Ja, es waren Intervalle"
-              onPress={() => updateFeedback({ purpose: 'intervals' })}
-            />
-            <Button
-              secondary
-              title="Trainingszweck wählen"
-              onPress={() => setPurposePicker(true)}
-            />
-          </Section>
-        ) : null}
         <Section title="Strecke">
           <Route points={selected.route || []} />
-          <Copy muted>Vereinfachte GPS-Geometrie. Keine Hintergrundkarte.</Copy>
         </Section>
-        <Button
-          secondary
-          title={
-            moreDetails ? 'Details schließen' : 'Daten & Auswertung ansehen'
-          }
-          onPress={() => setMoreDetails(v => !v)}
-        />
+        <View style={styles.sectionGap}>
+          <Button
+            secondary
+            title={moreDetails ? 'Details schließen' : 'Daten & Auswertung'}
+            onPress={() => setMoreDetails(v => !v)}
+          />
+        </View>
         {moreDetails ? (
           <>
-            <Section title="Datenqualität">
-              {snapshot.quality.issues.length ? (
-                snapshot.quality.issues.map((issue, i) => (
-                  <Copy muted key={i}>
-                    {issue.suspected ? 'Hinweis: ' : ''}
-                    {issue.message}
-                  </Copy>
-                ))
-              ) : (
-                <Copy muted>
-                  Keine Auffälligkeit in den verfügbaren Prüfungen erkannt.
-                </Copy>
-              )}
+            <Section title="Herkunft">
               <Row title="Quelle" subtitle={selected.source} />
               <Row
                 title="Originalsamples"
-                subtitle={`${
-                  selected.samples || 0
-                } gespeichert; verbleiben im nativen Speicher`}
+                subtitle={`${selected.samples || 0} gespeichert`}
               />
-              <Button
-                secondary
-                title="Trainingszweck korrigieren"
-                onPress={() => setPurposePicker(true)}
-              />
+              <Row title="Modell" subtitle={snapshot.model_version} />
             </Section>
             <Section title="Modellierte Anforderung">
               <Copy>
@@ -1137,7 +1133,6 @@ export function RunbackApp() {
                   ? 'Nicht bestimmbar'
                   : `${number(snapshot.effort.speedIndex, 0)} · Tempoindex`}
               </Copy>
-              <Copy muted>Schätzung · {snapshot.effort.unit}</Copy>
               <Copy muted>{snapshot.effort.uncertainty}</Copy>
               {Object.entries(snapshot.effort.factors).map(([key, value]) => (
                 <Row
@@ -1155,13 +1150,6 @@ export function RunbackApp() {
                   subtitle={value}
                 />
               ))}
-              <Copy muted>Modell: {snapshot.model_version}</Copy>
-              <Copy muted>
-                Grundlage:{' '}
-                {snapshot.inputSources
-                  .map(input => `${input.source} · ${input.version}`)
-                  .join(', ')}
-              </Copy>
             </Section>
             {selected.segments?.length ? (
               <Section title="Abschnitte">
@@ -1197,7 +1185,7 @@ export function RunbackApp() {
                 }}
               />
               <Button
-                secondary
+                danger
                 title="Lauf löschen"
                 onPress={() =>
                   Alert.alert(
@@ -1236,8 +1224,7 @@ export function RunbackApp() {
   );
   const renderMore = () => (
     <>
-      <Text style={styles.title}>Mehr</Text>
-      <Copy muted>Runback passt sich deinem Lauf an.</Copy>
+      <Title>Mehr</Title>
       <Section title="Dein Training">
         <Row
           title="Statistik"
@@ -1293,8 +1280,7 @@ export function RunbackApp() {
       </Section>
       <Section title="Lokal. Ohne Konto.">
         <Copy muted>
-          Deine Läufe werden auf diesem Gerät gespeichert. Ein vollständiges
-          Backup kannst du selbst exportieren.
+          Deine Läufe bleiben auf diesem Gerät. Ein Backup exportierst du selbst.
         </Copy>
       </Section>
     </>
@@ -1302,7 +1288,7 @@ export function RunbackApp() {
 
   const renderProfile = () => (
     <>
-      <Text style={styles.title}>Ziel & Alltag</Text>
+      <Title>Ziel & Alltag</Title>
       <Section title="Was möchtest du erreichen?">
         <TextInput
           accessibilityLabel="Übergeordnetes Laufziel"
@@ -1404,22 +1390,16 @@ export function RunbackApp() {
   );
   const renderData = () => (
     <>
-      <Text style={styles.title}>Daten & Speicher</Text>
-      <Section title="App-Importe">
-        <Copy muted>
-          Fitbit, Google Fit, Strong, Mi Fitness, Apple Health, Samsung, Garmin
-          und mehr: Export dort sichern, hier importieren. Alles optional.
-        </Copy>
-        <Button
-          title="App-Importe öffnen"
+      <Title>Daten & Speicher</Title>
+      <Section title="Aus anderen Apps übernehmen">
+        <Row
+          title="App-Importe"
+          subtitle="Fitbit, Strava, Garmin, Apple Health, Samsung, Mi Fitness und weitere"
           onPress={() => openPage('vendor-import')}
         />
       </Section>
-      <Section title="Historie mitnehmen">
-        <Copy muted>
-          FIT, GPX, TCX oder ein Strava-Export als ZIP. Bereits vorhandene Läufe
-          werden erkannt.
-        </Copy>
+      <Section title="Dateien importieren">
+        <Copy muted>FIT, GPX, TCX oder ZIP. Doppelte Läufe werden erkannt.</Copy>
         <Button
           title="Dateien importieren"
           onPress={runImport}
@@ -1453,8 +1433,7 @@ export function RunbackApp() {
       </Section>
       <Section title="Vollständiges Backup">
         <Copy muted>
-          Sichere alle erhaltenen Originaldaten und Einstellungen. Schlüssel
-          gehören nicht ins Backup.
+          Sichert alle erhaltenen Originaldaten und Einstellungen.
         </Copy>
         <Button
           secondary
@@ -1499,16 +1478,14 @@ export function RunbackApp() {
         />
       </Section>
       <Section title="Aufbewahrung">
+        <Row title="Gespeicherte Läufe" subtitle={`${runs.length}`} />
         <Copy muted>
           Originaldaten bleiben bis zu deinem ausdrücklichen Löschen erhalten.
-          Der verfügbare Gerätespeicher begrenzt die Aufzeichnung. Sichere deine
-          Daten regelmäßig.
         </Copy>
-        <Row title="Gespeicherte Läufe" subtitle={`${runs.length}`} />
       </Section>
       <Section title="Daten löschen">
         <Button
-          secondary
+          danger
           title="Alle lokalen Daten löschen"
           onPress={() =>
             Alert.alert(
@@ -1547,7 +1524,7 @@ export function RunbackApp() {
 
   const renderPresets = () => (
     <>
-      <Text style={styles.title}>Laufvorlagen</Text>
+      <Title>Laufvorlagen</Title>
       <Copy muted>
         Speichere Trainingszweck und Zeitbudget für den nächsten Start.
       </Copy>
@@ -1622,7 +1599,7 @@ export function RunbackApp() {
 
   const renderModels = () => (
     <>
-      <Text style={styles.title}>Auswertung & Modelle</Text>
+      <Title>Auswertung & Modelle</Title>
       <Section title="Was bereits möglich ist">
         <Copy>
           Basiswerte, Datenqualität und Einordnung des Laufzwecks werden lokal
@@ -1669,8 +1646,6 @@ export function RunbackApp() {
     renderDetail()
   ) : page === 'statistics' ? (
     <Statistics runs={runs} />
-  ) : page === 'chat' ? (
-    <TrainingChat onSettings={() => openPage('models')} />
   ) : page === 'profile' ? (
     renderProfile()
   ) : page === 'devices' ? (
@@ -1704,8 +1679,8 @@ export function RunbackApp() {
         ]}
       >
         {error ? (
-          <View style={styles.notice}>
-            <Copy>{error}</Copy>
+          <View style={styles.noticeSlot}>
+            <Notice>{error}</Notice>
           </View>
         ) : null}
         <WorkoutScreen
@@ -1749,8 +1724,8 @@ export function RunbackApp() {
         ]}
       >
         {error ? (
-          <View style={styles.notice}>
-            <Copy>{error}</Copy>
+          <View style={styles.noticeSlot}>
+            <Notice>{error}</Notice>
           </View>
         ) : null}
         <Onboarding
@@ -1772,6 +1747,8 @@ export function RunbackApp() {
     );
   }
   const isHistory = !selected && page === 'main' && tab === 'Läufe';
+  // Der Chat braucht die volle Höhe: Verlauf scrollt, die Eingabe bleibt unten.
+  const isChat = !selected && page === 'chat';
   return (
     <View style={[styles.app, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -1806,27 +1783,24 @@ export function RunbackApp() {
         )}
       </View>
       {error ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Fehlermeldung schließen"
-          onPress={() => setError('')}
-          style={styles.notice}
-        >
-          <Text style={styles.noticeTitle}>Aktion nicht abgeschlossen</Text>
-          <Copy>{error}</Copy>
-          <Text style={styles.smallMuted}>Tippen zum Schließen</Text>
-        </Pressable>
+        <View style={styles.noticeSlot}>
+          <Notice title="Aktion nicht abgeschlossen" onDismiss={() => setError('')}>
+            {error}
+          </Notice>
+        </View>
       ) : null}
       {message ? (
-        <Pressable onPress={() => setMessage('')} style={styles.notice}>
-          <Copy>{message}</Copy>
-        </Pressable>
+        <View style={styles.noticeSlot}>
+          <Notice onDismiss={() => setMessage('')}>{message}</Notice>
+        </View>
       ) : null}
       {loading ? (
         <View style={styles.loading}>
           <ActivityIndicator color={color.green} />
           <Copy muted>Läufe werden geladen …</Copy>
         </View>
+      ) : isChat ? (
+        <TrainingChat onSettings={() => openPage('models')} />
       ) : isHistory ? (
         <FlatList
           data={runs}
@@ -1834,40 +1808,24 @@ export function RunbackApp() {
           renderItem={({ item }) => <RunRow run={item} open={openRun} />}
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
-            <>
-              <Text style={styles.title}>Deine Läufe</Text>
-              <View style={styles.historyHeader}>
+            <View style={styles.historyHeader}>
+              <Title>Deine Läufe</Title>
+              {runs.length ? (
                 <Copy muted>
-                  {runs.length} {runs.length === 1 ? 'Lauf' : 'Läufe'}{' '}
-                  gespeichert
+                  {runs.length} {runs.length === 1 ? 'Lauf' : 'Läufe'}
                 </Copy>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={runImport}
-                  style={styles.importLink}
-                >
-                  <Text style={styles.greenText}>Importieren</Text>
-                </Pressable>
-              </View>
-            </>
+              ) : null}
+            </View>
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.subTitle}>Hier beginnt deine Historie.</Text>
-              <Copy muted>
-                Nach deinem ersten Lauf findest du hier Strecke, Laufgefühl und
-                die nächste sinnvolle Handlung.
-              </Copy>
-              <Button
-                title="Ersten Lauf starten"
-                onPress={() => switchTab('Heute')}
-              />
-              <Button
-                secondary
-                title="Vorhandene Läufe importieren"
-                onPress={runImport}
-              />
-            </View>
+            <EmptyState
+              title="Hier beginnt deine Historie"
+              copy="Nach deinem ersten Lauf stehen hier Strecke, Laufgefühl und der nächste Schritt."
+              action={{
+                title: 'Ersten Lauf starten',
+                onPress: () => switchTab('Heute'),
+              }}
+            />
           }
           initialNumToRender={12}
           maxToRenderPerBatch={10}
@@ -1954,8 +1912,8 @@ export function RunbackApp() {
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: color.bg },
   header: {
-    height: 66,
-    paddingHorizontal: 24,
+    height: 64,
+    paddingHorizontal: space.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1967,126 +1925,96 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
   },
   brandMark: { color: color.green },
-  headerInfo: { color: color.muted, fontSize: 12 },
-  back: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48 },
-  backText: { color: color.green, fontSize: 34 },
-  backLabel: { color: color.text, fontSize: 16 },
-  title: {
-    color: color.text,
-    fontSize: 30,
-    lineHeight: 39,
-    fontWeight: '600',
-    letterSpacing: -0.7,
-    marginBottom: 5,
-  },
-  subTitle: {
-    color: color.text,
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: '600',
-  },
-  muted: { color: color.muted, fontSize: 14 },
-  smallMuted: { color: color.muted, fontSize: 12, lineHeight: 18 },
-  greenText: { color: color.green, fontSize: 15, fontWeight: '600' },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 36,
-    gap: 8,
-  },
-  listContent: {
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 32,
-    flexGrow: 1,
-  },
-  plan: {
-    marginTop: 24,
-    backgroundColor: color.surface,
-    borderRadius: 10,
-    padding: 20,
-    gap: 18,
-  },
-  planPurpose: {
+  headerInfo: { color: color.muted, ...type.micro },
+  back: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: space.xs,
+    minHeight: 48,
   },
-  planTitle: { color: color.text, fontSize: 23, fontWeight: '600' },
-  planTime: { color: color.text, fontSize: 30, fontWeight: '500' },
-  planTimeUnit: { color: color.muted, fontSize: 15, fontWeight: '400' },
-  textButton: { minHeight: 40, alignItems: 'center', justifyContent: 'center' },
+  backText: { color: color.green, fontSize: 34 },
+  backLabel: { color: color.text, ...type.body },
+  title: { color: color.text, ...type.title, letterSpacing: -0.6 },
+  subTitle: { color: color.text, ...type.heading },
+  muted: { color: color.muted, ...type.label, fontWeight: '400' },
+  smallMuted: { color: color.muted, ...type.micro, fontWeight: '400' },
+  greenText: { color: color.green, ...type.label, fontWeight: '600' },
+  scrollContent: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.xs,
+    paddingBottom: space.xxl,
+    gap: space.xs,
+  },
+  listContent: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.xs,
+    paddingBottom: space.xl,
+    flexGrow: 1,
+  },
+  startCard: { marginTop: space.ml },
+  cardMetrics: { flexDirection: 'row', gap: space.md },
+  cardTitle: { color: color.text, ...type.heading },
+  textButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
     borderTopColor: color.line,
-    paddingHorizontal: 8,
+    paddingHorizontal: space.xs,
     backgroundColor: color.bg,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 12,
-    paddingBottom: 5,
-    gap: 6,
+    paddingTop: space.sm,
+    paddingBottom: space.xxs,
+    gap: space.xxs,
     borderTopWidth: 2,
     borderTopColor: 'transparent',
-    minHeight: 65,
+    minHeight: 64,
   },
   tabActive: { borderTopColor: color.green },
-  tabText: { color: color.muted, fontSize: 12, fontWeight: '500' },
+  tabText: { color: color.muted, ...type.micro },
   tabTextActive: { color: color.green },
   runRow: {
-    paddingVertical: 22,
+    paddingVertical: space.ml,
     borderBottomWidth: 1,
     borderBottomColor: color.line,
-    gap: 14,
+    gap: space.sm,
   },
   runTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
+    gap: space.xxs,
   },
-  runTitle: { fontSize: 16, color: color.text, fontWeight: '600' },
+  runTitle: { color: color.text, ...type.body, fontWeight: '600' },
   runBottom: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: space.xs,
   },
   runDistance: {
     color: color.text,
-    fontSize: 26,
-    fontWeight: '500',
+    ...type.value,
     fontVariant: ['tabular-nums'],
   },
-  runUnit: { fontSize: 14, color: color.muted, fontWeight: '400' },
-  arrow: { color: color.muted, fontSize: 25 },
-  historyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  importLink: { minHeight: 48, justifyContent: 'center' },
-  empty: { paddingVertical: 40, gap: 18 },
+  runUnit: { color: color.muted, ...type.label, fontWeight: '400' },
+  arrow: { color: color.muted, fontSize: 26 },
+  historyHeader: { gap: space.xxs, marginBottom: space.sm },
   pressed: { opacity: 0.7 },
-  metrics: { flexDirection: 'row', gap: 16, paddingVertical: 24 },
-  bigMetric: { paddingTop: 38, paddingBottom: 8 },
-  recordingHeader: { marginTop: 10 },
-  recordingActions: { gap: 12, marginTop: 28, marginBottom: 12 },
-  feedbackSlot: {
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: color.line,
-    gap: 10,
-  },
-  slotTitle: { color: color.green, fontSize: 15, fontWeight: '600' },
-  fieldLabel: { color: color.text, fontSize: 15, fontWeight: '500' },
-  rpeGroup: { gap: 10, marginTop: 10 },
-  rpeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  metrics: { flexDirection: 'row', gap: space.md, paddingVertical: space.ml },
+  bigMetric: { paddingTop: space.xl, paddingBottom: space.xs },
+  recordingHeader: { marginTop: space.xs },
+  recordingActions: { gap: space.sm, marginTop: space.xl, marginBottom: space.sm },
+  fieldLabel: { color: color.text, ...type.label },
+  rpeGroup: { gap: space.xs, marginTop: space.xs },
+  rpeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
   rpe: {
     width: '18%',
     flexGrow: 1,
@@ -2094,26 +2022,26 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface,
     borderWidth: 1,
     borderColor: color.line,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rpeSelected: { backgroundColor: color.green, borderColor: color.green },
-  rpeText: { color: color.text, fontSize: 17 },
-  rpeTextSelected: { color: color.ink, fontWeight: '700' },
+  rpeSelected: { backgroundColor: color.greenSoft, borderColor: color.green },
+  rpeText: { color: color.muted, ...type.body },
+  rpeTextSelected: { color: color.text, fontWeight: '700' },
   input: {
     borderWidth: 1,
     borderColor: color.line,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
     color: color.text,
     backgroundColor: color.surface,
-    fontSize: 16,
+    ...type.body,
     minHeight: 52,
   },
   note: { minHeight: 96, textAlignVertical: 'top' },
-  choiceRow: { flexDirection: 'row', gap: 6 },
+  choiceRow: { flexDirection: 'row', gap: space.xxs },
   flex: { flex: 1 },
   day: {
     flex: 1,
@@ -2121,34 +2049,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: color.line,
     backgroundColor: color.surface,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dayText: { color: color.text, fontSize: 14 },
-  timeInput: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  sectionGap: { marginTop: 24 },
-  notice: {
-    backgroundColor: color.raised,
-    marginHorizontal: 16,
-    marginBottom: 10,
-    padding: 16,
-    gap: 6,
-    borderLeftWidth: 3,
-    borderLeftColor: color.green,
+  dayText: { color: color.muted, ...type.label },
+  timeInput: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  sectionGap: { marginTop: space.lg },
+  noticeSlot: { paddingHorizontal: space.md, paddingBottom: space.xs },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: space.md,
   },
-  noticeTitle: { color: color.text, fontWeight: '700', fontSize: 15 },
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: '#000000AA',
     justifyContent: 'center',
-    padding: 24,
+    padding: space.lg,
   },
   modal: {
     backgroundColor: color.surface,
-    borderRadius: 10,
-    padding: 20,
-    gap: 10,
+    borderRadius: radius.lg,
+    padding: space.ml,
+    gap: space.xs,
   },
 });

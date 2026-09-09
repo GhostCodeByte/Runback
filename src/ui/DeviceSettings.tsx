@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, View } from 'react-native';
 import { nativeCall, type Capabilities, type Settings } from '../native';
-import { Button, Copy, Row, Section, color } from './components';
+import { Button, Copy, Notice, Row, Section, Title, color, space } from './components';
 
 export function DeviceSettings({
   capabilities,
@@ -67,10 +67,10 @@ export function DeviceSettings({
   };
   return (
     <>
-      <Text style={styles.title}>Geräte & Verbindungen</Text>
+      <Title>Geräte & Verbindungen</Title>
       {message ? (
         <View style={styles.message}>
-          <Copy>{message}</Copy>
+          <Notice onDismiss={() => setMessage('')}>{message}</Notice>
         </View>
       ) : null}
       <Section title="Dieses Telefon">
@@ -102,11 +102,6 @@ export function DeviceSettings({
         />
       </Section>
       <Section title="Wear OS">
-        <Copy muted>
-          Die Runback-App auf der Uhr zeichnet auch ohne Telefon auf.
-          Gespeicherte Läufe werden bei bestehender Verbindung an dieses Telefon
-          übertragen.
-        </Copy>
         {wear ? (
           <Copy>
             {wear.message ||
@@ -115,8 +110,9 @@ export function DeviceSettings({
                 : 'Derzeit keine Uhr verbunden')}
           </Copy>
         ) : (
-          <Copy muted>Der Übertragungsstatus ist auf deiner Uhr sichtbar.</Copy>
+          <Copy muted>Status wird geprüft …</Copy>
         )}
+        <Copy muted>Die Uhr zeichnet auch ohne Telefon auf.</Copy>
       </Section>
       <Section title="Health Connect">
         <Copy muted>
@@ -160,17 +156,14 @@ export function DeviceSettings({
           }}
         />
         <Copy muted>
-          Es stehen nur Daten bereit, die deine Quell-Apps tatsächlich
-          schreiben. Fremde Routen benötigen eine eigene Freigabe im
-          Vordergrund. Andere Apps können Daten selbst in ihre Cloud übertragen.
+          Verfügbar ist nur, was deine anderen Apps nach Health Connect
+          schreiben.
         </Copy>
       </Section>
       <Section title="Bluetooth-Sensoren">
         <Copy muted>
           {ble?.error ||
-            (ble?.scanning
-              ? 'Suche läuft …'
-              : 'Herzfrequenz, Laufdaten und Sensorakku über Standardprofile.')}
+            (ble?.scanning ? 'Suche läuft …' : 'Herzfrequenz, Kadenz, Akku.')}
         </Copy>
         <Button
           secondary
@@ -211,8 +204,7 @@ export function DeviceSettings({
             ) : null}
             {device.measurements?.cadence ? (
               <Copy muted>
-                Kadenz: {device.measurements.cadence.values.rawCadence} /min ·
-                Sensorwert, Schrittbezug ungeprüft
+                Kadenz: {device.measurements.cadence.values.rawCadence} /min
               </Copy>
             ) : null}
             {device.measurements?.battery ? (
@@ -245,16 +237,13 @@ export function DeviceSettings({
           </View>
         ))}
         {ble && !ble.scanning && !ble.devices?.length ? (
-          <Copy muted>
-            Keine Sensoren gefunden. Schalte deinen Sensor ein und starte die
-            Suche.
-          </Copy>
+          <Copy muted>Keine Sensoren gefunden.</Copy>
         ) : null}
       </Section>
       <Section title="Wetterdaten">
         <Row
           title="Wetter ergänzen"
-          subtitle="Genaue Position und Laufzeit werden an Open-Meteo gesendet."
+          subtitle="Sendet Position und Laufzeit an Open-Meteo."
           trailing={
             <Switch
               accessibilityLabel="Wetterdaten aktivieren"
@@ -265,15 +254,10 @@ export function DeviceSettings({
             />
           }
         />
-        <Copy muted>
-          Funktioniert optional nach einem Lauf. Ohne Freigabe oder Internet
-          bleibt die Basisanalyse verfügbar.
-        </Copy>
       </Section>
     </>
   );
 }
 const styles = StyleSheet.create({
-  title: { color: color.text, fontSize: 30, fontWeight: '600' },
-  message: { padding: 16, marginTop: 12, backgroundColor: color.raised },
+  message: { marginTop: space.sm },
 });
