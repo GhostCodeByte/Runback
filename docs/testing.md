@@ -55,3 +55,10 @@ Die offene Funktionsliste und Grenzen stehen in [implementation.md](implementati
 - `npm run typecheck` und `npm run lint` erfolgreich; ESLint meldet weiterhin nur vorhandene Warnungen und keine Fehler.
 - `:core:testDebugUnitTest :app:lintRelease :wear:lintRelease` mit JDK 21 erfolgreich. Die native Android-Erweiterung für Soreness-Persistenz und den optionalen deutschen SpeechRecognizer baut und lintet damit sauber.
 - Die neue Körperkarte wurde als React-Native-Komponente und mit UI-Tests geprüft. Die native SpeechRecognizer-Berechtigung und echte Spracherkennung wurden nicht auf physischer Hardware nachgewiesen; OpenRouter bleibt für diese Funktion optional und wurde ohne konfigurierten Schlüssel nicht live getestet.
+
+## PR-Review und Integration (9. September 2026)
+
+- Regressionen für eindeutige Satzkennungen, deterministische Kopplungsgruppen, ungültige Planzeiten und IDs, Muskelregionen, Segmentprovenienz und deutsche Seitenzuordnung ergänzt.
+- Elf native Datenbanktests auf dem Telefon-Emulator (API 36) bestanden. Der neue Fehlerfall bricht den Index-Write per SQLite-Trigger nach dem Session-Write ab und prüft den tatsächlichen Rollback einschließlich aktiver Einheit. Die Historienbegrenzung berücksichtigt den Trainingsbeginn statt der Speicherreihenfolge.
+- Die synchrone Modellvalidierung ist für die Oberfläche zu langsam: bei 30 synthetischen Kraftsessions wurden für 5/10/20 Regionsmeldungen etwa 283/922/4.615 ms gemessen; 60 Meldungen waren nach 40 Sekunden nicht abgeschlossen. Die Frischeanzeige bleibt daher gesperrt, bis eine außerhalb des UI-Threads ermittelte Prüfung mit Daten- und Modellversion verknüpft verfügbar ist. Gemeldeter Muskelkater bleibt unabhängig davon nutzbar. Ein vollständig kalibrierter Zustand darf nicht in frühere Hold-outs übernommen werden (Datenleck).
+- Sprache verwendet ausschließlich die Android-On-Device-Erkennung ab API 31. Fehlt sie, bleibt die Texteingabe verfügbar. Eine echte deutsche Spracherkennung auf physischer Hardware wurde nicht nachgewiesen.
