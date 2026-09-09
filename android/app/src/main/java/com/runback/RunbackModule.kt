@@ -168,7 +168,6 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
             if (item.optLong("at") != report.optLong("at")) kept.put(item)
         }
         kept.put(report)
-        while (kept.length() > 500) kept.remove(0)
         store.putDocument("soreness_reports", JSONObject().put("reports", kept))
         sorenessState()
     }
