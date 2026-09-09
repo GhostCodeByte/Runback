@@ -21,7 +21,8 @@ export interface RunStatistics {
 
 const EIGHT_WEEKS = 8;
 
-function validRun(run: Run, now: number) {
+/** Geteilt mit `statisticsView.ts`, damit beide Sichten dieselben Läufe zählen. */
+export function validRun(run: Run, now: number) {
   const start = run.startTime;
   return (
     (run.status === 'completed' || run.status === 'imported') &&
@@ -36,7 +37,7 @@ function validRun(run: Run, now: number) {
   );
 }
 
-function mondayStart(timestamp: number) {
+export function mondayStart(timestamp: number) {
   const date = new Date(timestamp);
   const day = date.getDay();
   date.setHours(0, 0, 0, 0);
@@ -44,7 +45,7 @@ function mondayStart(timestamp: number) {
   return date.getTime();
 }
 
-function average(values: number[]) {
+export function average(values: number[]) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : null;

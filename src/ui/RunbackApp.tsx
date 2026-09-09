@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Onboarding } from './Onboarding';
-import { Statistics } from './Statistics';
+import { Statistics, readStatisticsView } from './Statistics';
 import { TrainingChat } from './TrainingChat';
 import { DeviceSettings } from './DeviceSettings';
 import { VendorImport } from './VendorImport';
@@ -248,6 +248,10 @@ export function RunbackApp() {
   strengthRef.current = strength;
   const settings = state.settings;
   const runs = state.runs;
+  const statisticsView = useMemo(
+    () => readStatisticsView(settings.statisticsView),
+    [settings.statisticsView],
+  );
   const recording = state.recording;
   const isRecording = Boolean(recording);
   const showOnboarding =
@@ -1986,7 +1990,11 @@ export function RunbackApp() {
   const content = selected ? (
     renderDetail()
   ) : page === 'statistics' ? (
-    <Statistics runs={runs} />
+    <Statistics
+      runs={runs}
+      view={statisticsView}
+      onViewChange={next => save({ statisticsView: next })}
+    />
   ) : page === 'plans' ? (
     <PlanList
       busy={busy}
