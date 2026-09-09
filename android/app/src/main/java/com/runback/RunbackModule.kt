@@ -9,6 +9,7 @@ import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -74,7 +75,9 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
             .put("notificationPermission", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
             .put("bluetoothPermission", Build.VERSION.SDK_INT < 31 || (granted(Manifest.permission.BLUETOOTH_SCAN) && granted(Manifest.permission.BLUETOOTH_CONNECT)))
             .put("microphonePermission", granted(Manifest.permission.RECORD_AUDIO))
-            .put("speechRecognition", runCatching { SpeechRecognizer.isRecognitionAvailable(context) }.getOrDefault(false))
+            .put("speechRecognition", Build.VERSION.SDK_INT >= 31 && runCatching {
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            }.getOrDefault(false))
             .put("healthConnect", "not_connected")
     }
 
@@ -124,7 +127,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun getStrengthSessions(limit: Int, promise: Promise) = task(promise) {
         val sessions = JSONArray()
         val history = strengthIndex().optJSONArray("sessions") ?: JSONArray()
-        for (i in 0 until minOf(limit.coerceIn(1, 500), history.length())) {
+        val end = minOf(limit.coerceIn(1, 500), history.length())
+        for (i in history.length() - 1 downTo history.length() - end) {
             val id = history.optJSONObject(i)?.optString("id") ?: continue
             store.getDocument("strength_session_$id")?.let(sessions::put)
         }
@@ -142,32 +146,14 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun finishStrengthSession(json: String, summaryJson: String, promise: Promise) = task(promise) {
         val session = JSONObject(json)
         val id = session.optString("id").ifBlank { error("Einheit ohne Kennung kann nicht gespeichert werden.") }
-        store.putDocument("strength_session_$id", session)
-        val index = strengthIndex()
-        val sessions = index.optJSONArray("sessions") ?: JSONArray()
-        val kept = JSONArray()
-        for (i in 0 until sessions.length()) {
-            val entry = sessions.optJSONObject(i) ?: continue
-            if (entry.optString("id") != id) kept.put(entry)
-        }
-        kept.put(JSONObject(summaryJson))
-        store.putDocument("strength_index", index.put("sessions", kept))
-        store.deleteDocument("strength_active")
+        store.finishStrengthSession(session, JSONObject(summaryJson))
         strengthState()
     }
     @ReactMethod fun getStrengthSession(id: String, promise: Promise) = task(promise) {
         store.getDocument("strength_session_$id") ?: error("Einheit nicht gefunden")
     }
     @ReactMethod fun deleteStrengthSession(id: String, promise: Promise) = task(promise) {
-        store.deleteDocument("strength_session_$id")
-        val index = strengthIndex()
-        val sessions = index.optJSONArray("sessions") ?: JSONArray()
-        val kept = JSONArray()
-        for (i in 0 until sessions.length()) {
-            val entry = sessions.optJSONObject(i) ?: continue
-            if (entry.optString("id") != id) kept.put(entry)
-        }
-        store.putDocument("strength_index", index.put("sessions", kept))
+        store.deleteStrengthSession(id)
         strengthState()
     }
 
@@ -200,8 +186,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
 
     @ReactMethod fun transcribeSoreness(promise: Promise) {
         context.runOnUiQueueThread {
-            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-                promise.reject("SPEECH_UNAVAILABLE", "Auf diesem Gerät ist keine Spracherkennung verfügbar.")
+            if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                promise.reject("SPEECH_UNAVAILABLE", "Auf diesem Gerät ist keine Offline-Spracherkennung verfügbar.")
                 return@runOnUiQueueThread
             }
             if (!granted(Manifest.permission.RECORD_AUDIO)) {
@@ -212,10 +198,11 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
                 promise.reject("SPEECH_BUSY", "Die Spracherkennung hört bereits zu.")
                 return@runOnUiQueueThread
             }
-            val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            speechRecognizer = recognizer
-            speechPromise = promise
-            recognizer.setRecognitionListener(object : RecognitionListener {
+            try {
+                val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                speechRecognizer = recognizer
+                speechPromise = promise
+                recognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) = Unit
                 override fun onBeginningOfSpeech() = Unit
                 override fun onRmsChanged(rmsdB: Float) = Unit
@@ -232,8 +219,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
                     if (text.isBlank()) finishSpeechError("Kein gesprochener Text erkannt.")
                     else finishSpeech(text)
                 }
-            })
-            try {
+                })
                 recognizer.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, "de-DE")
@@ -241,8 +227,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
                 })
             } catch (error: Exception) {
-                speechRecognizer?.destroy()
-                speechRecognizer = null
+                destroySpeechRecognizer()
                 speechPromise = null
                 promise.reject("SPEECH_START", error.message, error)
             }
@@ -250,19 +235,34 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
 
     private fun finishSpeech(text: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            context.runOnUiQueueThread { finishSpeech(text) }
+            return
+        }
         val promise = speechPromise ?: return
         speechPromise = null
-        speechRecognizer?.destroy()
-        speechRecognizer = null
+        destroySpeechRecognizer()
         promise.resolve(JSONObject().put("text", text).toString())
     }
 
     private fun finishSpeechError(message: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            context.runOnUiQueueThread { finishSpeechError(message) }
+            return
+        }
         val promise = speechPromise ?: return
         speechPromise = null
+        destroySpeechRecognizer()
+        promise.reject("SPEECH_ERROR", message)
+    }
+
+    /** SpeechRecognizer requires all lifecycle calls on the main thread. */
+    private fun destroySpeechRecognizer() {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        speechRecognizer?.setRecognitionListener(null)
+        speechRecognizer?.cancel()
         speechRecognizer?.destroy()
         speechRecognizer = null
-        promise.reject("SPEECH_ERROR", message)
     }
 
     @ReactMethod fun getProseSettings(promise: Promise) = task(promise) { prose.settings() }
@@ -462,10 +462,12 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
 
     override fun invalidate() {
         importer.cancel()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        speechPromise?.reject("APP_CLOSED", "Die App wurde geschlossen.")
-        speechPromise = null
+        context.runOnUiQueueThread {
+            val promise = speechPromise
+            speechPromise = null
+            destroySpeechRecognizer()
+            promise?.reject("APP_CLOSED", "Die App wurde geschlossen.")
+        }
         pending?.first?.reject("APP_CLOSED", "Die App wurde geschlossen.")
         pending = null
         chat.resetData {}

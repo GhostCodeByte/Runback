@@ -144,6 +144,57 @@ class RunStoreTest {
     }
 
     @Test
+    fun relatedDocumentWritesRollBackTogether() {
+        try {
+            store.updateDocumentsAtomically(
+                puts = mapOf(
+                    "written-before-failure" to JSONObject().put("value", 1),
+                    "x".repeat(201) to JSONObject()
+                )
+            )
+            fail("oversized document key should be rejected")
+        } catch (_: IllegalArgumentException) {
+            // The transaction must roll back the preceding document write too.
+        }
+        assertNull(store.getDocument("written-before-failure"))
+    }
+
+    @Test
+    fun strengthFinishAndDeleteKeepIndexAndPayloadConsistent() {
+        val session = JSONObject().put("id", "strength-1").put("startedAt", 100L)
+        val summary = JSONObject().put("id", "strength-1").put("at", 200L)
+        store.putDocument("strength_active", session)
+
+        store.finishStrengthSession(session, summary)
+        assertEquals(session.toString(), store.getDocument("strength_session_strength-1").toString())
+        assertEquals(1, store.getDocument("strength_index")!!.getJSONArray("sessions").length())
+        assertNull(store.getDocument("strength_active"))
+
+        store.deleteStrengthSession("strength-1")
+        assertNull(store.getDocument("strength_session_strength-1"))
+        assertEquals(0, store.getDocument("strength_index")!!.getJSONArray("sessions").length())
+    }
+
+    @Test
+    fun strengthFinishRollsBackPayloadWhenIndexWriteFails() {
+        val oldSession = JSONObject().put("id", "old")
+        val oldSummary = JSONObject().put("id", "old").put("at", 1L)
+        store.finishStrengthSession(oldSession, oldSummary)
+
+        val oversizedId = "x".repeat(193)
+        try {
+            store.finishStrengthSession(JSONObject().put("id", oversizedId), JSONObject().put("id", oversizedId))
+            fail("oversized strength key should be rejected")
+        } catch (_: IllegalArgumentException) {
+            // The session payload and index must remain unchanged.
+        }
+        assertNull(store.getDocument("strength_session_$oversizedId"))
+        val sessions = store.getDocument("strength_index")!!.getJSONArray("sessions")
+        assertEquals(1, sessions.length())
+        assertEquals("old", sessions.getJSONObject(0).getString("id"))
+    }
+
+    @Test
     fun corruptRestoreRollsBackExistingData() {
         val id = store.start().getString("id")
         store.finish()
