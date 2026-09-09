@@ -302,6 +302,7 @@ export function isValidMuscleReport(report: MuscleReport): boolean {
   return (
     typeof report.regionId === 'string' &&
     report.regionId.length > 0 &&
+    allRegionIds().includes(report.regionId as RegionId) &&
     finite(report.value) &&
     report.value >= 0 &&
     report.value <= 10
@@ -844,16 +845,23 @@ export function buildRunStimulusContributions(
   coefficients?: Partial<Record<RegionBase, number>>,
 ): RunStimulusContribution[] {
   const result: RunStimulusContribution[] = [];
+  let elapsedSeconds = 0;
   for (const [index, segment] of (run.segments ?? []).entries()) {
-    const calculated = runSegmentStimulus(segment, {
-      at: run.startTime +
-        (run.segments ?? [])
-          .slice(0, index)
-          .reduce((sum, previous) => sum + previous.durationSeconds * 1000, 0),
+    // Native summaries may omit segment IDs. Give each segment a stable
+    // position-based fallback before calculating provenance; otherwise every
+    // anonymous segment would be reported as `split-1`.
+    const segmentWithId = segment.id
+      ? segment
+      : { ...segment, id: `split-${index + 1}` };
+    const calculated = runSegmentStimulus(segmentWithId, {
+      at: run.startTime + elapsedSeconds * 1000,
       runId: run.id,
       sourceVersion: segment.sourceVersion ?? run.sourceVersion,
       coefficients,
     });
+    if (finite(segment.durationSeconds) && segment.durationSeconds > 0) {
+      elapsedSeconds += segment.durationSeconds;
+    }
     for (const [id, stimulus] of Object.entries(calculated.stimulusByRegion)) {
       const baseRegion = baseRegionFromId(id);
       if (!baseRegion || !finite(stimulus) || stimulus <= 0) {

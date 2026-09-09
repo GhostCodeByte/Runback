@@ -86,6 +86,22 @@ describe('Kopplung von Lauf und Krafttraining', () => {
     expect(result.matchedPairs?.[0].fadeDifferencePercent).toBeCloseTo(5);
   });
 
+  it('wählt den größten Regionsproxy unabhängig von der Eingabereihenfolge', () => {
+    const runs = coupledRuns(5).map((entry, index) => ({
+      ...entry,
+      regionBase: index < 2 ? 'calf' : 'legs',
+    }));
+    const freshness = (_region: string, at: number) => 50 + at / DAY;
+    const forward = evaluateCoupling({ enabled: true, runs, freshness });
+    const reversed = evaluateCoupling({
+      enabled: true,
+      runs: [...runs].reverse(),
+      freshness,
+    });
+    expect(forward.comparableRunIds).toEqual(['run-2', 'run-3', 'run-4']);
+    expect(reversed.comparableRunIds).toEqual(forward.comparableRunIds);
+  });
+
   it('wechselt ab zehn vergleichbaren Läufen zur kleinen Regression', () => {
     const entries = coupledRuns(10);
     const result = evaluateCoupling({
@@ -199,6 +215,49 @@ describe('Kopplung von Lauf und Krafttraining', () => {
           regionBases: ['legs'],
           important: false,
           fixedWeekday: 2,
+        },
+      ],
+    });
+    expect(result.verdict).toBe('not_assessable');
+    expect(result.selected).toBeNull();
+  });
+
+  it('verwirft doppelte Sitzungskennungen statt sie in der Zuordnung zu überschreiben', () => {
+    const result = searchMonthlyPlan({
+      enabled: true,
+      weekStartAt: 0,
+      freshness: () => 80,
+      sessions: [
+        {
+          id: 'doppelt',
+          kind: 'run',
+          regionBases: ['legs'],
+          important: true,
+        },
+        {
+          id: 'doppelt',
+          kind: 'strength',
+          regionBases: ['legs'],
+          important: false,
+        },
+      ],
+    });
+    expect(result.verdict).toBe('not_assessable');
+    expect(result.selected).toBeNull();
+  });
+
+  it('verwirft Termine außerhalb des Tagesfensters', () => {
+    const result = searchMonthlyPlan({
+      enabled: true,
+      weekStartAt: 0,
+      freshness: () => 80,
+      sessions: [
+        {
+          id: 'lauf',
+          kind: 'run',
+          regionBases: ['legs'],
+          important: true,
+          timeOfDayMs: 24 * DAY,
         },
       ],
     });

@@ -128,10 +128,18 @@ function comparableRuns(
   const candidates = input.runs.filter(
     entry => entry.run.purpose === purpose && entry.regionBase.trim(),
   );
-  // One assessment must never compare different leg-region proxies. If the
-  // caller supplies more than one, use the first deterministic group and leave
-  // the other group for a separate assessment.
-  const regionBase = candidates[0]?.regionBase.trim();
+  // One assessment must never compare different leg-region proxies. Choose
+  // the largest proxy group, with a lexical tie-breaker, so input ordering
+  // cannot change the evidence included in the assessment.
+  const regionCounts = new Map<string, number>();
+  for (const entry of candidates) {
+    const regionBase = entry.regionBase.trim();
+    regionCounts.set(regionBase, (regionCounts.get(regionBase) ?? 0) + 1);
+  }
+  const regionBase = [...regionCounts.entries()].sort(
+    ([leftName, leftCount], [rightName, rightCount]) =>
+      rightCount - leftCount || leftName.localeCompare(rightName),
+  )[0]?.[0];
   const seenCanonicalIds = new Set<string>();
   return candidates
     .filter(entry => {
@@ -579,9 +587,14 @@ export function searchMonthlyPlan(
       session =>
         !session.id ||
         !session.regionBases.length ||
+        !Number.isFinite(session.timeOfDayMs ?? 12 * 60 * 60 * 1000) ||
+        (session.timeOfDayMs !== undefined &&
+          (session.timeOfDayMs < 0 || session.timeOfDayMs >= DAY_MS)) ||
         (session.fixedWeekday !== undefined &&
           !validWeekday(session.fixedWeekday)),
-    )
+    ) ||
+    new Set(input.sessions.map(session => session.id)).size !==
+      input.sessions.length
   ) {
     return insufficientPlan(
       true,
