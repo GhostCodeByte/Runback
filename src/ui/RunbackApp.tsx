@@ -2116,6 +2116,7 @@ export function RunbackApp() {
           busy={busy}
           history={recentSessions}
           now={now}
+          sessions={strengthSessions}
           onAddExercise={() => setPickerOpen(true)}
           onAddSet={index => changeSession(s => addSet(s, index, Date.now()))}
           onCompleteSet={(index, setId, values) =>

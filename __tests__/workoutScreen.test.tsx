@@ -53,7 +53,11 @@ const handlers = () => ({
 function render(
   session: StrengthSession,
   props: ReturnType<typeof handlers>,
-  overrides: { now?: number; history?: StrengthSession[] } = {},
+  overrides: {
+    now?: number;
+    history?: StrengthSession[];
+    sessions?: StrengthSession[];
+  } = {},
 ) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   ReactTestRenderer.act(() => {
@@ -62,6 +66,7 @@ function render(
         history={overrides.history || []}
         now={overrides.now ?? 1_000_000}
         session={session}
+        sessions={overrides.sessions}
         {...props}
       />,
     );
@@ -276,5 +281,135 @@ describe('Trainingsansicht', () => {
     );
     const tree = render(bodyweight, handlers());
     expect(tree.root.findAllByType(TextInput)[0].props.editable).toBe(false);
+  });
+
+  /** Einheit ohne Planwerte, damit nur der Vorschlag greifen kann. */
+  const freeTemplate: WorkoutTemplate = {
+    id: 'template-free',
+    name: 'Frei',
+    days: [],
+    createdAt: 0,
+    exercises: [
+      {
+        exerciseId: 'barbell_back_squat',
+        name: 'Kniebeuge (Langhantel)',
+        sets: [
+          { kind: 'normal', loadKind: 'kg', restSeconds: 180 },
+          { kind: 'normal', loadKind: 'kg', restSeconds: 180 },
+        ],
+      },
+    ],
+  };
+
+  /** Abgeschlossene Einheit mit tatsächlichen Werten als Historie. */
+  const finishedSession = (
+    id: string,
+    at: number,
+    weights: number[],
+  ): StrengthSession => ({
+    id,
+    kind: 'strength',
+    name: 'Frei',
+    startTime: at,
+    endTime: at + 3_600_000,
+    status: 'finished',
+    currentExercise: 0,
+    modelVersion: 'strength-v1',
+    catalogVersion: 'catalog-v1',
+    exercises: [
+      {
+        exerciseId: 'barbell_back_squat',
+        name: 'Kniebeuge (Langhantel)',
+        sets: weights.map((weightKg, position) => ({
+          id: `${id}-set-${position}`,
+          planned: { kind: 'normal', loadKind: 'kg', restSeconds: 180 },
+          actualWeightKg: weightKg,
+          actualReps: 5,
+          completedAt: at + position,
+        })),
+      },
+    ],
+  });
+
+  it('füllt leere Felder mit den Werten der letzten Einheit vor', () => {
+    const tree = render(startSession(freeTemplate, 2_000_000), handlers(), {
+      history: [finishedSession('older', 1_000_000, [95, 95])],
+    });
+    const inputs = tree.root.findAllByType(TextInput);
+    expect(inputs[0].props.value).toBe('95');
+    expect(inputs[1].props.value).toBe('5');
+  });
+
+  it('übernimmt den Vorschlag beim Bestätigen ohne weitere Eingabe', () => {
+    const props = handlers();
+    const session = startSession(freeTemplate, 2_000_000);
+    const tree = render(session, props, {
+      history: [finishedSession('older', 1_000_000, [95, 95])],
+    });
+    byLabel(tree, 'Satz 1 bestätigen').props.onPress();
+    expect(props.onCompleteSet).toHaveBeenCalledWith(
+      0,
+      session.exercises[0].sets[0].id,
+      { actualWeightKg: 95, actualReps: 5 },
+    );
+  });
+
+  it('lässt den Planwert vor dem Vorschlag stehen', () => {
+    const tree = render(base(), handlers(), {
+      history: [finishedSession('older', 1_000_000, [95, 95])],
+    });
+    expect(tree.root.findAllByType(TextInput)[0].props.value).toBe('100');
+  });
+
+  it('markiert den Vorschlag als Vorschlag und die Eingabe als Eingabe', () => {
+    const tree = render(startSession(freeTemplate, 2_000_000), handlers(), {
+      history: [finishedSession('older', 1_000_000, [95, 95])],
+    });
+    const suggested = tree.root.findAllByType(TextInput)[0];
+    expect(suggested.props.accessibilityLabel).toContain('Vorschlag');
+    ReactTestRenderer.act(() => {
+      suggested.props.onChangeText('97,5');
+    });
+    expect(
+      tree.root.findAllByType(TextInput)[0].props.accessibilityLabel,
+    ).not.toContain('Vorschlag');
+  });
+
+  it('zeigt den Verlauf erst, wenn alle Sätze der Übung erledigt sind', () => {
+    const sessions = [
+      finishedSession('s1', 1_000_000, [90, 90]),
+      finishedSession('s2', 1_000_000 + 7 * 86_400_000, [95, 95]),
+      finishedSession('s3', 1_000_000 + 14 * 86_400_000, [100, 100]),
+    ];
+    let session = startSession(freeTemplate, 1_000_000 + 21 * 86_400_000);
+    const open = render(session, handlers(), { sessions });
+    expect(
+      texts(open).some(text => text.includes('Bestes geschätztes Maximum')),
+    ).toBe(false);
+
+    for (const set of session.exercises[0].sets) {
+      session = completeSet(session, 0, set.id, session.startTime, {
+        actualWeightKg: 105,
+        actualReps: 5,
+      });
+    }
+    const done = render(session, handlers(), { sessions });
+    expect(
+      texts(done).some(text => text.includes('Bestes geschätztes Maximum')),
+    ).toBe(true);
+  });
+
+  it('bleibt ohne übergebene Historie ohne Verlaufsnotiz', () => {
+    let session = startSession(freeTemplate, 2_000_000);
+    for (const set of session.exercises[0].sets) {
+      session = completeSet(session, 0, set.id, session.startTime, {
+        actualWeightKg: 105,
+        actualReps: 5,
+      });
+    }
+    const tree = render(session, handlers());
+    expect(
+      texts(tree).some(text => text.includes('Bestes geschätztes Maximum')),
+    ).toBe(false);
   });
 });

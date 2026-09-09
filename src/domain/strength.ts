@@ -427,14 +427,15 @@ export function clearRest(session: StrengthSession): StrengthSession {
 }
 
 /**
- * Kurzform der letzten vergleichbaren Leistung, etwa `80 kg × 8`.
- * Aus der Historie, damit im Training sichtbar ist, woran angeknüpft wird.
+ * Der letzte vergleichbare abgeschlossene Satz aus der Historie. `history` wird
+ * in der übergebenen Reihenfolge durchsucht; die Aufrufer sortieren neueste
+ * Einheit zuerst.
  */
-export function referenceLabel(
+export function referenceSet(
   history: StrengthSession[],
   exerciseId: string,
   setIndex: number,
-): string | null {
+): LoggedSet | null {
   for (const session of history) {
     const exercise = session.exercises.find(
       candidate => candidate.exerciseId === exerciseId,
@@ -444,18 +445,34 @@ export function referenceLabel(
     )[
       setIndex
     ];
-    if (!set) {
-      continue;
+    if (set && (set.actualWeightKg || set.actualReps || set.actualSeconds)) {
+      return set;
     }
-    if (set.actualWeightKg && set.actualReps) {
-      return `${formatWeight(set.actualWeightKg)} kg × ${set.actualReps}`;
-    }
-    if (set.actualReps) {
-      return `${set.actualReps} Wdh.`;
-    }
-    if (set.actualSeconds) {
-      return `${set.actualSeconds} s`;
-    }
+  }
+  return null;
+}
+
+/**
+ * Kurzform der letzten vergleichbaren Leistung, etwa `80 kg × 8`.
+ * Aus der Historie, damit im Training sichtbar ist, woran angeknüpft wird.
+ */
+export function referenceLabel(
+  history: StrengthSession[],
+  exerciseId: string,
+  setIndex: number,
+): string | null {
+  const set = referenceSet(history, exerciseId, setIndex);
+  if (!set) {
+    return null;
+  }
+  if (set.actualWeightKg && set.actualReps) {
+    return `${formatWeight(set.actualWeightKg)} kg × ${set.actualReps}`;
+  }
+  if (set.actualReps) {
+    return `${set.actualReps} Wdh.`;
+  }
+  if (set.actualSeconds) {
+    return `${set.actualSeconds} s`;
   }
   return null;
 }

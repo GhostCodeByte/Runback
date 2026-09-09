@@ -11,12 +11,17 @@ import {
   exerciseProgress,
   formatWeight,
   referenceLabel,
+  referenceSet,
   restRemaining,
   sessionProgress,
   type LoggedSet,
   type SessionExercise,
   type StrengthSession,
 } from '../domain/strength';
+import {
+  assessExerciseProgression,
+  type ProgressionAssessment,
+} from '../domain/progression';
 import { color, Copy } from './components';
 
 /**
@@ -56,6 +61,13 @@ const plannedLabel = (set: LoggedSet) => {
   const reps = planned.reps ? `${planned.reps} Wdh.` : null;
   return [weight, reps].filter(Boolean).join(' × ') || 'frei';
 };
+
+/** Voreinstellung eines Eingabefeldes aus der letzten vergleichbaren Einheit. */
+interface SetSuggestion {
+  weightKg?: number;
+  reps?: number;
+  seconds?: number;
+}
 
 const kindLabel: Record<string, string> = {
   warmup: 'Aufwärmen',
@@ -103,6 +115,7 @@ const SetRow = memo(function SetRow({
   set,
   position,
   reference,
+  suggestion,
   active,
   onComplete,
   onEdit,
@@ -110,6 +123,7 @@ const SetRow = memo(function SetRow({
   set: LoggedSet;
   position: number;
   reference: string | null;
+  suggestion: SetSuggestion | null;
   active: boolean;
   onComplete: (
     setId: string,
@@ -124,19 +138,30 @@ const SetRow = memo(function SetRow({
     timed: boolean,
   ) => void;
 }) {
-  const initialWeight =
-    set.actualWeightKg ?? set.planned.weightKg ?? undefined;
   const timed = set.planned.kind === 'timed';
-  const initialReps = timed
+  // Erfasster Wert schlägt Planwert, Planwert schlägt Vorschlag aus der
+  // Historie. Der Vorschlag ist nur eine Voreinstellung im Eingabefeld; erst
+  // das Häkchen macht daraus einen tatsächlichen Wert (T-5).
+  const ownWeight = set.actualWeightKg ?? set.planned.weightKg ?? undefined;
+  const ownReps = timed
     ? set.actualSeconds ?? set.planned.seconds ?? undefined
     : set.actualReps ?? set.planned.reps ?? undefined;
+  const suggestedWeight = suggestion?.weightKg;
+  const suggestedReps = timed ? suggestion?.seconds : suggestion?.reps;
+  const initialWeight = ownWeight ?? suggestedWeight;
+  const initialReps = ownReps ?? suggestedReps;
   const [weight, setWeight] = useState(
     initialWeight === undefined ? '' : formatWeight(initialWeight),
   );
   const [reps, setReps] = useState(
     initialReps === undefined ? '' : String(initialReps),
   );
+  const [touched, setTouched] = useState(false);
   const done = set.completedAt !== undefined;
+  const weightIsSuggested =
+    !touched && !done && ownWeight === undefined && suggestedWeight !== undefined;
+  const repsIsSuggested =
+    !touched && !done && ownReps === undefined && suggestedReps !== undefined;
   const bodyweight = set.planned.loadKind === 'bodyweight';
   const note = kindLabel[set.planned.kind];
 
@@ -162,26 +187,40 @@ const SetRow = memo(function SetRow({
         </Text>
       </View>
       <TextInput
-        accessibilityLabel={`Gewicht für Satz ${position}`}
+        accessibilityLabel={`Gewicht für Satz ${position}${
+          weightIsSuggested ? ', Vorschlag aus der letzten Einheit' : ''
+        }`}
         editable={!bodyweight}
         keyboardType="decimal-pad"
         onBlur={() => onEdit(set.id, weight, reps, timed)}
-        onChangeText={setWeight}
+        onChangeText={value => {
+          setTouched(true);
+          setWeight(value);
+        }}
         placeholder={bodyweight ? 'KG' : '–'}
         placeholderTextColor={color.muted}
         selectTextOnFocus
-        style={[styles.input, bodyweight && styles.inputDisabled]}
+        style={[
+          styles.input,
+          weightIsSuggested && styles.inputSuggested,
+          bodyweight && styles.inputDisabled,
+        ]}
         value={bodyweight ? '' : weight}
       />
       <TextInput
-        accessibilityLabel={`${timed ? 'Sekunden' : 'Wiederholungen'} für Satz ${position}`}
+        accessibilityLabel={`${timed ? 'Sekunden' : 'Wiederholungen'} für Satz ${position}${
+          repsIsSuggested ? ', Vorschlag aus der letzten Einheit' : ''
+        }`}
         keyboardType="number-pad"
         onBlur={() => onEdit(set.id, weight, reps, timed)}
-        onChangeText={setReps}
+        onChangeText={value => {
+          setTouched(true);
+          setReps(value);
+        }}
         placeholder="–"
         placeholderTextColor={color.muted}
         selectTextOnFocus
-        style={styles.input}
+        style={[styles.input, repsIsSuggested && styles.inputSuggested]}
         value={reps}
       />
       <Pressable
@@ -204,9 +243,62 @@ const SetRow = memo(function SetRow({
   );
 });
 
+/**
+ * Kurzfassung des Kraftverlaufs einer Übung, sichtbar sobald alle Sätze
+ * erledigt sind. Zeigt eine Einschätzung mit Unsicherheit, keine Bewertung.
+ */
+function ProgressionNote({
+  assessment,
+}: {
+  assessment: ProgressionAssessment;
+}) {
+  const latest = assessment.series[assessment.series.length - 1];
+  if (!latest) {
+    return null;
+  }
+  const headline = `Bestes geschätztes Maximum: ${formatWeight(
+    Math.round(latest.e1rm * 10) / 10,
+  )} kg`;
+  const missing = 3 - assessment.series.length;
+  const detail =
+    assessment.verdict === 'not_assessable'
+      ? missing > 0
+        ? `Noch ${missing} ${
+            missing === 1 ? 'Einheit' : 'Einheiten'
+          } bis zur ersten Einschätzung des Verlaufs.`
+        : 'Der Verlauf ist noch nicht belastbar einzuschätzen.'
+      : assessment.verdict === 'increase'
+      ? 'Der Verlauf zeigt nach oben. Eine kleine Steigerung ist begründet.'
+      : assessment.verdict === 'reduce'
+      ? 'Der Verlauf zeigt nach unten. Beim nächsten Mal vorsichtig reduzieren.'
+      : assessment.verdict === 'plateau'
+      ? `Seit ${Math.round(assessment.plateau.spanWeeks)} Wochen unverändert.`
+      : 'Kein klarer Trend. So weitermachen ist eine eigene Entscheidung.';
+  const target = assessment.suggestion?.targetRange;
+  return (
+    <View style={styles.progression}>
+      <Text style={styles.progressionHeadline}>{headline}</Text>
+      <Text style={styles.progressionDetail}>{detail}</Text>
+      {target ? (
+        <Text style={styles.progressionDetail}>
+          Nächstes Mal etwa {formatWeight(target.targetKg)} kg ×{' '}
+          {target.reps} ({formatWeight(target.minKg)}–
+          {formatWeight(target.maxKg)} kg).
+        </Text>
+      ) : null}
+      <Text style={styles.progressionSource}>
+        Schätzung aus {assessment.series.length}{' '}
+        {assessment.series.length === 1 ? 'Einheit' : 'Einheiten'}, keine
+        Messung.
+      </Text>
+    </View>
+  );
+}
+
 export function WorkoutScreen({
   session,
   history,
+  sessions,
   now,
   busy = false,
   onSelectExercise,
@@ -219,6 +311,8 @@ export function WorkoutScreen({
 }: {
   session: StrengthSession;
   history: StrengthSession[];
+  /** Vollstaendige Historie fuer den Verlauf. Fehlt sie, entfaellt die Notiz. */
+  sessions?: StrengthSession[];
   now: number;
   busy?: boolean;
   onSelectExercise: (index: number) => void;
@@ -295,9 +389,42 @@ export function WorkoutScreen({
     [current, history],
   );
 
+  // Vorschläge aus der letzten vergleichbaren Einheit. Sie füllen nur die
+  // Eingabefelder vor, damit ein bestätigter Satz ein Tippen kostet.
+  const suggestions = useMemo<(SetSuggestion | null)[]>(
+    () =>
+      current
+        ? current.sets.map((_, position) => {
+            const previous = referenceSet(
+              history,
+              current.exerciseId,
+              position,
+            );
+            return previous
+              ? {
+                  weightKg: previous.actualWeightKg,
+                  reps: previous.actualReps,
+                  seconds: previous.actualSeconds,
+                }
+              : null;
+          })
+        : [],
+    [current, history],
+  );
+
   const currentProgress = current
     ? exerciseProgress(current)
     : { completed: 0, total: 0, done: false, activeSetId: undefined };
+
+  // Erst rechnen, wenn die Übung fertig ist. Vorher lenkt der Verlauf nur ab.
+  const progression = useMemo(() => {
+    if (!current || !currentProgress.done || !sessions?.length) {
+      return null;
+    }
+    return assessExerciseProgression(sessions, current.exerciseId, {
+      nextSessionAt: now,
+    });
+  }, [current, currentProgress.done, now, sessions]);
 
   return (
     <View style={styles.screen}>
@@ -381,6 +508,7 @@ export function WorkoutScreen({
                   onEdit={edit}
                   position={position + 1}
                   reference={references[position]}
+                  suggestion={suggestions[position]}
                   set={set}
                 />
                 {rest !== null &&
@@ -405,6 +533,8 @@ export function WorkoutScreen({
                 ) : null}
               </View>
             ))}
+
+            {progression ? <ProgressionNote assessment={progression} /> : null}
 
             <Pressable
               accessibilityLabel="Satz hinzufügen"
@@ -557,6 +687,18 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   inputDisabled: { opacity: 0.4 },
+  progression: {
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: color.line,
+    gap: 4,
+  },
+  progressionHeadline: { color: color.text, fontSize: 15, fontWeight: '600' },
+  progressionDetail: { color: color.text, fontSize: 14 },
+  progressionSource: { color: color.muted, fontSize: 12 },
+  // Vorschlag aus der Historie: sichtbar, aber erkennbar noch nicht erfasst.
+  inputSuggested: { color: color.muted, fontWeight: '400' },
 
   check: {
     width: 28,

@@ -7,6 +7,7 @@ import {
   exerciseProgress,
   finishSession,
   referenceLabel,
+  referenceSet,
   removeSet,
   restRemaining,
   selectExercise,
@@ -434,7 +435,27 @@ describe('Bezug zur letzten Leistung', () => {
     expect(referenceLabel(history, 'barbell_back_squat', 0)).toBe('12 Wdh.');
   });
 
+  it('liefert den letzten vergleichbaren Satz mit Zahlenwerten', () => {
+    const set = referenceSet(
+      historyFrom({ weight: 82.5, reps: 6 }),
+      'barbell_back_squat',
+      0,
+    );
+    expect(set?.actualWeightKg).toBe(82.5);
+    expect(set?.actualReps).toBe(6);
+  });
+
+  it('überspringt Einheiten ohne erfasste Werte', () => {
+    const empty = start();
+    const withValues = historyFrom({ weight: 90, reps: 5 });
+    expect(
+      referenceSet([empty, ...withValues], 'barbell_back_squat', 0)
+        ?.actualWeightKg,
+    ).toBe(90);
+  });
+
   it('gibt null zurück, wenn nichts Vergleichbares vorliegt', () => {
+    expect(referenceSet([], 'barbell_back_squat', 0)).toBeNull();
     expect(referenceLabel([], 'barbell_back_squat', 0)).toBeNull();
     expect(referenceLabel(historyFrom({ weight: 80, reps: 5 }), 'leg_press', 0)).toBeNull();
     expect(
