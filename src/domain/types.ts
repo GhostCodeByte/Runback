@@ -20,6 +20,8 @@ export interface SegmentAggregate {
 }
 export interface RunSummary {
   id: string;
+  /** Name aus der Quelle. Für die Anzeige immer runTitle() benutzen. */
+  name?: string;
   startTime: number;
   endTime: number;
   durationSeconds: number;
