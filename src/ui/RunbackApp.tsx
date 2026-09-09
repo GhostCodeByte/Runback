@@ -62,6 +62,7 @@ import {
   analyzeRun,
   allRegionIds,
   calculateFreshness,
+  calibrateModel,
   evaluateExperiment,
   modelIsUnlocked,
   transitionExperiment,
@@ -672,29 +673,36 @@ export function RunbackApp() {
       }),
     [sorenessReports],
   );
-  const freshness = useMemo(
-    () =>
-      calculateFreshness({
-        at: now,
-        sessions: strengthSessions,
-        reports: muscleReports,
-        runs,
-      }),
-    [muscleReports, now, runs, strengthSessions],
-  );
   // Das Modell bleibt bis zur datenbasierten Freischaltung eine interne
   // Rechnung. Die Karte darf keine scheinbar präzisen Werte aus den bloßen
   // Ausgangsannahmen ausgeben (docs/muskelmodell.md §11).
   const muscleModelVerdict = useMemo(
     () =>
-      modelIsUnlocked({
+      page === 'muscle-map'
+        ? modelIsUnlocked({
+            sessions: strengthSessions,
+            reports: muscleReports,
+            runs,
+          })
+        : null,
+    [muscleReports, page, runs, strengthSessions],
+  );
+  const muscleModelUnlocked = muscleModelVerdict?.unlocked === true;
+  const freshness = useMemo(
+    () => {
+      const state = muscleModelUnlocked
+        ? calibrateModel({ sessions: strengthSessions, reports: muscleReports })
+        : undefined;
+      return calculateFreshness({
+        at: now,
         sessions: strengthSessions,
         reports: muscleReports,
         runs,
-      }),
-    [muscleReports, runs, strengthSessions],
+        state,
+      });
+    },
+    [muscleModelUnlocked, muscleReports, now, runs, strengthSessions],
   );
-  const muscleModelUnlocked = muscleModelVerdict.unlocked;
   const freshnessValues = useMemo(
     () =>
       allRegionIds().reduce((values, id) => {
@@ -1954,7 +1962,7 @@ export function RunbackApp() {
           {muscleMapMode === 'freshness' && !muscleModelUnlocked ? (
             <View style={styles.validationNotice}>
               <Text style={styles.fieldLabel}>Warum noch unbekannt?</Text>
-              {muscleModelVerdict.reasons.map(reason => (
+              {muscleModelVerdict?.reasons.map(reason => (
                 <Copy muted key={reason.code}>
                   {reason.reason}
                 </Copy>
