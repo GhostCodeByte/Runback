@@ -483,7 +483,11 @@ function tokenize(normalized: string): Token[] {
   while (index < words.length) {
     let matched: Token | null = null;
     let length = 1;
-    for (let n = Math.min(MAX_PHRASE_WORDS, words.length - index); n >= 1; n--) {
+    for (
+      let n = Math.min(MAX_PHRASE_WORDS, words.length - index);
+      n >= 1;
+      n--
+    ) {
       const phrase = words.slice(index, index + n).join(' ');
       const token = classify(phrase, n);
       if (token) {
@@ -539,8 +543,28 @@ function group(tokens: Token[]): { entries: Entry[]; unknown: string[] } {
     if (token.type === 'side') {
       if (last && last.side === undefined) {
         last.side = token.side;
+      } else if (
+        last &&
+        last.side !== undefined &&
+        last.side !== 'both' &&
+        token.side !== 'both' &&
+        last.side !== token.side
+      ) {
+        // Speech recognition often repeats both sides as “links und rechts”.
+        // Preserve that explicit information instead of leaving the second
+        // side pending and silently applying the next intensity to one side.
+        last.side = 'both';
       } else {
-        pendingSide = token.side;
+        if (
+          pendingSide !== undefined &&
+          pendingSide !== 'both' &&
+          token.side !== 'both' &&
+          pendingSide !== token.side
+        ) {
+          pendingSide = 'both';
+        } else {
+          pendingSide = token.side;
+        }
       }
     } else if (token.type === 'intensity') {
       if (last && last.value === undefined) {
@@ -672,6 +696,7 @@ export function parseSoreness(transcript: string): SorenessParse {
 // ---------------------------------------------------------------------------
 
 const VALID_IDS = new Set(allRegionIds());
+const REGION_ORDER = new Map(allRegionIds().map((id, index) => [id, index]));
 
 /** Gibt die Kennung zurück, wenn es sie in `regions-v1` wirklich gibt. */
 export function validRegionId(value: unknown): RegionId | null {
@@ -696,9 +721,15 @@ export function fromStructured(
       sideRaw === 'l' || sideRaw === 'r'
         ? (sideRaw as Side)
         : SIDE_WORDS[sideRaw];
-    const numeric = Number(item?.value);
+    const rawValue = item?.value;
+    const numeric =
+      typeof rawValue === 'string' && rawValue.trim() === ''
+        ? Number.NaN
+        : Number(rawValue);
     const value =
-      item?.value !== undefined && item?.value !== null && Number.isFinite(numeric)
+      rawValue !== undefined &&
+      rawValue !== null &&
+      Number.isFinite(numeric)
         ? clamp(numeric)
         : undefined;
 
@@ -773,6 +804,11 @@ export function buildReport(
   const entries = Object.keys(values)
     .filter(id => validRegionId(id) && typeof values[id] === 'number')
     .map(id => ({ regionId: id, value: clamp(values[id] as number) }));
+  entries.sort(
+    (left, right) =>
+      (REGION_ORDER.get(left.regionId) ?? Number.MAX_SAFE_INTEGER) -
+      (REGION_ORDER.get(right.regionId) ?? Number.MAX_SAFE_INTEGER),
+  );
   return {
     at,
     lexiconVersion: SORENESS_LEXICON_VERSION,

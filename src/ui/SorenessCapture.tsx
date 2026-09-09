@@ -119,12 +119,16 @@ export function SorenessCapture({
       const rules = parseSoreness(result.text || '');
       if (result.structured && result.structured.length) {
         const checked = fromStructured(result.structured, result.text || '');
+        const ruleIds = new Set(rules.proposals.map(entry => entry.regionId));
         absorb({
           ...rules,
-          proposals: [...rules.proposals, ...checked.proposals],
-          questions: rules.proposals.length
-            ? rules.questions
-            : [...rules.questions, ...checked.questions],
+          // Structured fields can fill gaps, but may never replace a
+          // deterministic proposal for the same concrete region.
+          proposals: [
+            ...rules.proposals,
+            ...checked.proposals.filter(entry => !ruleIds.has(entry.regionId)),
+          ],
+          questions: [...rules.questions, ...checked.questions],
         });
       } else {
         absorb(rules);
