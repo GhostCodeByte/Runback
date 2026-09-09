@@ -19,8 +19,6 @@ Android-Telefon-App (React Native + Kotlin), eigenständige Wear-OS-App und geme
 - [Zielspezifikation Training (Gym + Laufen)](docs/zielspezifikation-training.md) — Krafttraining, Trainingspläne, Muskelkarte und die Verzahnung beider Trainingsarten.
 - [Muskel- und Belastungsmodell](docs/muskelmodell.md) — Skala, Rechenvorschrift, Kalibrierung und Prüfverfahren der regionenbezogenen Frische.
 - [App-Importe](docs/vendor-import.md) — Fitbit, Google Fit, Strong, Mi Fitness, Apple Health, Samsung & Co. importieren (optional).
-- [Zielspezifikation Training (Gym + Laufen)](docs/zielspezifikation-training.md) — Krafttraining, Trainingspläne, Muskelkarte und die Verzahnung beider Trainingsarten.
-- [Muskel- und Belastungsmodell](docs/muskelmodell.md) — Skala, Rechenvorschrift, Kalibrierung und Prüfverfahren der regionenbezogenen Frische.
 - [Glossar](docs/glossar.md) — verständliche Bedeutungen neben englischen Fach- und Suchbegriffen.
 - [Änderungen zum ursprünglichen Entwurf](docs/aenderungen.md) — übernommene Klarstellungen und fachliche Verbesserungen.
 - [Bedienung und spätere Auslieferung](docs/bedienung-und-auslieferung.md) — flexible Funktionswahl, klare UI und Anforderungen an spätere Test-APKs.
