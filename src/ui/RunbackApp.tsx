@@ -61,10 +61,7 @@ import {
   acceptRecommendation,
   analyzeRun,
   allRegionIds,
-  calculateFreshness,
-  calibrateModel,
   evaluateExperiment,
-  modelIsUnlocked,
   transitionExperiment,
 } from '../domain';
 import type {
@@ -73,7 +70,6 @@ import type {
   RunPurpose,
 } from '../domain/types';
 import type { SorenessReport as CapturedSorenessReport } from '../domain/sorenessInput';
-import type { MuscleReport } from '../domain/freshness';
 import type { RegionId } from '../domain/regions';
 import {
   native,
@@ -654,66 +650,12 @@ export function RunbackApp() {
       }`
     : '';
   const snapshot = selected ? analyzeRun(selected, experiment) : null;
-  const muscleReports = useMemo<MuscleReport[]>(
-    () =>
-      sorenessReports.flatMap(report => {
-        const entries: MuscleReport[] = report.entries.map(entry => ({
-          at: report.at,
-          regionId: entry.regionId,
-          value: entry.value,
-          kind: 'soreness' as const,
-        }));
-        return entries.length
-          ? entries
-          : report.nothingToday
-          ? ([
-              { kind: 'nothing_today' as const, at: report.at },
-            ] as MuscleReport[])
-          : [];
-      }),
-    [sorenessReports],
-  );
-  // Das Modell bleibt bis zur datenbasierten Freischaltung eine interne
-  // Rechnung. Die Karte darf keine scheinbar präzisen Werte aus den bloßen
-  // Ausgangsannahmen ausgeben (docs/muskelmodell.md §11).
-  const muscleModelVerdict = useMemo(
-    () =>
-      page === 'muscle-map'
-        ? modelIsUnlocked({
-            sessions: strengthSessions,
-            reports: muscleReports,
-            runs,
-          })
-        : null,
-    [muscleReports, page, runs, strengthSessions],
-  );
-  const muscleModelUnlocked = muscleModelVerdict?.unlocked === true;
-  const freshness = useMemo(
-    () => {
-      const state = muscleModelUnlocked
-        ? calibrateModel({ sessions: strengthSessions, reports: muscleReports })
-        : undefined;
-      return calculateFreshness({
-        at: now,
-        sessions: strengthSessions,
-        reports: muscleReports,
-        runs,
-        state,
-      });
-    },
-    [muscleModelUnlocked, muscleReports, now, runs, strengthSessions],
-  );
+  // Full hold-out/stability validation currently takes seconds to minutes.
+  // Keep predictions locked until a validated result can be produced off the
+  // UI thread and bound to the exact data/model version (model spec §11).
   const freshnessValues = useMemo(
-    () =>
-      allRegionIds().reduce((values, id) => {
-        const result = freshness.regions[id];
-        values[id] =
-          muscleModelUnlocked && result.kind === 'freshness'
-            ? result.value
-            : null;
-        return values;
-      }, {} as Record<RegionId, number | null>),
-    [freshness, muscleModelUnlocked],
+    () => Object.fromEntries(allRegionIds().map(id => [id, null])) as Record<RegionId, null>,
+    [],
   );
   const sorenessValues = useMemo(() => {
     const latest = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
@@ -1954,19 +1896,17 @@ export function RunbackApp() {
           />
           <Copy muted>
             {muscleMapMode === 'freshness'
-              ? muscleModelUnlocked
-                ? `${freshness.model_version} · Grundlage: ${freshness.contributing_sessions.length} Krafttrainingseinheiten und ${freshness.contributing_reports.length} Meldungen.`
-                : `${freshness.model_version} · Noch nicht freigeschaltet. Die interne Rechnung wird erst nach bestandener Datenprüfung angezeigt; die Regionen bleiben unbekannt.`
+              ? 'Noch nicht freigeschaltet. Für persönliche Frischewerte fehlt eine abgeschlossene Modellprüfung; die Regionen bleiben unbekannt.'
               : 'Letzte bestätigte Meldung · Skala 0 bis 10 · keine Messung.'}
           </Copy>
-          {muscleMapMode === 'freshness' && !muscleModelUnlocked ? (
+          {muscleMapMode === 'freshness' ? (
             <View style={styles.validationNotice}>
               <Text style={styles.fieldLabel}>Warum noch unbekannt?</Text>
-              {muscleModelVerdict?.reasons.map(reason => (
-                <Copy muted key={reason.code}>
-                  {reason.reason}
-                </Copy>
-              ))}
+              <Copy muted>
+                Die automatische Modellprüfung ist noch nicht verfügbar.
+                Deine Muskelkatermeldungen kannst du unabhängig davon erfassen
+                und ansehen.
+              </Copy>
             </View>
           ) : null}
         </Section>
