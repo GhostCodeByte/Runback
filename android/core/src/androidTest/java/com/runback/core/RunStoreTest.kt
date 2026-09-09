@@ -177,17 +177,44 @@ class RunStoreTest {
         val oldSummary = JSONObject().put("id", "old").put("at", 1L)
         store.finishStrengthSession(oldSession, oldSummary)
 
+        val database = ApplicationProvider.getApplicationContext<Context>()
+            .openOrCreateDatabase("runback.db", Context.MODE_PRIVATE, null)
+        database.execSQL("""
+            CREATE TRIGGER fail_strength_index BEFORE INSERT ON documents
+            WHEN NEW.key = 'strength_index'
+            BEGIN SELECT RAISE(ABORT, 'forced index failure'); END
+        """.trimIndent())
+        try {
+            store.putDocument("strength_active", JSONObject().put("id", "pending"))
+            store.finishStrengthSession(JSONObject().put("id", "new"), JSONObject().put("id", "new"))
+            fail("index trigger should abort the transaction")
+        } catch (_: android.database.SQLException) {
+            // The payload write must roll back with the index write.
+        } finally {
+            database.execSQL("DROP TRIGGER fail_strength_index")
+            database.close()
+        }
+        assertNull(store.getDocument("strength_session_new"))
+        val sessions = store.getDocument("strength_index")!!.getJSONArray("sessions")
+        assertEquals(1, sessions.length())
+        assertEquals("old", sessions.getJSONObject(0).getString("id"))
+        assertEquals("pending", store.getDocument("strength_active")!!.getString("id"))
+    }
+
+    @Test
+    fun strengthFinishRejectsOversizedPayloadKeyBeforePersisting() {
         val oversizedId = "x".repeat(193)
         try {
             store.finishStrengthSession(JSONObject().put("id", oversizedId), JSONObject().put("id", oversizedId))
             fail("oversized strength key should be rejected")
         } catch (_: IllegalArgumentException) {
-            // The session payload and index must remain unchanged.
+            // Validation happens before the transaction writes any document.
         }
         assertNull(store.getDocument("strength_session_$oversizedId"))
-        val sessions = store.getDocument("strength_index")!!.getJSONArray("sessions")
-        assertEquals(1, sessions.length())
-        assertEquals("old", sessions.getJSONObject(0).getString("id"))
+    }
+
+    @Test
+    fun strengthFinishRejectsMismatchedSummaryWithoutPersisting() {
 
         try {
             store.finishStrengthSession(JSONObject().put("id", "different"), JSONObject().put("id", "other"))
