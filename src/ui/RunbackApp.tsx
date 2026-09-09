@@ -264,10 +264,20 @@ export function RunbackApp() {
     return next;
   }, []);
   const reloadTrainingState = useCallback(async () => {
+    strengthRef.current = emptyStrengthState();
+    setStrength(emptyStrengthState());
+    setStrengthSessions([]);
+    setSorenessReports([]);
+    setSorenessStorageAvailable(false);
+    setRecentSessions([]);
+    setPlanDraft(null);
+    setPickerOpen(false);
+    setWorkoutOpen(false);
+    setSorenessOpen(false);
     const [nextStrength, nextSessions, nextReports] = await Promise.all([
-      native.strength().catch(() => emptyStrengthState()),
-      native.strengthSessions(500).catch(() => []),
-      native.sorenessReports().catch(() => []),
+      native.strength(),
+      native.strengthSessions(500),
+      native.sorenessReports(),
     ]);
     strengthRef.current = nextStrength;
     setStrength(nextStrength);
@@ -1736,9 +1746,9 @@ export function RunbackApp() {
                   onPress: () => {
                     void action(async () => {
                       const result = await nativeCall<any>('restoreBackup');
-                      await refresh();
-                      await reloadTrainingState();
                       if (!result.cancelled) {
+                        await refresh();
+                        await reloadTrainingState();
                         setMessage(
                           result.message || 'Backup wiederhergestellt.',
                         );

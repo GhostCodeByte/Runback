@@ -13,17 +13,25 @@ const mockNativeState = {
   settings: { onboardedAt: 1 },
   capabilities: {},
 };
+const mockAlertAlert = jest.fn();
+let mockStrengthState = { templates: [], active: null, history: [] };
+let mockStrengthSessions: unknown[] = [];
+let mockSorenessReports: unknown[] = [];
 
 jest.mock('react-native', () => {
   const actual = jest.requireActual('react-native');
   actual.NativeModules.Runback = {
     getState: jest.fn(async () => mockNativeState),
-    getStrengthState: jest.fn(async () => ({ templates: [], active: null, history: [] })),
-    getStrengthSessions: jest.fn(async () => ({ sessions: [] })),
-    getSorenessReports: jest.fn(async () => ({
-      reports: [{ at: Date.now(), nothingToday: false, entries: [{ regionId: 'quad_l', value: 7 }] }],
-    })),
+    getStrengthState: jest.fn(async () => mockStrengthState),
+    getStrengthSessions: jest.fn(async () => ({ sessions: mockStrengthSessions })),
+    getSorenessReports: jest.fn(async () => ({ reports: mockSorenessReports })),
+    clearAllData: jest.fn(async () => {
+      mockStrengthState = { templates: [], active: null, history: [] };
+      mockStrengthSessions = [];
+      mockSorenessReports = [];
+    }),
   };
+  Object.defineProperty(actual, 'Alert', { get: () => ({ alert: mockAlertAlert }), configurable: true });
   return actual;
 });
 
@@ -31,6 +39,15 @@ jest.mock('react-native-safe-area-context', () => ({
   SafeAreaProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
+
+beforeEach(() => {
+  mockAlertAlert.mockReset();
+  mockStrengthState = { templates: [], active: null, history: [] };
+  mockStrengthSessions = [];
+  mockSorenessReports = [
+    { at: Date.now(), nothingToday: false, entries: [{ regionId: 'quad_l', value: 7 }] },
+  ];
+});
 
 test('renders correctly', async () => {
   await ReactTestRenderer.act(() => {
