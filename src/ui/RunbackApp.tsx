@@ -2572,12 +2572,21 @@ export function RunbackApp() {
       busy={busy}
     />
   ) : tab === 'Statistik' ? (
-    <Statistics
-      runs={runs}
-      sessions={finishedSessions}
-      view={statisticsView}
-      onViewChange={next => save({ statisticsView: next })}
-    />
+    <>
+      <Statistics
+        runs={runs}
+        sessions={finishedSessions}
+        view={statisticsView}
+        onViewChange={next => save({ statisticsView: next })}
+      />
+      <Section title="Ziel und Planung">
+        <Row
+          title="Entwicklung"
+          subtitle="Ziel, Planstand und tatsächliches Training"
+          onPress={() => openPage('development')}
+        />
+      </Section>
+    </>
   ) : (
     renderMore()
   );
