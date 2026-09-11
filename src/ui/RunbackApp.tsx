@@ -24,6 +24,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Onboarding } from './Onboarding';
 import { Statistics } from './Statistics';
+import { PlanningScreen } from './PlanningScreen';
+import { DevelopmentScreen } from './DevelopmentScreen';
+import {
+  localDateKey,
+  normalizeSchedule,
+  type ScheduledSession,
+  type ScheduleState,
+} from '../domain/schedule';
 import { TrainingChat } from './TrainingChat';
 import { DeviceSettings } from './DeviceSettings';
 import { VendorImport } from './VendorImport';
@@ -64,15 +72,13 @@ import {
   evaluateExperiment,
   transitionExperiment,
 } from '../domain';
-import type {
-  ExperimentStatus,
-  Recommendation,
-} from '../domain/types';
+import type { ExperimentStatus, Recommendation } from '../domain/types';
 import type { SorenessReport as CapturedSorenessReport } from '../domain/sorenessInput';
 import type { RegionId } from '../domain/regions';
 import {
   native,
   nativeCall,
+  normalizeRun,
   type AppState,
   type Preset,
   type Run,
@@ -149,7 +155,7 @@ const initial: AppState = {
   settings: {},
   capabilities: {},
 };
-type Tab = 'Heute' | 'Läufe' | 'Fokus' | 'Mehr';
+type Tab = 'Heute' | 'Planung' | 'Läufe' | 'Fokus' | 'Mehr';
 type Page =
   | 'main'
   | 'profile'
@@ -159,6 +165,7 @@ type Page =
   | 'presets'
   | 'models'
   | 'statistics'
+  | 'development'
   | 'chat'
   | 'plans'
   | 'strength-history'
@@ -209,6 +216,8 @@ export function RunbackApp() {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<AppState>(initial);
   const stateRef = useRef(state);
+  const settingsRevision = useRef(0);
+  const settingsWritePending = useRef(false);
   const [tab, setTab] = useState<Tab>('Heute');
   const [page, setPage] = useState<Page>('main');
   const [selected, setSelected] = useState<Run | null>(null);
@@ -225,6 +234,9 @@ export function RunbackApp() {
   const [moreDetails, setMoreDetails] = useState(false);
   const [criteriaOpen, setCriteriaOpen] = useState(false);
   const [goalInput, setGoalInput] = useState('');
+  const [goalStartInput, setGoalStartInput] = useState('');
+  const [goalTargetInput, setGoalTargetInput] = useState('');
+  const [goalPhaseInput, setGoalPhaseInput] = useState('');
   const [minuteInput, setMinuteInput] = useState('30');
   const [presetName, setPresetName] = useState('');
   const [strength, setStrength] = useState<StrengthState>(emptyStrengthState());
@@ -236,6 +248,8 @@ export function RunbackApp() {
   const [strengthSessions, setStrengthSessions] = useState<StrengthSession[]>(
     [],
   );
+  const [strengthHistoryAvailable, setStrengthHistoryAvailable] =
+    useState(false);
   const [sorenessReports, setSorenessReports] = useState<
     CapturedSorenessReport[]
   >([]);
@@ -247,6 +261,16 @@ export function RunbackApp() {
   const strengthRef = useRef(strength);
   strengthRef.current = strength;
   const settings = state.settings;
+  const schedule = useMemo(
+    () =>
+      normalizeSchedule(settings.schedule, {
+        routine: {
+          days: settings.trainingDays ?? [],
+          minutes: settings.minutes ?? 30,
+        },
+      }),
+    [settings.schedule, settings.trainingDays, settings.minutes],
+  );
   const runs = state.runs;
   const recording = state.recording;
   const isRecording = Boolean(recording);
@@ -269,7 +293,11 @@ export function RunbackApp() {
   const purpose = settings.purpose || 'free';
 
   const refresh = useCallback(async () => {
+    const revision = settingsRevision.current;
     const next = await native.state();
+    if (revision !== settingsRevision.current || settingsWritePending.current) {
+      next.settings = stateRef.current.settings;
+    }
     next.runs.sort((a, b) => b.startTime - a.startTime);
     stateRef.current = next;
     setState(next);
@@ -280,6 +308,7 @@ export function RunbackApp() {
     strengthRef.current = emptyStrengthState();
     setStrength(emptyStrengthState());
     setStrengthSessions([]);
+    setStrengthHistoryAvailable(false);
     setSorenessReports([]);
     setSorenessStorageAvailable(false);
     setRecentSessions([]);
@@ -295,6 +324,7 @@ export function RunbackApp() {
     strengthRef.current = nextStrength;
     setStrength(nextStrength);
     setStrengthSessions(nextSessions);
+    setStrengthHistoryAvailable(true);
     setSorenessReports(nextReports);
     setSorenessStorageAvailable(true);
     setRecentSessions([]);
@@ -326,9 +356,16 @@ export function RunbackApp() {
   }, []);
   const persist = useCallback(async (patch: Partial<Settings>) => {
     const updated = { ...stateRef.current.settings, ...patch };
-    await native.saveSettings(updated);
-    stateRef.current = { ...stateRef.current, settings: updated };
-    setState(stateRef.current);
+    settingsRevision.current += 1;
+    settingsWritePending.current = true;
+    try {
+      await native.saveSettings(updated);
+      stateRef.current = { ...stateRef.current, settings: updated };
+      setState(stateRef.current);
+    } finally {
+      settingsWritePending.current = false;
+      settingsRevision.current += 1;
+    }
   }, []);
   const save = (patch: Partial<Settings>) => {
     void action(() => persist(patch));
@@ -352,7 +389,13 @@ export function RunbackApp() {
         }
       })
       .catch(() => {});
-    void native.strengthSessions(500).then(setStrengthSessions).catch(() => {});
+    void native
+      .strengthSessions(500)
+      .then(sessions => {
+        setStrengthSessions(sessions);
+        setStrengthHistoryAvailable(true);
+      })
+      .catch(() => setStrengthHistoryAvailable(false));
     void native
       .sorenessReports()
       .then(next => {
@@ -404,12 +447,14 @@ export function RunbackApp() {
   useEffect(() => {
     const subscription = AndroidAppState.addEventListener('change', value => {
       if (value === 'active' && !busyRef.current) {
+        setNow(Date.now());
         void refresh().catch(() => {});
       }
     });
     const timer = setInterval(
       () => {
         if (!busyRef.current && AndroidAppState.currentState === 'active') {
+          setNow(Date.now());
           void refresh().catch(() => {});
         }
       },
@@ -504,10 +549,14 @@ export function RunbackApp() {
     }
     if (next === 'profile') {
       setGoalInput(settings.goal || '');
+      setGoalStartInput(schedule.goal?.startDate || '');
+      setGoalTargetInput(schedule.goal?.targetDate || '');
+      setGoalPhaseInput(schedule.goal?.phase || '');
       setMinuteInput(String(settings.minutes || 30));
     }
   };
   const switchTab = (next: Tab) => {
+    setNow(Date.now());
     setTab(next);
     setPage('main');
     setSelected(null);
@@ -563,7 +612,12 @@ export function RunbackApp() {
     void action(async () => {
       const next = await native.finishStrengthSession(finished);
       setStrength(next);
-      setStrengthSessions(await native.strengthSessions(500).catch(() => []));
+      try {
+        setStrengthSessions(await native.strengthSessions(500));
+        setStrengthHistoryAvailable(true);
+      } catch {
+        setStrengthHistoryAvailable(false);
+      }
       setWorkoutOpen(false);
       setMessage('Training gespeichert.');
     });
@@ -574,10 +628,29 @@ export function RunbackApp() {
     setStrength(current => ({ ...current, templates: next }));
     void native.saveStrengthTemplates(next).catch(e => setError(e.message));
   };
-  const todaysTemplate = templateForDay(
-    strength.templates,
-    new Date().getDay(),
+  const todayKey = localDateKey(now);
+  const todaysScheduledRun = schedule.sessions.find(
+    item =>
+      item.date === todayKey &&
+      item.kind === 'run' &&
+      item.status === 'planned' &&
+      !item.activityId,
   );
+  const todaysScheduledStrength = schedule.sessions.find(
+    item =>
+      item.date === todayKey &&
+      item.kind === 'strength' &&
+      item.status === 'planned' &&
+      !item.activityId,
+  );
+  const hasStrengthCalendar = schedule.sessions.some(
+    item => item.kind === 'strength',
+  );
+  const todaysTemplate = hasStrengthCalendar
+    ? strength.templates.find(
+        item => item.id === todaysScheduledStrength?.templateId,
+      ) ?? null
+    : templateForDay(strength.templates, new Date(now).getDay());
   const start = () => {
     void action(async () => {
       const permissions = await nativeCall<{ locationPermission: boolean }>(
@@ -594,6 +667,119 @@ export function RunbackApp() {
       setSelected(null);
     });
   };
+  // Unlike the general action wrapper, planning callers must receive failures
+  // so their editable draft remains open for retry.
+  const planningAction = async (fn: () => Promise<void>) => {
+    if (busyRef.current) {
+      throw new Error('Eine Aktion läuft noch. Bitte gleich erneut versuchen.');
+    }
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+  const saveSchedule = (next: ScheduleState) =>
+    planningAction(async () => {
+      await persist({
+        schedule: normalizeSchedule(next),
+        trainingDays: next.routine.days,
+        minutes: next.routine.minutes,
+      });
+    });
+  const startScheduled = (planned: ScheduledSession) =>
+    planningAction(async () => {
+      const latest = normalizeSchedule(stateRef.current.settings.schedule);
+      const entry = latest.sessions.find(item => item.id === planned.id);
+      if (
+        !entry ||
+        entry.status !== 'planned' ||
+        entry.date !== localDateKey()
+      ) {
+        throw new Error(
+          'Diese Einheit ist nicht für heute geplant. Verschiebe sie zuerst auf heute.',
+        );
+      }
+      if (entry.activityId) {
+        if (stateRef.current.recording?.id === entry.activityId) {
+          switchTab('Heute');
+          return;
+        }
+        if (strengthRef.current.active?.id === entry.activityId) {
+          setWorkoutOpen(true);
+          return;
+        }
+        throw new Error(
+          'Diese Einheit wurde bereits gestartet. Die Aufzeichnung findest du im Verlauf.',
+        );
+      }
+      if (stateRef.current.recording || strengthRef.current.active) {
+        throw new Error('Beende zuerst dein laufendes Training.');
+      }
+      let activityId: string;
+      if (entry.kind === 'run') {
+        const permissions = await nativeCall<{ locationPermission: boolean }>(
+          'requestRecordingPermissions',
+        );
+        if (!permissions.locationPermission) {
+          throw new Error(
+            'Für die Streckenaufzeichnung fehlt die genaue Standortfreigabe.',
+          );
+        }
+        const started = await nativeCall<{ recording?: Run }>(
+          'startRun',
+          entry.purpose || 'free',
+        );
+        const active = started.recording?.id
+          ? normalizeRun(started.recording)
+          : (await refresh()).recording;
+        if (!active) {
+          throw new Error(
+            'Die Laufaufzeichnung konnte noch nicht geladen werden. Prüfe die Startseite.',
+          );
+        }
+        stateRef.current = { ...stateRef.current, recording: active };
+        setState(stateRef.current);
+        activityId = active.id;
+        switchTab('Heute');
+      } else {
+        const template = entry.templateId
+          ? strengthRef.current.templates.find(
+              item => item.id === entry.templateId,
+            )
+          : null;
+        if (entry.templateId && !template) {
+          throw new Error(
+            'Die Kraftvorlage fehlt. Wähle in der geplanten Einheit eine vorhandene Vorlage.',
+          );
+        }
+        const session = startSession(template ?? null, Date.now(), entry.title);
+        await native.saveStrengthSession(session);
+        strengthRef.current = { ...strengthRef.current, active: session };
+        setStrength(strengthRef.current);
+        setWorkoutOpen(true);
+        setNow(Date.now());
+        activityId = session.id;
+        await loadRecentSessions(strengthRef.current);
+      }
+      try {
+        await persist({
+          schedule: {
+            ...latest,
+            sessions: latest.sessions.map(item =>
+              item.id === entry.id ? { ...item, activityId } : item,
+            ),
+          },
+        });
+      } catch {
+        setError(
+          'Das Training läuft. Die Zuordnung zur Planung konnte nicht gespeichert werden; deine Aufzeichnung bleibt erhalten.',
+        );
+      }
+    });
   const stop = () =>
     Alert.alert(
       'Lauf beenden?',
@@ -695,7 +881,11 @@ export function RunbackApp() {
   // Keep predictions locked until a validated result can be produced off the
   // UI thread and bound to the exact data/model version (model spec §11).
   const freshnessValues = useMemo(
-    () => Object.fromEntries(allRegionIds().map(id => [id, null])) as Record<RegionId, null>,
+    () =>
+      Object.fromEntries(allRegionIds().map(id => [id, null])) as Record<
+        RegionId,
+        null
+      >,
     [],
   );
   const sorenessValues = useMemo(() => {
@@ -743,25 +933,66 @@ export function RunbackApp() {
       <Card style={styles.startCard}>
         <View style={styles.cardMetrics}>
           <Stat value={lastRunLabel(runs[0])} label="Letzter Lauf" />
-          <Stat
-            value={number(weekKilometers(runs), 1)}
-            label="km in 7 Tagen"
-          />
+          <Stat value={number(weekKilometers(runs), 1)} label="km in 7 Tagen" />
         </View>
         {experiment?.status === 'active' ? (
           <Copy>{experiment.recommendation.action}</Copy>
         ) : null}
-        <Button title="Lauf starten" onPress={start} disabled={busy} />
-        <Field label="Zweck">
-          <ChipGroup
-            label="Zweck dieses Laufs"
-            options={purposes.map(p => ({ value: p.value, label: p.label }))}
-            value={purpose}
-            onChange={value => save({ purpose: value })}
-            disabled={busy}
-          />
-        </Field>
+        {todaysScheduledRun ? (
+          <Copy>
+            {todaysScheduledRun.title} · {todaysScheduledRun.minutes} Min.
+          </Copy>
+        ) : null}
+        <Button
+          title={todaysScheduledRun ? 'Geplanten Lauf starten' : 'Lauf starten'}
+          onPress={
+            todaysScheduledRun
+              ? () => {
+                  void startScheduled(todaysScheduledRun).catch(e =>
+                    setError(e.message),
+                  );
+                }
+              : start
+          }
+          disabled={busy}
+        />
+        {todaysScheduledRun ? (
+          <Row title="Freien Lauf starten" onPress={start} />
+        ) : (
+          <Field label="Zweck">
+            <ChipGroup
+              label="Zweck dieses Laufs"
+              options={purposes.map(p => ({ value: p.value, label: p.label }))}
+              value={purpose}
+              onChange={value => save({ purpose: value })}
+              disabled={busy}
+            />
+          </Field>
+        )}
       </Card>
+      <Section title="Deine Planung">
+        {schedule.sessions
+          .filter(
+            item =>
+              item.status === 'planned' &&
+              !item.activityId &&
+              item.date >= localDateKey(now),
+          )
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(0, 1)
+          .map(item => (
+            <Copy key={item.id} muted>
+              Als Nächstes: {item.title} ·{' '}
+              {date(new Date(`${item.date}T12:00:00`).getTime())} ·{' '}
+              {item.minutes} Min.
+            </Copy>
+          ))}
+        <Row
+          title="Woche ansehen"
+          subtitle="Training und verfügbare Zeit planen"
+          onPress={() => switchTab('Planung')}
+        />
+      </Section>
       <Section title="Krafttraining">
         {strength.active ? (
           <>
@@ -790,11 +1021,19 @@ export function RunbackApp() {
               disabled={busy}
               secondary
               title={
-                todaysTemplate
+                todaysScheduledStrength
+                  ? `${todaysScheduledStrength.title} starten`
+                  : todaysTemplate
                   ? `${todaysTemplate.name} starten`
                   : 'Freies Training starten'
               }
-              onPress={() => startStrength(todaysTemplate)}
+              onPress={() =>
+                todaysScheduledStrength
+                  ? void startScheduled(todaysScheduledStrength).catch(e =>
+                      setError(e.message),
+                    )
+                  : startStrength(todaysTemplate)
+              }
             />
             {todaysTemplate ? (
               <Button
@@ -1048,7 +1287,9 @@ export function RunbackApp() {
                 secondary
                 small
                 title={
-                  criteriaOpen ? 'Prüfkriterien ausblenden' : 'Wie wird geprüft?'
+                  criteriaOpen
+                    ? 'Prüfkriterien ausblenden'
+                    : 'Wie wird geprüft?'
                 }
                 onPress={() => setCriteriaOpen(value => !value)}
               />
@@ -1416,6 +1657,11 @@ export function RunbackApp() {
       <Title>Mehr</Title>
       <Section title="Dein Training">
         <Row
+          title="Entwicklung"
+          subtitle="Ziel, Planstand und tatsächliches Training"
+          onPress={() => openPage('development')}
+        />
+        <Row
           title="Statistik"
           subtitle="Wochenumfang, Tempo und Laufgefühl"
           onPress={() => openPage('statistics')}
@@ -1484,7 +1730,8 @@ export function RunbackApp() {
       </Section>
       <Section title="Lokal. Ohne Konto.">
         <Copy muted>
-          Deine Läufe bleiben auf diesem Gerät. Ein Backup exportierst du selbst.
+          Deine Läufe bleiben auf diesem Gerät. Ein Backup exportierst du
+          selbst.
         </Copy>
       </Section>
     </>
@@ -1517,6 +1764,38 @@ export function RunbackApp() {
           />
           <Copy muted>Minuten</Copy>
         </View>
+      </Section>
+      <Section title="Zeitraum deines Plans">
+        <Field label="Beginn (optional, JJJJ-MM-TT)">
+          <TextInput
+            accessibilityLabel="Planbeginn"
+            value={goalStartInput}
+            onChangeText={setGoalStartInput}
+            placeholder="2026-09-14"
+            placeholderTextColor={color.muted}
+            style={styles.input}
+          />
+        </Field>
+        <Field label="Zieldatum (optional, JJJJ-MM-TT)">
+          <TextInput
+            accessibilityLabel="Zieldatum"
+            value={goalTargetInput}
+            onChangeText={setGoalTargetInput}
+            placeholder="2026-11-08"
+            placeholderTextColor={color.muted}
+            style={styles.input}
+          />
+        </Field>
+        <Field label="Aktueller Schwerpunkt (optional)">
+          <TextInput
+            accessibilityLabel="Aktueller Schwerpunkt"
+            value={goalPhaseInput}
+            onChangeText={setGoalPhaseInput}
+            placeholder="Zum Beispiel: regelmäßig trainieren"
+            placeholderTextColor={color.muted}
+            style={styles.input}
+          />
+        </Field>
       </Section>
       <Section title="Mögliche Lauftage">
         <View style={styles.choiceRow}>
@@ -1574,7 +1853,48 @@ export function RunbackApp() {
               return;
             }
             void action(async () => {
-              await persist({ goal: goalInput.trim(), minutes });
+              const startDate = goalStartInput.trim();
+              const targetDate = goalTargetInput.trim();
+              for (const value of [startDate, targetDate].filter(Boolean)) {
+                if (
+                  !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+                  localDateKey(value) !== value
+                ) {
+                  throw new Error(
+                    'Bitte ein gültiges Datum als JJJJ-MM-TT eingeben.',
+                  );
+                }
+              }
+              if (targetDate && (!startDate || targetDate < startDate)) {
+                throw new Error(
+                  'Trage einen Planbeginn ein, der spätestens am Zieldatum liegt.',
+                );
+              }
+              if ((startDate || goalPhaseInput.trim()) && !goalInput.trim()) {
+                throw new Error('Trage zuerst dein Ziel ein.');
+              }
+              if (goalPhaseInput.trim() && !startDate) {
+                throw new Error(
+                  'Trage für deinen Schwerpunkt auch den Planbeginn ein.',
+                );
+              }
+              await persist({
+                goal: goalInput.trim(),
+                minutes,
+                schedule: {
+                  ...schedule,
+                  routine: { days: settings.trainingDays ?? [], minutes },
+                  goal:
+                    startDate && goalInput.trim()
+                      ? {
+                          name: goalInput.trim(),
+                          startDate,
+                          targetDate: targetDate || undefined,
+                          phase: goalPhaseInput.trim() || undefined,
+                        }
+                      : undefined,
+                },
+              });
               setPage('main');
               setMessage('Ziel und Zeitbudget gespeichert.');
             });
@@ -1603,7 +1923,9 @@ export function RunbackApp() {
         />
       </Section>
       <Section title="Dateien importieren">
-        <Copy muted>FIT, GPX, TCX oder ZIP. Doppelte Läufe werden erkannt.</Copy>
+        <Copy muted>
+          FIT, GPX, TCX oder ZIP. Doppelte Läufe werden erkannt.
+        </Copy>
         <Button
           title="Dateien importieren"
           onPress={runImport}
@@ -1911,9 +2233,9 @@ export function RunbackApp() {
             <View style={styles.validationNotice}>
               <Text style={styles.fieldLabel}>Warum noch unbekannt?</Text>
               <Copy muted>
-                Die automatische Modellprüfung ist noch nicht verfügbar.
-                Deine Muskelkatermeldungen kannst du unabhängig davon erfassen
-                und ansehen.
+                Die automatische Modellprüfung ist noch nicht verfügbar. Deine
+                Muskelkatermeldungen kannst du unabhängig davon erfassen und
+                ansehen.
               </Copy>
             </View>
           ) : null}
@@ -1987,6 +2309,16 @@ export function RunbackApp() {
     renderDetail()
   ) : page === 'statistics' ? (
     <Statistics runs={runs} />
+  ) : page === 'development' ? (
+    <DevelopmentScreen
+      runs={runs}
+      sessions={strengthSessions}
+      goal={settings.goal || ''}
+      strengthHistoryAvailable={strengthHistoryAvailable}
+      now={now}
+      schedule={schedule}
+      onEditGoal={() => openPage('profile')}
+    />
   ) : page === 'plans' ? (
     <PlanList
       busy={busy}
@@ -2028,6 +2360,20 @@ export function RunbackApp() {
     )
   ) : tab === 'Fokus' ? (
     renderFocus()
+  ) : tab === 'Planung' ? (
+    <PlanningScreen
+      state={schedule}
+      onSave={saveSchedule}
+      templates={strength.templates}
+      runs={runs}
+      strengthSessions={strengthSessions}
+      now={now}
+      onStartRun={startScheduled}
+      onStartStrength={startScheduled}
+      onDevelopment={() => openPage('development')}
+      onManageTemplates={() => openPage('plans')}
+      busy={busy}
+    />
   ) : (
     renderMore()
   );
@@ -2214,7 +2560,10 @@ export function RunbackApp() {
       </View>
       {error ? (
         <View style={styles.noticeSlot}>
-          <Notice title="Aktion nicht abgeschlossen" onDismiss={() => setError('')}>
+          <Notice
+            title="Aktion nicht abgeschlossen"
+            onDismiss={() => setError('')}
+          >
             {error}
           </Notice>
         </View>
@@ -2279,7 +2628,7 @@ export function RunbackApp() {
       <View
         style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
       >
-        {(['Heute', 'Läufe', 'Fokus', 'Mehr'] as Tab[]).map(name => (
+        {(['Heute', 'Planung', 'Läufe', 'Fokus', 'Mehr'] as Tab[]).map(name => (
           <Pressable
             key={name}
             accessibilityRole="tab"
@@ -2441,7 +2790,11 @@ const styles = StyleSheet.create({
   metrics: { flexDirection: 'row', gap: space.md, paddingVertical: space.ml },
   bigMetric: { paddingTop: space.xl, paddingBottom: space.xs },
   recordingHeader: { marginTop: space.xs },
-  recordingActions: { gap: space.sm, marginTop: space.xl, marginBottom: space.sm },
+  recordingActions: {
+    gap: space.sm,
+    marginTop: space.xl,
+    marginBottom: space.sm,
+  },
   fieldLabel: { color: color.text, ...type.label },
   rpeGroup: { gap: space.xs, marginTop: space.xs },
   rpeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
