@@ -88,7 +88,7 @@ function PeriodBlock({
       <Text style={styles.periodTitle}>{title}</Text>
       <View style={styles.statRow}>
         <Stat
-          label="Trainingstage"
+          label="Tage trainiert"
           value={
             period.hasTraining
               ? numberFormatter.format(period.trainingDays)
@@ -374,7 +374,6 @@ export function DevelopmentScreen({
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: space.lg,
     paddingTop: space.xs,
     paddingBottom: space.xxl,
     gap: space.xs,

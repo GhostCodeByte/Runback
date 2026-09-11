@@ -283,6 +283,11 @@ describe('PlanningScreen', () => {
     expect(onSave.mock.calls[1][0]).toEqual(onSave.mock.calls[0][0]);
     expect(screenText(tree)).toContain('Einheit hinzugefügt.');
     expect(screenText(tree)).not.toContain('Speichern erneut versuchen');
+    expect(
+      tree.root.findAll(
+        node => node.props.accessibilityLabel === 'Name der Einheit',
+      ),
+    ).toHaveLength(0);
     unmount(tree);
   });
 

@@ -550,7 +550,15 @@ export function PlanningScreen({
       pending.message,
       pending.trackUndo,
       pending.previous,
-    );
+    ).then(ok => {
+      if (ok) {
+        setEditor(null);
+        setAdjusting(false);
+        setMoveId(null);
+        setDetailsId(null);
+        setProposal(null);
+      }
+    });
   }, [pending, persist, working]);
 
   const undo = useCallback(() => {
