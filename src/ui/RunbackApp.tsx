@@ -216,8 +216,13 @@ export function RunbackApp() {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<AppState>(initial);
   const stateRef = useRef(state);
+  const stateGeneration = useRef(0);
   const settingsRevision = useRef(0);
   const settingsWritePending = useRef(false);
+  const pendingScheduleLink = useRef<{
+    entryId: string;
+    activityId: string;
+  } | null>(null);
   const [tab, setTab] = useState<Tab>('Heute');
   const [page, setPage] = useState<Page>('main');
   const [selected, setSelected] = useState<Run | null>(null);
@@ -293,8 +298,12 @@ export function RunbackApp() {
   const purpose = settings.purpose || 'free';
 
   const refresh = useCallback(async () => {
+    const generation = stateGeneration.current;
     const revision = settingsRevision.current;
     const next = await native.state();
+    if (generation !== stateGeneration.current) {
+      return stateRef.current;
+    }
     if (revision !== settingsRevision.current || settingsWritePending.current) {
       next.settings = stateRef.current.settings;
     }
@@ -305,6 +314,7 @@ export function RunbackApp() {
     return next;
   }, []);
   const reloadTrainingState = useCallback(async () => {
+    pendingScheduleLink.current = null;
     strengthRef.current = emptyStrengthState();
     setStrength(emptyStrengthState());
     setStrengthSessions([]);
@@ -337,6 +347,7 @@ export function RunbackApp() {
     if (busyRef.current) {
       return;
     }
+    stateGeneration.current += 1;
     busyRef.current = true;
     setBusy(true);
     setError('');
@@ -350,6 +361,7 @@ export function RunbackApp() {
           : 'Die Aktion konnte nicht abgeschlossen werden. Bitte erneut versuchen.',
       );
     } finally {
+      stateGeneration.current += 1;
       busyRef.current = false;
       setBusy(false);
     }
@@ -548,7 +560,7 @@ export function RunbackApp() {
       setNow(Date.now());
     }
     if (next === 'profile') {
-      setGoalInput(settings.goal || '');
+      setGoalInput(schedule.goal?.name || settings.goal || '');
       setGoalStartInput(schedule.goal?.startDate || '');
       setGoalTargetInput(schedule.goal?.targetDate || '');
       setGoalPhaseInput(schedule.goal?.phase || '');
@@ -673,11 +685,13 @@ export function RunbackApp() {
     if (busyRef.current) {
       throw new Error('Eine Aktion läuft noch. Bitte gleich erneut versuchen.');
     }
+    stateGeneration.current += 1;
     busyRef.current = true;
     setBusy(true);
     try {
       await fn();
     } finally {
+      stateGeneration.current += 1;
       busyRef.current = false;
       setBusy(false);
     }
@@ -694,6 +708,42 @@ export function RunbackApp() {
     planningAction(async () => {
       const latest = normalizeSchedule(stateRef.current.settings.schedule);
       const entry = latest.sessions.find(item => item.id === planned.id);
+      const pending = pendingScheduleLink.current;
+      if (
+        entry &&
+        pending?.entryId === entry.id &&
+        !entry.activityId &&
+        entry.status === 'planned'
+      ) {
+        try {
+          await persist({
+            schedule: {
+              ...latest,
+              sessions: latest.sessions.map(item =>
+                item.id === entry.id
+                  ? { ...item, activityId: pending.activityId }
+                  : item,
+              ),
+            },
+          });
+          pendingScheduleLink.current = null;
+        } catch {
+          const message =
+            'Die Zuordnung konnte noch nicht gespeichert werden. Öffne Planung und tippe die Einheit erneut an.';
+          setError(message);
+          throw new Error(message);
+        }
+        if (entry.kind === 'run') {
+          switchTab('Heute');
+        } else {
+          setWorkoutOpen(true);
+          setNow(Date.now());
+        }
+        return;
+      }
+      if (pending?.entryId === entry?.id && entry?.activityId) {
+        pendingScheduleLink.current = null;
+      }
       if (
         !entry ||
         entry.status !== 'planned' ||
@@ -744,6 +794,7 @@ export function RunbackApp() {
         stateRef.current = { ...stateRef.current, recording: active };
         setState(stateRef.current);
         activityId = active.id;
+        pendingScheduleLink.current = { entryId: entry.id, activityId };
         switchTab('Heute');
       } else {
         const template = entry.templateId
@@ -763,6 +814,7 @@ export function RunbackApp() {
         setWorkoutOpen(true);
         setNow(Date.now());
         activityId = session.id;
+        pendingScheduleLink.current = { entryId: entry.id, activityId };
         await loadRecentSessions(strengthRef.current);
       }
       try {
@@ -774,10 +826,12 @@ export function RunbackApp() {
             ),
           },
         });
+        pendingScheduleLink.current = null;
       } catch {
-        setError(
-          'Das Training läuft. Die Zuordnung zur Planung konnte nicht gespeichert werden; deine Aufzeichnung bleibt erhalten.',
-        );
+        const message =
+          'Das Training läuft. Die Zuordnung konnte noch nicht gespeichert werden. Öffne Planung und tippe die Einheit erneut an.';
+        setError(message);
+        throw new Error(message);
       }
     });
   const stop = () =>
@@ -842,6 +896,7 @@ export function RunbackApp() {
   };
   const beginImport = (stayOnPage: boolean) => {
     void action(async () => {
+      pendingScheduleLink.current = null;
       if (!stayOnPage) {
         setPage('data');
         setTab('Mehr');
@@ -1883,7 +1938,7 @@ export function RunbackApp() {
                 minutes,
                 schedule: {
                   ...schedule,
-                  routine: { days: settings.trainingDays ?? [], minutes },
+                  routine: { days: schedule.routine.days, minutes },
                   goal:
                     startDate && goalInput.trim()
                       ? {
@@ -2313,7 +2368,7 @@ export function RunbackApp() {
     <DevelopmentScreen
       runs={runs}
       sessions={strengthSessions}
-      goal={settings.goal || ''}
+      goal={schedule.goal?.name || settings.goal || ''}
       strengthHistoryAvailable={strengthHistoryAvailable}
       now={now}
       schedule={schedule}
