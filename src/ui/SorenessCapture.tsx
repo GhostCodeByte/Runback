@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { regionLabel, type RegionId } from '../domain/regions';
 import {
   buildReport,
@@ -10,16 +10,21 @@ import {
   type SorenessReport,
   type StructuredSorenessItem,
 } from '../domain/sorenessInput';
-import { BodyMap, regionsInView, type BodyView } from './BodyMap';
-import { Button, color, Copy } from './components';
+import { BodyMap, type BodyView } from './BodyMap';
+import { Button, color, radius, space, type } from './components';
 
 /**
  * Kurze Abfrage nach docs/zielspezifikation-training.md T-10.
  *
- * Sprache ist der schnelle Weg, Tippen der gleichwertige — nicht der Notweg.
- * Beide färben die Figur sofort; gespeichert wird erst nach einem Tippen auf
- * „Übernehmen“. „Heute nichts“ ist eine eigenständige, wertvolle Antwort.
- * Überspringen ist jederzeit möglich und hat keine Folgen für die Auswertung.
+ * Ein Bildschirm, eine Aufgabe: antippen, Stärke wählen, speichern. Sprache ist
+ * der schnelle Nebenweg, nicht der Notweg. Gespeichert wird erst nach einem
+ * Tippen auf „Speichern“. „Heute nichts“ ist eine eigenständige, wertvolle
+ * Antwort. Überspringen ist jederzeit möglich und hat keine Folgen für die
+ * Auswertung.
+ *
+ * Text steht nur dort, wo er eine Entscheidung trägt. Erklärungen zur Skala
+ * übernimmt die Stärkeauswahl selbst, Erklärungen zur Farbe die Legende der
+ * Figur.
  */
 
 export interface TranscriptResult {
@@ -44,15 +49,19 @@ export interface SorenessCaptureProps {
   onSkip: () => void;
 }
 
-/** Stärkeschritte des Lexikons plus die beiden Ränder. */
-const STEPS: { value: number; label: string }[] = [
-  { value: 0, label: 'kein Muskelkater · 0' },
-  { value: 3, label: 'leicht · 3' },
-  { value: 5, label: 'mittel · 5' },
-  { value: 6, label: 'ordentlich · 6' },
-  { value: 8, label: 'stark · 8' },
-  { value: 9, label: 'extrem · 9' },
-  { value: 10, label: 'mehr geht nicht · 10' },
+/**
+ * Stärkeschritte des Lexikons plus die beiden Ränder. `label` ist der
+ * Vorlesetext und bleibt unverändert; auf dem Schirm steht die Zahl groß und
+ * das Wort klein darunter, damit die Reihe in eine Zeile passt.
+ */
+const STEPS: { value: number; word: string; label: string }[] = [
+  { value: 0, word: 'kein', label: 'kein Muskelkater · 0' },
+  { value: 3, word: 'leicht', label: 'leicht · 3' },
+  { value: 5, word: 'mittel', label: 'mittel · 5' },
+  { value: 6, word: 'ordentlich', label: 'ordentlich · 6' },
+  { value: 8, word: 'stark', label: 'stark · 8' },
+  { value: 9, word: 'extrem', label: 'extrem · 9' },
+  { value: 10, word: 'maximal', label: 'mehr geht nicht · 10' },
 ];
 
 type Values = Record<RegionId, number | null>;
@@ -165,182 +174,342 @@ export function SorenessCapture({
   }, [now, onSave, transcript, usedVoice]);
 
   const confirm = useCallback(() => {
-    const source =
-      usedVoice && usedTap ? 'mixed' : usedVoice ? 'voice' : 'tap';
+    const source = usedVoice && usedTap ? 'mixed' : usedVoice ? 'voice' : 'tap';
     onSave(buildReport(values, now, source, transcript));
   }, [now, onSave, transcript, usedTap, usedVoice, values]);
 
-  return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      style={styles.screen}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>Wo hast du Muskelkater?</Text>
-      <Copy muted>
-        Sprich es oder tippe es auf der Figur an. Beides ist gleichwertig.
-        Überspringen ist folgenlos.
-      </Copy>
+  const pendingLabel = pending.map(regionLabel).join(' und ');
 
-      <View style={styles.actions}>
-        <Button disabled={busy} onPress={nothingToday} title="Heute nichts" />
-        <Button
-          disabled={busy || !voiceAvailable || listening || !onTranscribe}
-          onPress={() => {
-            void listen();
-          }}
-          secondary
-          title={listening ? 'Hört zu …' : 'Sprechen'}
-        />
-        <Button
+  return (
+    <View style={styles.screen}>
+      <View style={styles.head}>
+        <View style={styles.headText}>
+          <Text accessibilityRole="header" style={styles.title}>
+            Muskelkater
+          </Text>
+          <Text style={styles.subtitle}>Tippe an, wo es zieht.</Text>
+          {voiceAvailable && onTranscribe ? (
+            <Pressable
+              accessibilityLabel="Stattdessen sprechen"
+              accessibilityRole="button"
+              disabled={busy || listening}
+              onPress={() => {
+                void listen();
+              }}
+              style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+            >
+              <Text style={styles.linkText}>
+                {listening ? 'Hört zu …' : 'Stattdessen sprechen'}
+              </Text>
+            </Pressable>
+          ) : voiceHint ? (
+            <Text style={styles.subtitle}>{voiceHint}</Text>
+          ) : null}
+        </View>
+        <Pressable
+          accessibilityLabel="Überspringen"
+          accessibilityRole="button"
           disabled={busy}
           onPress={onSkip}
-          secondary
-          small
-          title="Überspringen"
-        />
+          style={({ pressed }) => [styles.skip, pressed && styles.pressed]}
+        >
+          <Text style={styles.skipText}>Überspringen</Text>
+        </Pressable>
       </View>
 
-      {!voiceAvailable ? (
-        <Copy muted>
-          {voiceHint ||
-            'Die Spracheingabe steht auf diesem Gerät nicht bereit. Tippen funktioniert unverändert.'}
-        </Copy>
-      ) : null}
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        style={styles.scroll}
+      >
+        {answered.length ? (
+          <View style={styles.summary}>
+            {answered.map(id => (
+              <Pressable
+                accessibilityLabel={`${regionLabel(id)} ändern, aktuell ${
+                  values[id]
+                } von 10`}
+                accessibilityRole="button"
+                key={`set-${id}`}
+                onPress={() => setPending([id])}
+                style={({ pressed }) => [
+                  styles.summaryChip,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.summaryValue}>{values[id]}</Text>
+                <Text style={styles.summaryName}>{regionLabel(id)}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
 
-      {notice ? <Copy>{notice}</Copy> : null}
+        <BodyMap
+          height={370}
+          mode="soreness"
+          onChangeView={setView}
+          onSelectRegion={id => {
+            setUsedTap(true);
+            setPending([id]);
+          }}
+          selected={pending[0] ?? null}
+          showList={false}
+          showScaleTitle={false}
+          values={values}
+          view={view}
+        />
 
-      {transcript ? (
-        <View style={styles.transcript}>
-          <Copy muted>Gehört: „{transcript}“</Copy>
-        </View>
-      ) : null}
+        {notice ? (
+          <Text accessibilityLiveRegion="polite" style={styles.notice}>
+            {notice}
+          </Text>
+        ) : null}
 
-      {questions.map((question, index) => (
-        <View key={`q-${index}-${question.fragment}`} style={styles.question}>
-          <Copy>{question.question}</Copy>
-          <View style={styles.chips}>
-            {question.kind === 'side' ? (
-              <>
-                {question.candidates.map(id => (
+        {transcript ? (
+          <Text style={styles.subtitle}>Gehört: „{transcript}“</Text>
+        ) : null}
+
+        {questions.map((question, index) => (
+          <View key={`q-${index}-${question.fragment}`} style={styles.question}>
+            <Text style={styles.questionText}>{question.question}</Text>
+            <View style={styles.chips}>
+              {question.kind === 'side' ? (
+                <>
+                  {question.candidates.map(id => (
+                    <Chip
+                      key={id}
+                      label={regionLabel(id)}
+                      onPress={() => answerQuestion(question, [id])}
+                    />
+                  ))}
+                  <Chip
+                    label="beide"
+                    onPress={() => answerQuestion(question, question.candidates)}
+                  />
+                </>
+              ) : question.kind === 'region' ? (
+                question.candidates.map(id => (
                   <Chip
                     key={id}
                     label={regionLabel(id)}
                     onPress={() => answerQuestion(question, [id])}
                   />
-                ))}
-                <Chip
-                  label="beide"
-                  onPress={() => answerQuestion(question, question.candidates)}
-                />
-              </>
-            ) : question.kind === 'region' ? (
-              question.candidates.map(id => (
-                <Chip
-                  key={id}
-                  label={regionLabel(id)}
-                  onPress={() => answerQuestion(question, [id])}
-                />
-              ))
-            ) : question.kind === 'intensity' ? (
-              STEPS.map(step => (
-                <Chip
-                  key={step.value}
-                  label={step.label}
-                  onPress={() => {
-                    setQuestions(previous =>
-                      previous.filter(item => item !== question),
-                    );
-                    apply(question.candidates, step.value);
-                  }}
-                />
-              ))
-            ) : null}
+                ))
+              ) : question.kind === 'intensity' ? (
+                STEPS.map(step => (
+                  <Chip
+                    key={step.value}
+                    label={step.label}
+                    onPress={() => {
+                      setQuestions(previous =>
+                        previous.filter(item => item !== question),
+                      );
+                      apply(question.candidates, step.value);
+                    }}
+                  />
+                ))
+              ) : null}
+            </View>
           </View>
-        </View>
-      ))}
+        ))}
+      </ScrollView>
 
       {pending.length ? (
-        <View style={styles.question}>
-          <Copy>
-            Wie stark ist es an {pending.map(regionLabel).join(' und ')}?
-          </Copy>
-          <View style={styles.chips}>
-            {STEPS.map(step => (
-              <Chip
-                key={step.value}
-                label={step.label}
-                onPress={() => {
-                  apply(pending, step.value);
-                  setUsedTap(true);
-                  setPending([]);
-                }}
-              />
-            ))}
-            <Chip
-              label="Angabe entfernen"
+        <View style={styles.sheet}>
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle} numberOfLines={1}>
+              {pendingLabel}
+            </Text>
+            <Pressable
+              accessibilityLabel="Angabe entfernen"
+              accessibilityRole="button"
               onPress={() => {
                 apply(pending, null);
                 setPending([]);
               }}
+              style={({ pressed }) => [styles.skip, pressed && styles.pressed]}
+            >
+              <Text style={styles.skipText}>Entfernen</Text>
+            </Pressable>
+          </View>
+          <View style={styles.scaleRow}>
+            {STEPS.map(step => {
+              const active = pending.every(id => values[id] === step.value);
+              return (
+                <Pressable
+                  accessibilityLabel={step.label}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  key={step.value}
+                  onPress={() => {
+                    apply(pending, step.value);
+                    setUsedTap(true);
+                    setPending([]);
+                  }}
+                  style={({ pressed }) => [
+                    styles.step,
+                    active && styles.stepActive,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[styles.stepValue, active && styles.stepValueActive]}
+                  >
+                    {step.value}
+                  </Text>
+                  <Text
+                    adjustsFontSizeToFit
+                    numberOfLines={1}
+                    style={styles.stepWord}
+                  >
+                    {step.word}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : (
+        <View style={styles.footer}>
+          <View style={styles.footerHalf}>
+            <Button
+              disabled={busy}
+              label="Heute nichts"
+              onPress={nothingToday}
+              secondary
+              title="Nichts heute"
+            />
+          </View>
+          <View style={styles.footerHalf}>
+            <Button
+              disabled={busy || !answered.length}
+              label="Übernehmen und speichern"
+              onPress={confirm}
+              title={
+                answered.length ? `Speichern (${answered.length})` : 'Speichern'
+              }
             />
           </View>
         </View>
-      ) : null}
-
-      <BodyMap
-        mode="soreness"
-        onChangeView={setView}
-        onSelectRegion={id => {
-          setUsedTap(true);
-          setPending([id]);
-        }}
-        selected={pending[0] ?? null}
-        values={values}
-        view={view}
-      />
-
-      <Copy muted>
-        {answered.length
-          ? `${answered.length} von ${
-              regionsInView(view).length
-            } Regionen dieser Ansicht angegeben. Ohne Angabe bleibt eine Region unbekannt.`
-          : 'Noch nichts angegeben. Ohne Angabe bleibt eine Region unbekannt.'}
-      </Copy>
-
-      <Button
-        disabled={busy || !answered.length}
-        onPress={confirm}
-        title="Übernehmen und speichern"
-      />
-    </ScrollView>
+      )}
+    </View>
   );
 }
 
 function Chip({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <View style={styles.chip}>
-      <Button onPress={onPress} secondary small title={label} />
-    </View>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+    >
+      <Text style={styles.chipText}>{label}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.bg },
-  content: { padding: 18, gap: 12, paddingBottom: 48 },
-  title: { color: color.text, fontSize: 26, fontWeight: '600' },
-  actions: { gap: 10, marginTop: 4 },
-  transcript: {
+  head: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    paddingHorizontal: space.ml,
+    paddingTop: space.xs,
+    paddingBottom: space.sm,
+  },
+  headText: { flex: 1, gap: space.xxs },
+  title: { color: color.text, ...type.title, letterSpacing: -0.6 },
+  subtitle: { color: color.muted, ...type.label },
+  link: { minHeight: 44, justifyContent: 'center' },
+  linkText: { color: color.green, ...type.label, fontWeight: '600' },
+  skip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.xs },
+  skipText: { color: color.muted, ...type.label, fontWeight: '600' },
+  pressed: { opacity: 0.72 },
+  scroll: { flex: 1 },
+  content: { paddingHorizontal: space.ml, paddingBottom: space.lg, gap: space.md },
+  summary: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  summaryChip: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.line,
     backgroundColor: color.surface,
-    borderRadius: 8,
-    padding: 12,
   },
+  summaryValue: {
+    color: color.text,
+    ...type.body,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  summaryName: { color: color.muted, ...type.label },
+  notice: { color: color.text, ...type.label },
   question: {
-    backgroundColor: color.raised,
-    borderRadius: 10,
-    padding: 12,
-    gap: 10,
+    backgroundColor: color.surface,
+    borderRadius: radius.md,
+    padding: space.md,
+    gap: space.sm,
   },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { minHeight: 44 },
+  questionText: { color: color.text, ...type.body },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  chip: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: color.raised,
+  },
+  chipText: { color: color.text, ...type.label },
+  footer: {
+    flexDirection: 'row',
+    gap: space.sm,
+    paddingHorizontal: space.ml,
+    paddingTop: space.sm,
+    paddingBottom: space.md,
+    borderTopWidth: 1,
+    borderTopColor: color.line,
+    backgroundColor: color.bg,
+  },
+  footerHalf: { flex: 1 },
+  sheet: {
+    gap: space.sm,
+    paddingHorizontal: space.ml,
+    paddingTop: space.sm,
+    paddingBottom: space.md,
+    backgroundColor: color.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderTopColor: color.line,
+  },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  sheetTitle: { flex: 1, color: color.text, ...type.heading },
+  scaleRow: { flexDirection: 'row', gap: space.xxs },
+  step: {
+    flex: 1,
+    minHeight: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: color.raised,
+    paddingHorizontal: 2,
+  },
+  stepActive: { backgroundColor: color.greenSoft, borderColor: color.green },
+  stepValue: {
+    color: color.text,
+    ...type.heading,
+    fontVariant: ['tabular-nums'],
+  },
+  stepValueActive: { color: color.green },
+  stepWord: { color: color.muted, ...type.micro },
 });

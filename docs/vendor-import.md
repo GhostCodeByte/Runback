@@ -5,7 +5,7 @@
 > Aufzeichnung, Historie und Auswertung funktionieren ohne jeden Import.
 > Importierte Daten liefern nur besseren Kontext, keine neuen Verpflichtungen.
 
-Seite in der App: **Mehr → Daten & Speicher → App-Importe**.
+Seite in der App: **Mehr → Deine Daten → App-Importe**.
 Prinzip überall: **dort exportieren, hier importieren**. Es gibt keine
 automatische Cloud-Synchronisierung und keinen Account.
 

@@ -267,7 +267,7 @@ export function Onboarding({
             Importiere FIT, GPX, TCX oder einen Strava Export. Doppelte
             Aktivitäten werden erkannt. Auch Fitbit, Google Fit, Strong, Mi
             Fitness, Apple Health, Samsung, Garmin und weitere Exporte
-            funktionieren — Details stehen später unter Mehr → Daten & Speicher
+            funktionieren — Details stehen später unter Mehr → Deine Daten
             → App-Importe.
           </Copy>
           <Button

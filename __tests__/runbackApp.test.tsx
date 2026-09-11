@@ -78,6 +78,22 @@ const tap = async (
   });
 };
 
+/** Zeilen tragen ihren Namen als Text, nicht als `accessibilityLabel`. */
+const tapText = async (
+  tree: TestRenderer.ReactTestRenderer,
+  label: string,
+): Promise<void> => {
+  const node = tree.root
+    .findAll(item => typeof item.props?.onPress === 'function')
+    .find(item => textContent(item).includes(label));
+  if (!node) {
+    throw new Error(`Kein antippbares Element mit „${label}“ gefunden.`);
+  }
+  await act(async () => {
+    node.props.onPress();
+  });
+};
+
 describe('Heute', () => {
   it('shows the start action without a date or a fake plan', async () => {
     const tree = await render();
@@ -108,13 +124,17 @@ describe('Heute', () => {
   });
 });
 
-describe('Läufe', () => {
-  it('offers no import entry — importing lives in the settings', async () => {
+describe('Einheiten', () => {
+  it('shows runs and strength side by side, without an import entry', async () => {
     const tree = await render();
-    await tap(tree, 'Läufe');
+    await tap(tree, 'Einheiten');
     const text = screenText(tree);
 
-    expect(text).toContain('Deine Läufe');
+    expect(text).toContain('Einheiten');
+    // Beide Trainingsarten sind aus derselben Liste erreichbar.
+    expect(text).toContain('Laufen');
+    expect(text).toContain('Krafttraining');
+    // Importieren bleibt eine Einstellung, keine Zeile in der Historie.
     expect(text).not.toContain('Importieren');
     expect(text).not.toContain('Vorhandene Läufe importieren');
     await act(async () => {
@@ -124,9 +144,11 @@ describe('Läufe', () => {
 });
 
 describe('Fokus', () => {
-  it('replaces the old wording with a call to action', async () => {
+  it('is reachable from Heute and replaces the old wording', async () => {
     const tree = await render();
-    await tap(tree, 'Fokus');
+    // Der Fokus ist keine eigene Wurzel mehr, sondern eine Zeile auf Heute.
+    expect(screenText(tree)).toContain('Noch kein Fokus');
+    await tapText(tree, 'Noch kein Fokus');
     const text = screenText(tree);
 
     expect(text).toContain('Noch kein Fokus');
