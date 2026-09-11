@@ -279,7 +279,10 @@ function actualSessionStatus(
     candidate => candidate.id === session.activityId,
   );
   if (!strength) return 'planned';
-  return strength.status === 'finished' ? 'done' : 'started';
+  return strength.status === 'finished' &&
+    (strength.endTime ?? 0) > strength.startTime
+    ? 'done'
+    : 'started';
 }
 
 function statusLabel(status: ActivityStatus): string {
@@ -414,7 +417,7 @@ export function PlanningScreen({
   const saveExpectation = useRef<ScheduleState | null>(null);
 
   const today = isoDate(localDateFrom(now));
-  const working = saving || Boolean(busy);
+  const working = saving || Boolean(busy) || Boolean(pending);
 
   useEffect(() => {
     if (saving || pending) return;
@@ -544,7 +547,7 @@ export function PlanningScreen({
   );
 
   const retrySave = useCallback(() => {
-    if (!pending || working) return;
+    if (!pending || saving || busy) return;
     void persist(
       pending.next,
       pending.message,
@@ -559,7 +562,7 @@ export function PlanningScreen({
         setProposal(null);
       }
     });
-  }, [pending, persist, working]);
+  }, [pending, persist, saving, busy]);
 
   const undo = useCallback(() => {
     if (!undoState || working) return;
@@ -1045,7 +1048,10 @@ export function PlanningScreen({
               key={`strength-${session.id}`}
               title={session.name}
               subtitle={`${formatActivityDate(session.startTime)} · ${
-                session.status === 'finished' ? 'Erledigt' : 'Gestartet'
+                session.status === 'finished' &&
+                (session.endTime ?? 0) > session.startTime
+                  ? 'Erledigt'
+                  : 'Gestartet'
               }`}
               trailing={<Text style={styles.activityType}>Kraft</Text>}
             />
@@ -1086,8 +1092,22 @@ export function PlanningScreen({
               title="Erneut speichern"
               secondary
               small
-              disabled={working}
+              disabled={saving || Boolean(busy)}
               onPress={retrySave}
+            />
+            <Button
+              title="Änderung verwerfen"
+              secondary
+              small
+              disabled={saving || Boolean(busy)}
+              onPress={() => {
+                setPending(null);
+                setError('');
+                setEditor(null);
+                setAdjusting(false);
+                setMoveId(null);
+                setProposal(null);
+              }}
             />
           </View>
         </Notice>
@@ -1499,6 +1519,7 @@ export function PlanningScreen({
                     title="‹"
                     secondary
                     label="Vorherige Woche zum Verschieben"
+                    disabled={working}
                     onPress={() =>
                       setMoveWeekStart(current => addDays(current, -7))
                     }
@@ -1511,6 +1532,7 @@ export function PlanningScreen({
                     title="›"
                     secondary
                     label="Nächste Woche zum Verschieben"
+                    disabled={working}
                     onPress={() =>
                       setMoveWeekStart(current => addDays(current, 7))
                     }
@@ -1560,6 +1582,14 @@ export function PlanningScreen({
                   );
                 })}
                 {error ? <Notice>{error}</Notice> : null}
+                {pending ? (
+                  <Button
+                    title="Speicherung wiederholen"
+                    secondary
+                    disabled={saving || Boolean(busy)}
+                    onPress={retrySave}
+                  />
+                ) : null}
                 {validation ? <Notice>{validation}</Notice> : null}
               </>
             ) : null}
@@ -1686,6 +1716,14 @@ export function PlanningScreen({
                   />
                 </Field>
                 {error ? <Notice>{error}</Notice> : null}
+                {pending ? (
+                  <Button
+                    title="Speicherung wiederholen"
+                    secondary
+                    disabled={saving || Boolean(busy)}
+                    onPress={retrySave}
+                  />
+                ) : null}
                 {validation ? <Notice>{validation}</Notice> : null}
                 <View style={styles.modalActions}>
                   <Button
@@ -1796,6 +1834,14 @@ export function PlanningScreen({
               </>
             )}
             {error ? <Notice>{error}</Notice> : null}
+            {pending ? (
+              <Button
+                title="Speicherung wiederholen"
+                secondary
+                disabled={saving || Boolean(busy)}
+                onPress={retrySave}
+              />
+            ) : null}
             {validation ? <Notice>{validation}</Notice> : null}
             <View style={styles.modalActions}>
               <Button
