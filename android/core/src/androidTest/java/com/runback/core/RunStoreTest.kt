@@ -59,6 +59,24 @@ class RunStoreTest {
     }
 
     @Test
+    fun sportIsStoredAtStartAndCorrectableThroughFeedback() {
+        val started = store.start("free", "test", "cycling")
+        assertEquals("cycling", started.getString("sport"))
+        val id = started.getString("id")
+        store.finish()
+
+        // Ältere Datensätze ohne Feld bleiben Läufe.
+        val legacy = store.start("easy", "test")
+        assertEquals("running", legacy.getString("sport"))
+        store.finish()
+
+        store.saveFeedback(id, JSONObject().put("sport", "running"))
+        val corrected = store.detail(id)
+        assertEquals("running", corrected.getString("sport"))
+        assertEquals("running", corrected.getJSONObject("feedback").getString("sport"))
+    }
+
+    @Test
     fun rawGpsIsRetainedWhileUnacceptableJumpIsExcludedFromDistance() {
         val id = store.start().getString("id")
         val first = JSONObject().put("latitude", 52.0).put("longitude", 13.0)

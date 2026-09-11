@@ -30,6 +30,20 @@ describe('aggregateStatistics', () => {
     expect(stats.totalDistanceKm).toBe(10);
   });
 
+  it('keeps rides out of running kilometres and pace', () => {
+    const stats = aggregateStatistics(
+      [
+        run({ id: 'run' }),
+        run({ id: 'ride', sport: 'cycling', distanceMeters: 40000 }),
+        run({ id: 'legacy', sport: undefined }),
+      ],
+      Date.UTC(2026, 0, 6),
+    );
+
+    expect(stats.runCount).toBe(2);
+    expect(stats.totalDistanceKm).toBe(20);
+  });
+
   it('deduplicates canonical records and weights pace by distance', () => {
     const stats = aggregateStatistics(
       [

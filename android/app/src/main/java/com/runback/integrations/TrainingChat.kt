@@ -135,6 +135,8 @@ class TrainingChat(
                 for (i in 0 until page.length()) {
                     val run = page.getJSONObject(i)
                     if (run.optString("status") !in listOf("completed", "imported")) continue
+                    // Nur Läufe: Radkilometer wären in einer Laufsumme falsch.
+                    if (run.optString("sport", "running") != "running") continue
                     if (run.optLong("startTime") !in from..until) continue
                     val distance = run.optDouble("distanceMeters", 0.0)
                     val duration = run.optDouble("durationSeconds", 0.0)
@@ -151,7 +153,7 @@ class TrainingChat(
     }
 
     private fun summary(run: JSONObject) = pick(run, "id", "startTime", "endTime", "status", "source",
-        "purpose", "distanceMeters", "durationSeconds", "avgHeartRate", "avgCadence").apply {
+        "purpose", "sport", "distanceMeters", "durationSeconds", "avgHeartRate", "avgCadence").apply {
         val feedback = run.optJSONObject("feedback") ?: JSONObject()
         put("feedback", pick(feedback, "purpose", "note").put("rpe", pick(feedback.optJSONObject("rpe") ?: JSONObject(), "legs", "breathing")))
         put("context", pick(run.optJSONObject("context") ?: JSONObject(), "temperatureC", "windMps"))
@@ -159,11 +161,11 @@ class TrainingChat(
 
     private fun definitions() = JSONArray()
         .put(tool("read_profile", "Read goal, available time, training days, and up to 20 saved experiments.", JSONObject()))
-        .put(tool("list_runs", "Read runs newest first, including notes and perceived exertion. Follow nextOffset for older runs.",
+        .put(tool("list_runs", "Read recordings newest first, including sport (running or cycling), notes and perceived exertion. Follow nextOffset for older entries.",
             JSONObject().put("offset", type("integer")).put("limit", type("integer"))))
         .put(tool("read_run", "Read one run and its kilometer splits. No GPS geometry or raw samples.",
             JSONObject().put("id", type("string")), listOf("id")))
-        .put(tool("training_totals", "Totals across all completed/imported runs in an inclusive Unix-millisecond date range. Default all history through now.",
+        .put(tool("training_totals", "Totals across all completed/imported runs (sport running only) in an inclusive Unix-millisecond date range. Default all history through now.",
             JSONObject().put("from", type("integer")).put("until", type("integer"))))
 
     private fun tool(name: String, description: String, properties: JSONObject, required: List<String> = emptyList()) =

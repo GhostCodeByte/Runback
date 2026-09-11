@@ -1,6 +1,7 @@
 export * from './types';
 export * from './analysis';
 export * from './runTitle';
+export * from './sport';
 export * from './experiments';
 export * from './planning';
 export * from './vendorImports';

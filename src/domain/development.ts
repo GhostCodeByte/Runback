@@ -2,6 +2,7 @@ import type { Run } from '../native';
 import type { StrengthSession } from './strength';
 import { localDateKey as scheduleLocalDateKey } from './schedule';
 import type { ScheduleState } from './schedule';
+import { isRun } from './sport';
 
 /**
  * Fakten für die Entwicklungsansicht.
@@ -142,11 +143,15 @@ const lowerStatus = (value: unknown) =>
 
 /**
  * Native runs use `completed` and `imported`; `finished` is accepted for
- * older exports. Recording, paused and active records never enter history.
+ * older exports. Recording, paused and active records never enter history,
+ * and neither do other sports: their kilometers are not running kilometers.
  */
 const isCompletedRun = (run: Run, now: number): boolean => {
   const status = lowerStatus(run.status);
   if (!['completed', 'imported', 'finished', 'complete'].includes(status)) {
+    return false;
+  }
+  if (!isRun(run)) {
     return false;
   }
   if (

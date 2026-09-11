@@ -6,6 +6,12 @@
 
 `android/app` enthält die React-Native-Bridge, SAF-Dateiauswahl, Garmin-FIT-/XML-/ZIP-Verarbeitung, Health Connect und optionale Dienste. Sensorverarbeitung bleibt nativ. JavaScript erhält Zusammenfassungen, Kilometerabschnitte und begrenzte Darstellungsdaten (maximal 512 Trackpunkte, 256 Zeitreihenpunkte). `android/wear` ist ohne Telefon benutzbar; Übertragungsarchive bleiben bis zur passenden SHA-256-Bestätigung erhalten, Originalaufzeichnungen bleiben auch danach auf der Uhr.
 
+## Aufzeichnung und Sportart
+
+Eine Aufzeichnung braucht keinen Plan: Auf „Heute“ wählt der Nutzer Art (Laufen, Radfahren) und Zweck (frei, locker, lang, Intervalle, Wettkampf, offen) und startet. Ein für heute geplanter Lauf steht voran, die freie Aufzeichnung bleibt einen Tipp entfernt („Stattdessen frei aufzeichnen“). Krafttraining startet weiterhin aus einer Vorlage oder als freies Training.
+
+Jeder Datensatz trägt `sport` (`running`, `cycling`). Fehlt das Feld — ältere Aufzeichnungen, Importe, Uhr — gilt der Datensatz als Lauf; es gibt keine Migration. Wie der Zweck ist die Sportart nachträglich über das Feedback korrigierbar; die ursprüngliche Einordnung bleibt im Datensatz und im Ereignisprotokoll. Laufauswertung (Tempoindex, Fokus, Auffälligkeiten), Statistik, Entwicklung und Wochenkilometer zählen ausschließlich Läufe; bei anderen Sportarten erscheinen sie gar nicht statt mit falschen Zahlen. Radfahrten zeigen km/h statt min/km und werden als `cycling` nach GPX (`<type>`), FIT (`Sport.CYCLING`) und Health Connect (`EXERCISE_TYPE_BIKING`) exportiert. Der Import lehnt Radfahrten weiterhin ab; das ist eine offene Entscheidung, keine Datenlücke.
+
 ## Distanz und Tempoindex
 
 `runback-distance-1.0`: Haversine-Distanzen auf einer Kugel mit Radius 6.371.000 m. Kanten mit Zeitdifferenz ≤0 oder >30 Sekunden, Genauigkeitsangaben >50 m, ungültigen Koordinaten oder abgeleiteter Geschwindigkeit >12 m/s zählen nicht zur bereinigten Distanz. Pausen- und Unterbrechungsgrenzen verbinden keine Trackabschnitte. Originalkoordinaten bleiben unverändert erhalten. Die Grenzwerte sind konservative technische Regeln, keine Garantie für GPS-Genauigkeit.

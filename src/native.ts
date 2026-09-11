@@ -2,9 +2,11 @@ import { NativeModules } from 'react-native';
 import type {
   RunSummary,
   RunPurpose,
+  Sport,
   Experiment,
   Adherence,
 } from './domain/types';
+import { normalizeSport } from './domain/sport';
 import type {
   StrengthSession,
   StrengthState,
@@ -29,6 +31,8 @@ export interface Settings {
   goal?: string;
   minutes?: number;
   purpose?: RunPurpose;
+  /** Zuletzt gewählte Sportart für die freie Aufzeichnung. */
+  sport?: Sport;
   trainingDays?: number[];
   cues?: boolean;
   weather?: boolean;
@@ -95,6 +99,7 @@ export function normalizeRun(raw: any): Run {
     distanceMeters: raw.distanceMeters ?? raw.distanceM ?? 0,
     source: raw.source || 'phone',
     purpose: feedback.purpose ?? raw.purpose ?? 'unknown',
+    sport: normalizeSport(feedback.sport ?? raw.sport),
     samples: raw.samples ?? raw.rawSampleCount ?? 0,
     sourceVersion: raw.sourceVersion || 'native-v1',
     rpe: raw.rpe ?? feedback.rpe,
@@ -121,7 +126,6 @@ export const native = {
   async feedback(id: string, feedback: unknown) {
     await nativeCall('updateRunFeedback', id, JSON.stringify(feedback));
   },
-
   // Krafttraining. Der native Speicher legt die laufende Einheit getrennt von
   // der Historie ab, damit ein bestätigter Satz eine kleine Schreiboperation
   // bleibt.

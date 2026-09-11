@@ -213,7 +213,11 @@ Lauftitel in der Oberfläche:
 
 1. ein sprechender Name aus der Quelle („Morning Run“, „Intervalle Bahn“),
 2. sonst der Trainingszweck, wenn er gesetzt ist,
-3. sonst die Tageszeit des Starts („Morgenlauf“, „Abendlauf“).
+3. sonst die Tageszeit des Starts je Sportart („Morgenlauf“, „Abendfahrt“).
+
+Die Sportart wechselt außerdem die Wörter der Oberfläche (`sportWords()` in
+[`src/domain/sport.ts`](../src/domain/sport.ts)): „Lauf“/„Radfahrt“, „Laufzeit“/
+„Fahrzeit“, `min/km`/`km/h`. Kein Bildschirm schreibt diese Wörter selbst.
 
 Technische Namen (`activity_12345678`, GUIDs, `2024-05-01T07-00-00`) gelten als nicht
 sprechend und werden verworfen.

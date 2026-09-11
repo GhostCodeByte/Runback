@@ -12,7 +12,8 @@
  *
  * Siehe docs/design-language.md § 13.
  */
-import type { RunPurpose } from './types';
+import type { RunPurpose, Sport } from './types';
+import { sportWords, type SportWords } from './sport';
 
 export interface RunPurposeOption {
   value: RunPurpose;
@@ -103,27 +104,34 @@ export function isMeaningfulRunName(raw: string | undefined): boolean {
   return true;
 }
 
-const DAY_PARTS: { fromHour: number; title: string }[] = [
-  { fromHour: 22, title: 'Nachtlauf' },
-  { fromHour: 18, title: 'Abendlauf' },
-  { fromHour: 14, title: 'Nachmittagslauf' },
-  { fromHour: 12, title: 'Mittagslauf' },
-  { fromHour: 10, title: 'Vormittagslauf' },
-  { fromHour: 5, title: 'Morgenlauf' },
+const DAY_PARTS: {
+  fromHour: number;
+  part: keyof SportWords['dayParts'];
+}[] = [
+  { fromHour: 22, part: 'night' },
+  { fromHour: 18, part: 'evening' },
+  { fromHour: 14, part: 'afternoon' },
+  { fromHour: 12, part: 'noon' },
+  { fromHour: 10, part: 'forenoon' },
+  { fromHour: 5, part: 'morning' },
 ];
 
-export function dayPartTitle(startTime: number): string {
+export function dayPartTitle(startTime: number, sport?: Sport): string {
+  const words = sportWords(sport);
   if (!Number.isFinite(startTime) || startTime <= 0) {
-    return 'Lauf';
+    return words.noun;
   }
   const hour = new Date(startTime).getHours();
-  return DAY_PARTS.find(part => hour >= part.fromHour)?.title || 'Nachtlauf';
+  const part =
+    DAY_PARTS.find(candidate => hour >= candidate.fromHour)?.part || 'night';
+  return words.dayParts[part];
 }
 
 export function runTitle(run: {
   name?: string;
   startTime: number;
   purpose?: RunPurpose;
+  sport?: Sport;
 }): string {
   if (isMeaningfulRunName(run.name)) {
     return (run.name as string).trim();
@@ -131,5 +139,5 @@ export function runTitle(run: {
   if (hasNamedPurpose(run.purpose)) {
     return purposeLabel(run.purpose);
   }
-  return dayPartTitle(run.startTime);
+  return dayPartTitle(run.startTime, run.sport);
 }

@@ -185,8 +185,10 @@ class HealthConnectIntegration(private val context: Context) {
                 horizontalAccuracy = v.optDouble("accuracyM").takeIf { it.isFinite() && it >= 0 }?.let(Length::meters),
                 altitude = v.optDouble("altitudeM").takeIf { it.isFinite() }?.let(Length::meters))
         }.distinctBy { it.time }.sortedBy { it.time }.takeIf { it.isNotEmpty() }?.let(::ExerciseRoute) else null
+        val cycling = run.optString("sport", "running") == "cycling"
         val records = mutableListOf<Record>(ExerciseSessionRecord(start, ZoneOffset.UTC, end, ZoneOffset.UTC,
-            metadata("session"), ExerciseSessionRecord.EXERCISE_TYPE_RUNNING, title = "Runback · Lauf", exerciseRoute = route))
+            metadata("session"), if (cycling) ExerciseSessionRecord.EXERCISE_TYPE_BIKING else ExerciseSessionRecord.EXERCISE_TYPE_RUNNING,
+            title = if (cycling) "Runback · Radfahrt" else "Runback · Lauf", exerciseRoute = route))
         if (granted.contains(HealthPermission.getWritePermission(DistanceRecord::class)) && run.optDouble("distanceMeters", 0.0) > 0) records.add(
             DistanceRecord(start, ZoneOffset.UTC, end, ZoneOffset.UTC, Length.meters(run.getDouble("distanceMeters")), metadata("distance")))
         if (granted.contains(HealthPermission.getWritePermission(HeartRateRecord::class))) {

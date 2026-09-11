@@ -201,6 +201,21 @@ describe('Entwicklungsfakten', () => {
     expect(facts.strengthHistory.completedSets).toBe(1);
   });
 
+  it('does not count rides as running kilometres', () => {
+    const now = localAt('2025-03-10', 12);
+    const facts = buildDevelopmentFacts(
+      input(now, {
+        runs: [
+          runAt('run', '2025-03-08', 5000),
+          runAt('ride', '2025-03-09', 40000, { sport: 'cycling' }),
+        ],
+      }),
+    );
+
+    expect(facts.current.runCount).toBe(1);
+    expect(facts.current.distanceMeters).toBe(5000);
+  });
+
   it('uses the explicit schedule goal as calendar context', () => {
     const now = localAt('2025-03-10', 12);
     const goal = {
