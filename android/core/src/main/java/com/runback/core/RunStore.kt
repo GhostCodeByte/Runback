@@ -69,6 +69,10 @@ class RunStore(context: Context) {
         val feedback = getDocument("feedback_${run.getString("id")}") ?: JSONObject()
         run.put("feedback", feedback)
         if (feedback.has("purpose")) run.put("purpose", feedback.getString("purpose"))
+        // Sportart: fehlt sie (ältere Datensätze, Importe), ist es ein Lauf. Eine
+        // spätere Korrektur liegt im Feedback; die ursprüngliche bleibt im Datensatz.
+        if (feedback.has("sport")) run.put("sport", feedback.getString("sport"))
+        else if (!run.has("sport")) run.put("sport", "running")
         run.remove("_tick")
         return run
     }
@@ -79,12 +83,12 @@ class RunStore(context: Context) {
         }; result
     }
     fun active(): JSONObject? = locked { activeId()?.let { present(read(it)) } }
-    fun start(purpose: String = "easy", source: String = "phone"): JSONObject = locked {
+    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running"): JSONObject = locked {
         activeId()?.let { return@locked present(read(it)) }
         check(app.filesDir.usableSpace > 32L * 1024 * 1024) { "Zu wenig freier Speicher. Bitte zuerst Daten sichern und Speicher freigeben." }
         val now = System.currentTimeMillis()
         val run = JSONObject().put("id", UUID.randomUUID().toString()).put("startTime", now).put("endTime", now)
-            .put("purpose", purpose).put("source", source).put("status", "recording").put("durationMs", 0L)
+            .put("purpose", purpose).put("sport", sport).put("source", source).put("status", "recording").put("durationMs", 0L)
             .put("_tick", SystemClock.elapsedRealtime()).put("distanceMeters", 0.0).put("rawSampleCount", 0)
             .put("model_version", RunMath.MODEL_VERSION).put("sourceVersion", "raw-v1")
         transaction { write(run); addEvent(run.getString("id"), "start", JSONObject()) }

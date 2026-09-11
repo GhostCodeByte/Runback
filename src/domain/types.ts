@@ -5,6 +5,11 @@ export type RunPurpose =
   | 'race'
   | 'free'
   | 'unknown';
+/**
+ * Sportart einer Aufzeichnung. Fehlt das Feld, ist es ein Lauf — so bleiben
+ * ältere Datensätze ohne Migration lesbar. Labels und Regeln: sport.ts.
+ */
+export type Sport = 'running' | 'cycling';
 
 /** Native, bounded derived splits, never a raw sensor stream. */
 export interface SegmentAggregate {
@@ -27,6 +32,7 @@ export interface RunSummary {
   durationSeconds: number;
   distanceMeters: number;
   purpose: RunPurpose;
+  sport?: Sport;
   source: string;
   status: string;
   avgHeartRate?: number;

@@ -277,13 +277,13 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun setChatTrainingAccess(includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.clear(includeTraining) }
     @ReactMethod fun sendChat(text: String, includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.send(text, includeTraining) }
 
-    private fun recording(action: String, purpose: String, promise: Promise) {
+    private fun recording(action: String, purpose: String, promise: Promise, sport: String = "running") {
         if (action == RecordingService.START && !granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
             promise.reject("LOCATION_PERMISSION", "Für die Aufzeichnung bitte den genauen Standort erlauben."); return
         }
         context.runOnUiQueueThread {
             try {
-                RecordingService.send(context, action, purpose, "phone")
+                RecordingService.send(context, action, purpose, "phone", sport)
                 worker.execute {
                     try {
                         val deadline = android.os.SystemClock.elapsedRealtime() + 5000
@@ -300,11 +300,11 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
             } catch (error: Exception) { promise.reject("RECORDING_ERROR", error.message, error) }
         }
     }
-    @ReactMethod fun startRun(purpose: String, promise: Promise) = recording(RecordingService.START, purpose, promise)
+    @ReactMethod fun startRun(purpose: String, sport: String, promise: Promise) = recording(RecordingService.START, purpose, promise, sport)
     @ReactMethod fun pauseRun(promise: Promise) = recording(RecordingService.PAUSE, "easy", promise)
     @ReactMethod fun resumeRun(promise: Promise) = recording(RecordingService.RESUME, "easy", promise)
     @ReactMethod fun finishRun(promise: Promise) = recording(RecordingService.FINISH, "easy", promise)
-    @ReactMethod fun startRecording(purpose: String, promise: Promise) = startRun(purpose, promise)
+    @ReactMethod fun startRecording(purpose: String, sport: String, promise: Promise) = startRun(purpose, sport, promise)
     @ReactMethod fun pauseRecording(promise: Promise) = pauseRun(promise)
     @ReactMethod fun resumeRecording(promise: Promise) = resumeRun(promise)
     @ReactMethod fun stopRecording(promise: Promise) = finishRun(promise)

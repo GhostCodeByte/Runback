@@ -98,7 +98,8 @@ class RecordingService : Service(), SensorEventListener, LocationListener {
                     START -> {
                         val session = store.start(
                             intent.getStringExtra("purpose") ?: "easy",
-                            intent.getStringExtra("source") ?: "phone"
+                            intent.getStringExtra("source") ?: "phone",
+                            intent.getStringExtra("sport") ?: "running"
                         )
                         activeId = session.getString("id")
                         recording = session.optString("status") == "recording"
@@ -173,7 +174,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener {
                 warn("location_$provider", "Standortquelle $provider nicht verfügbar: ${error.message.orEmpty()}")
             }
         }
-        if (providerCount == 0) warn("gps_disabled", "Standort ist ausgeschaltet. Der Lauf wird ohne GPS-Punkte aufgezeichnet.")
+        if (providerCount == 0) warn("gps_disabled", "Standort ist ausgeschaltet. Die Aufzeichnung läuft ohne GPS-Punkte.")
         worker.removeCallbacks(tick)
         worker.postDelayed(tick, FLUSH_INTERVAL_MS)
     }
@@ -335,7 +336,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener {
         val distance = String.format(java.util.Locale.GERMANY, "%.2f km", session.optDouble("distanceM", 0.0) / 1000.0)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(
             NOTIFICATION_ID,
-            notification(if (paused) "Pausiert · $distance" else "Lauf aktiv · $distance", paused, session.optLong("elapsedMs"))
+            notification(if (paused) "Pausiert · $distance" else "${sportNoun(session.optString("sport"))} aktiv · $distance", paused, session.optLong("elapsedMs"))
         )
     }
 
@@ -405,10 +406,12 @@ class RecordingService : Service(), SensorEventListener, LocationListener {
         private const val WAKE_RENEW_INTERVAL_MS = 5 * 60_000L
         private const val WAKE_TIMEOUT_MS = 10 * 60_000L
 
-        fun send(context: Context, action: String, purpose: String = "easy", source: String = "phone") {
+        /** Anzeigename je Sportart; unbekannte Werte gelten als Lauf (siehe src/domain/sport.ts). */
+        fun sportNoun(sport: String?): String = if (sport == "cycling") "Radfahrt" else "Lauf"
+        fun send(context: Context, action: String, purpose: String = "easy", source: String = "phone", sport: String = "running") {
             require(action in setOf(START, PAUSE, RESUME, FINISH)) { "Unknown recording action: $action" }
             context.startForegroundService(Intent(context, RecordingService::class.java)
-                .setAction(action).putExtra("purpose", purpose).putExtra("source", source))
+                .setAction(action).putExtra("purpose", purpose).putExtra("source", source).putExtra("sport", sport))
         }
     }
 }

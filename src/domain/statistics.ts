@@ -1,4 +1,5 @@
 import type { Run } from '../native';
+import { isRun } from './sport';
 
 export interface StatisticsWeek {
   startTime: number;
@@ -21,10 +22,12 @@ export interface RunStatistics {
 
 const EIGHT_WEEKS = 8;
 
-/** Geteilt mit `statisticsView.ts`, damit beide Sichten dieselben Läufe zählen. */
+/** Geteilt mit `statisticsView.ts`, damit beide Sichten dieselben Läufe zählen.
+ *  Andere Sportarten zählen nicht: Kilometer und Tempo wären sonst gemischt. */
 export function validRun(run: Run, now: number) {
   const start = run.startTime;
   return (
+    isRun(run) &&
     (run.status === 'completed' || run.status === 'imported') &&
     Number.isFinite(start) &&
     start > 0 &&

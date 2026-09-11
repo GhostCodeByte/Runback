@@ -56,6 +56,12 @@ Die offene Funktionsliste und Grenzen stehen in [implementation.md](implementati
 - `:core:testDebugUnitTest :app:lintRelease :wear:lintRelease` mit JDK 21 erfolgreich. Die native Android-Erweiterung für Soreness-Persistenz und den optionalen deutschen SpeechRecognizer baut und lintet damit sauber.
 - Die neue Körperkarte wurde als React-Native-Komponente und mit UI-Tests geprüft. Die native SpeechRecognizer-Berechtigung und echte Spracherkennung wurden nicht auf physischer Hardware nachgewiesen; OpenRouter bleibt für diese Funktion optional und wurde ohne konfigurierten Schlüssel nicht live getestet.
 
+## Ergänzung: Freie Aufzeichnung mit Sportart (11. September 2026)
+
+- Eine Aufzeichnung ist ohne Kalendereintrag startbar: Art (Laufen, Radfahren) und Zweck als Chips auf „Heute“, bei geplantem Lauf über „Stattdessen frei aufzeichnen“. Freie Aufzeichnungen verknüpfen sich nicht mit dem Termin; ein geplanter Lauf bleibt geplant.
+- `sport` wird nativ beim Start gespeichert, fehlt bei Altdaten (gilt dann als Lauf) und ist per Feedback korrigierbar. Laufauswertung, Statistik, Entwicklung, Fokus, Wochenkilometer und die Chat-Summen zählen nur Läufe. Jest-Regressionen für Sportart-Normalisierung, Titel, Statistik, Entwicklung und die Oberfläche (Start, Livewerte, Einheitenfilter, Detail ohne Laufauswertung) ergänzt; `npm test`, `npm run typecheck` und die Kotlin-Kompilierung (app, core, wear, Unit- und Instrumentationstests) bestanden.
+- Nicht nachgewiesen: Radfahrt auf physischer Hardware mit GPS, Health-Connect-Export als `EXERCISE_TYPE_BIKING`, Wear-OS-Start (die Uhr startet weiterhin nur Läufe). Instrumentationstest `sportIsStoredAtStartAndCorrectableThroughFeedback` ergänzt, aber nicht auf einem Emulator ausgeführt.
+
 ## PR-Review und Integration (9. September 2026)
 
 - Regressionen für eindeutige Satzkennungen, deterministische Kopplungsgruppen, ungültige Planzeiten und IDs, Muskelregionen, Segmentprovenienz und deutsche Seitenzuordnung ergänzt.

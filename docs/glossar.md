@@ -10,6 +10,7 @@ Begriffe aus der Runback-Spezifikation und ihrer fachlichen Besprechung. Die zwe
 |---|---|---|
 | Pace | Pace | Zeit pro Strecke, meistens Minuten pro Kilometer. 5:00 min/km bedeutet: ein Kilometer in fünf Minuten. Eine kleinere Zahl bedeutet schneller. |
 | Pacing | Pacing strategy | Einteilung von Tempo oder Anstrengung über den Lauf, etwa ruhig beginnen und später steigern. |
+| Sportart | Sport / Activity type | Wie eine Aufzeichnung zu lesen ist: Laufen oder Radfahren. Der Zweck (locker, Intervalle …) ist davon unabhängig. Ohne Angabe gilt eine Aufzeichnung als Lauf; nur Läufe gehen in Tempo-, Fokus- und Kilometerauswertungen ein. |
 | Segment / Split | Segment / Split | Segment: ein ausgewählter Laufabschnitt. Split: meist dessen Zwischenzeit oder Auswertung, beispielsweise für Kilometer 3. Hier kein öffentliches Strava-Segment. |
 | Kadenz | Cadence / Step rate | Schritte pro Minute, normalerweise beide Füße zusammen. Nicht automatisch ein Maß für gute Lauftechnik. |
 | HR | Heart rate | Herzfrequenz, also Herzschläge pro Minute. Die Einheit bpm bedeutet beats per minute. |

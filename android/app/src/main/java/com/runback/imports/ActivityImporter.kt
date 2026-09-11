@@ -877,7 +877,8 @@ class ActivityImporter(private val context: Context, private val store: RunStore
 
     private fun writeGpx(run: JSONObject, samples: JSONArray, output: OutputStream) {
         val b = StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Runback\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"><trk><name>")
-        b.append(xml(run.optString("name", "Runback activity"))).append("</name><trkseg>")
+        b.append(xml(run.optString("name", "Runback activity"))).append("</name>")
+        b.append("<type>").append(if (run.optString("sport", "running") == "cycling") "cycling" else "running").append("</type><trkseg>")
         var previous = Long.MIN_VALUE
         for (i in 0 until samples.length()) {
             val sample = samples.optJSONObject(i) ?: continue
@@ -923,7 +924,7 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 val session = SessionMesg().apply {
                     startTime = DateTime(Date(start)); timestamp = DateTime(Date(end))
                     event = Event.SESSION; eventType = EventType.STOP
-                    sport = Sport.RUNNING; subSport = SubSport.GENERIC
+                    sport = if (run.optString("sport", "running") == "cycling") Sport.CYCLING else Sport.RUNNING; subSport = SubSport.GENERIC
                     val duration = run.optDouble("durationSeconds", ((end - start) / 1000.0)).toFloat()
                     totalElapsedTime = duration; totalTimerTime = duration
                     run.optDouble("distanceMeters", Double.NaN).takeIf { it.isFinite() }?.let { totalDistance = it.toFloat() }
