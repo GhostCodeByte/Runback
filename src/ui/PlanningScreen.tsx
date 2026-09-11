@@ -641,6 +641,13 @@ export function PlanningScreen({
       return;
     }
     const next = applyWeekSuggestion(displayState, proposal, { today });
+    if (next === displayState) {
+      setError(
+        'Der Plan hat sich geändert. Erstelle den Vorschlag bitte erneut.',
+      );
+      setProposal(null);
+      return;
+    }
     const ok = await persist(next, 'Vorschlag übernommen.');
     if (ok) setProposal(null);
   }, [displayState, persist, proposal, today, working]);
@@ -1282,11 +1289,12 @@ export function PlanningScreen({
               </Pressable>
             </View>
             {proposal ? (
-              proposal.addedSessions.length ? (
+              proposal.addedSessions.length || proposal.movedSessions.length ? (
                 <>
                   <Copy>
-                    {proposal.addedSessions.length} Einheiten passen in diese
-                    Woche.
+                    {proposal.addedSessions.length +
+                      proposal.movedSessions.length}{' '}
+                    Änderungen für diese Woche.
                   </Copy>
                   {proposal.addedSessions.map(session => (
                     <Row
@@ -1295,6 +1303,17 @@ export function PlanningScreen({
                       subtitle={`${fullDateLabel(
                         localDateFrom(session.date),
                       )} · ${formatMinutes(session.minutes)}`}
+                    />
+                  ))}
+                  {proposal.moves.map(move => (
+                    <Row
+                      key={move.id}
+                      title={move.title}
+                      subtitle={`${dateLabel(
+                        localDateFrom(move.from),
+                      )} → ${dateLabel(
+                        localDateFrom(move.to),
+                      )} · ${formatMinutes(move.session.minutes)}`}
                     />
                   ))}
                   {proposal.warnings.map(warning => (
@@ -1477,8 +1496,8 @@ export function PlanningScreen({
                     }
                   />
                   <Text style={styles.periodTitle}>
-                    {fullDateLabel(moveWeekStart)} –{' '}
-                    {fullDateLabel(addDays(moveWeekStart, 6))}
+                    {dateLabel(moveWeekStart)} –{' '}
+                    {dateLabel(addDays(moveWeekStart, 6))}
                   </Text>
                   <Button
                     title="›"
@@ -1844,7 +1863,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  periodTitle: { color: color.text, ...typography.body, fontWeight: '600' },
+  periodTitle: {
+    flexShrink: 1,
+    textAlign: 'center',
+    color: color.text,
+    ...typography.body,
+    fontWeight: '600',
+  },
   stats: { flexDirection: 'row', gap: space.md, paddingVertical: space.sm },
   dayCard: {
     gap: space.xxs,
