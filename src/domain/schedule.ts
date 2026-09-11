@@ -1174,25 +1174,6 @@ const usableAvailabilityFor = (
   return usableAvailability(state, date, minutes, exceptId);
 };
 
-const requestForExistingWithState = (
-  session: ScheduledSession,
-  runDays: number[],
-  strengthDays: number[],
-): SlotRequest => ({
-  id: session.id,
-  kind: session.kind,
-  routineDay:
-    session.routineDay ??
-    (session.kind === 'strength' ? strengthDays[0] : runDays[0]) ??
-    0,
-  baseDate: session.date,
-  title: session.title,
-  minutes: session.minutes,
-  purpose: session.purpose,
-  templateId: session.templateId,
-  effort: session.effort,
-});
-
 const uniqueDays = (days: number[]): number[] => sortDays(days);
 
 const makeRunRequests = (
@@ -1409,11 +1390,6 @@ export function suggestWeek(
       .sort(compareSessions);
 
     for (const current of movable) {
-      const request = requestForExistingWithState(
-        current,
-        runDays,
-        strengthDays,
-      );
       const preferredDate = current.routineDay !== undefined
         ? addCalendarDays(weekStart, current.routineDay)
         : undefined;

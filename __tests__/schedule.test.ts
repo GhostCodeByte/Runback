@@ -128,6 +128,123 @@ describe('Wochenvorschlag', () => {
     expect(applied.sessions).toHaveLength(3);
     expect(twice.sessions).toEqual(applied.sessions);
   });
+
+  it('reflows an existing generated routine session from an unavailable day', () => {
+    const generated = session('routine-2025-03-10-2', '2025-03-12', {
+      origin: 'routine',
+      routineDay: 2,
+    });
+    const original = state({
+      availability: { '2025-03-12': 0 },
+      sessions: [generated],
+    });
+    const suggestion = suggestWeek(original, TODAY, {
+      today: TODAY,
+      days: [2],
+    });
+
+    expect(suggestion.movedSessions).toHaveLength(1);
+    expect(suggestion.moves[0]).toMatchObject({
+      id: generated.id,
+      from: '2025-03-12',
+      to: '2025-03-11',
+      reason: 'availability',
+    });
+    expect(suggestion.addedSessions).toHaveLength(0);
+    expect(suggestion.preview.sessions).toEqual([
+      expect.objectContaining({
+        id: generated.id,
+        date: '2025-03-11',
+        origin: 'routine',
+        routineDay: 2,
+      }),
+    ]);
+  });
+
+  it('uses one daily budget for run and strength sessions together', () => {
+    const original = state({
+      availability: {
+        '2025-03-10': 30,
+        '2025-03-11': 30,
+      },
+      sessions: [
+        session('routine-2025-03-10-strength-gym-0', '2025-03-10', {
+          kind: 'strength',
+          minutes: 20,
+          origin: 'routine',
+          routineDay: 0,
+          templateId: 'gym',
+        }),
+      ],
+    });
+    const suggestion = suggestWeek(original, TODAY, {
+      today: TODAY,
+      days: [0],
+      minutes: 20,
+      strengthTemplates: [
+        { id: 'gym', name: 'Gym', days: [1], minutes: 20 },
+      ],
+    });
+
+    expect(suggestion.addedSessions).toEqual([
+      expect.objectContaining({ kind: 'run', date: '2025-03-11', minutes: 20 }),
+    ]);
+    const minutesByDate = suggestion.preview.sessions.reduce<Record<string, number>>(
+      (totals, item) => ({
+        ...totals,
+        [item.date]: (totals[item.date] || 0) + item.minutes,
+      }),
+      {},
+    );
+    expect(minutesByDate).toEqual({ '2025-03-10': 20, '2025-03-11': 20 });
+  });
+
+  it('keeps fixed and linked sessions in place during reflow', () => {
+    const fixed = session('fixed', '2025-03-11', {
+      locked: true,
+      origin: 'fixed',
+    });
+    const linked = session('linked', '2025-03-12', {
+      activityId: 'native-run-1',
+    });
+    const original = state({
+      availability: { '2025-03-11': 0, '2025-03-12': 0 },
+      sessions: [fixed, linked],
+    });
+    const suggestion = suggestWeek(original, TODAY, {
+      today: TODAY,
+      includeRoutine: false,
+    });
+
+    expect(suggestion.movedSessions).toEqual([]);
+    expect(suggestion.moves).toEqual([]);
+    expect(suggestion.preview.sessions).toEqual(original.sessions);
+  });
+
+  it('rejects applying a week preview after the state has changed', () => {
+    const original = state();
+    const preview = suggestWeek(original, TODAY, { today: TODAY });
+    const changed = state({ routine: { days: [1], minutes: 30 } });
+
+    const applied = applyWeekSuggestion(changed, preview, { today: TODAY });
+
+    expect(applied).toBe(changed);
+    expect(applied.sessions).toEqual([]);
+  });
+
+  it('does not create duplicate generated sessions on a repeated preview', () => {
+    const original = state();
+    const first = suggestWeek(original, TODAY, { today: TODAY });
+    const applied = applyWeekSuggestion(original, first, { today: TODAY });
+    const second = suggestWeek(applied, TODAY, { today: TODAY });
+
+    expect(second.addedSessions).toHaveLength(0);
+    expect(second.movedSessions).toHaveLength(0);
+    expect(new Set(second.preview.sessions.map(item => item.id)).size).toBe(
+      applied.sessions.length,
+    );
+    expect(second.preview.sessions).toEqual(applied.sessions);
+  });
 });
 
 describe('Verschieben und Konflikte', () => {
@@ -160,8 +277,7 @@ describe('Verschieben und Konflikte', () => {
 
   it('verschiebt einen erlaubten Termin nur nach ausdrücklicher Anwendung', () => {
     const current = state({ sessions: [session('move', '2025-03-11')] });
-    const proposal = proposeMove(current, 'move', '2025-03-13', { today: TODAY });
-    const moved = moveSession(current, proposal);
+    const moved = moveSession(current, 'move', '2025-03-13', { today: TODAY });
     expect(moved.sessions.find(item => item.id === 'move')?.date).toBe('2025-03-13');
     expect(current.sessions[0].date).toBe('2025-03-11');
   });
@@ -185,4 +301,3 @@ describe('Sichere Änderungen', () => {
     expect(cancelled.sessions).toHaveLength(1);
   });
 });
-
