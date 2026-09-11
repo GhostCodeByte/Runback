@@ -320,8 +320,8 @@ export function Icon({
 }) {
   const paths: Record<string, string> = {
     Heute: 'M4 12L12 5L20 12M6 10V21H18V10M10 21V15H14V21',
-    Läufe: 'M6 4H18V21H6ZM9 8H15M9 12H15M9 16H13',
-    Fokus: 'M8 4H16M12 4V8M6 8H18L21 20H3ZM9 14H15',
+    Einheiten: 'M4 7H7M4 12H7M4 17H7M11 7H20M11 12H20M11 17H20',
+    Statistik: 'M4 20V13M10 20V7M16 20V10M3 20H21',
     Mehr: 'M4 7H20M4 12H20M4 17H20',
   };
   return (

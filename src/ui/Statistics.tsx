@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Run } from '../native';
+import { sessionProgress, type StrengthSession } from '../domain/strength';
 import {
   bucketValue,
   buildStatisticsView,
@@ -34,6 +35,9 @@ import {
  *
  * Die Zeitraumauswahl steht über allem und gilt für alles darunter. Es gibt
  * keine zweite Auswahl, die nur einen Abschnitt betrifft.
+ *
+ * Laufen und Krafttraining werden im selben Zeitraum gezeigt, aber nicht
+ * verrechnet: Kilometer und Sätze sind keine gemeinsame Größe.
  */
 
 export interface StatisticsView {
@@ -95,6 +99,39 @@ const formatPace = (seconds: number | null) => {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 };
 
+const kilogramFormat = new Intl.NumberFormat('de-DE', {
+  maximumFractionDigits: 0,
+});
+const formatKilograms = (value: number) => kilogramFormat.format(value);
+
+/** Krafteinheiten desselben Zeitraums. Reine Summen aus bestätigten Sätzen —
+ *  Planwerte zählen nicht mit. */
+function strengthTotals(
+  sessions: StrengthSession[],
+  windowStart: number,
+  windowEnd: number,
+) {
+  const inRange = sessions.filter(
+    session =>
+      session.status === 'finished' &&
+      session.startTime >= windowStart &&
+      session.startTime < windowEnd,
+  );
+  let sets = 0;
+  let volumeKg = 0;
+  let seconds = 0;
+  for (const session of inRange) {
+    const progress = sessionProgress(session);
+    sets += progress.completedSets;
+    volumeKg += progress.volumeKg;
+    seconds += Math.max(
+      0,
+      ((session.endTime ?? session.startTime) - session.startTime) / 1000,
+    );
+  }
+  return { count: inRange.length, sets, volumeKg, seconds };
+}
+
 /** Ein Wert samt Einheit — die einzige Stelle, an der eine Kennzahl in Text
  *  übersetzt wird. Sie wird für Kacheln, Achse und Detailzeile benutzt. */
 function formatMetric(
@@ -123,10 +160,13 @@ const metricLabel = (metric: StatsMetric) =>
 
 export function Statistics({
   runs,
+  sessions = [],
   view = defaultStatisticsView,
   onViewChange,
 }: {
   runs: Run[];
+  /** Abgeschlossene Krafteinheiten. Ohne sie bleibt der Abschnitt weg. */
+  sessions?: StrengthSession[];
   /** Zuletzt gewählter Zeitraum und Kennzahl. */
   view?: StatisticsView;
   onViewChange?: (view: StatisticsView) => void;
@@ -144,6 +184,34 @@ export function Statistics({
     [runs, active.range],
   );
   const [selected, setSelected] = useState<number | null>(null);
+  const strength = useMemo(
+    () => strengthTotals(sessions, stats.windowStart, stats.windowEnd),
+    [sessions, stats.windowStart, stats.windowEnd],
+  );
+  const strengthSection = sessions.some(
+    session => session.status === 'finished',
+  ) ? (
+    <Section title="Krafttraining">
+      <ValueRow label="Einheiten" value={String(strength.count)} />
+      <ValueRow label="Bestätigte Sätze" value={String(strength.sets)} />
+      <ValueRow
+        label="Volumen"
+        value={
+          strength.volumeKg > 0
+            ? `${formatKilograms(strength.volumeKg)} kg`
+            : DASH
+        }
+      />
+      <ValueRow
+        label="Zeit"
+        value={strength.seconds > 0 ? formatDuration(strength.seconds) : DASH}
+      />
+      <Copy muted>
+        Nur bestätigte Sätze. Volumen ist Last mal Wiederholungen und bleibt
+        ohne Gewichtsangabe leer.
+      </Copy>
+    </Section>
+  ) : null;
 
   // Eine Kennzahl, für die es keine Daten gibt, wird nicht angeboten — und
   // eine bereits gewählte fällt auf die Distanz zurück.
@@ -166,6 +234,7 @@ export function Statistics({
           title="Noch keine Läufe"
           copy="Sobald ein Lauf abgeschlossen oder importiert ist, entsteht hier deine Entwicklung."
         />
+        {strengthSection}
       </View>
     );
   }
@@ -384,6 +453,8 @@ export function Statistics({
           />
         </Panel>
       </Section>
+
+      {strengthSection}
 
       <Copy muted>
         Abgeschlossene und importierte Läufe, Doppelte zusammengeführt. Das

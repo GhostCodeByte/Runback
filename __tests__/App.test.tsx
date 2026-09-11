@@ -152,14 +152,15 @@ function alertButton(label: string) {
 }
 async function openData(renderer: ReactTestRenderer.ReactTestRenderer) {
   await tap(renderer, 'Mehr');
-  await tap(renderer, 'Daten & Speicher');
+  await tap(renderer, 'Importieren, sichern & löschen');
 }
+/** Krafteinheiten stehen seit dem Umbau gemeinsam mit den Läufen im Tab
+ *  „Einheiten“, nicht mehr unter Mehr → Kraft-Historie. */
 async function openHistory(renderer: ReactTestRenderer.ReactTestRenderer) {
-  await tap(renderer, 'Mehr');
-  await tap(renderer, 'Kraft-Historie');
+  await tap(renderer, 'Einheiten');
 }
 async function openMuscleMap(renderer: ReactTestRenderer.ReactTestRenderer) {
-  await tap(renderer, 'Mehr');
+  await tap(renderer, 'Heute');
   await tap(renderer, 'Muskelkarte');
 }
 

@@ -46,11 +46,13 @@ import {
   editSet as editStrengthSet,
   emptyStrengthState,
   finishSession,
+  formatWeight,
   selectExercise,
   summarize,
   startSession,
   templateForDay,
   type Exercise,
+  type SessionExercise,
   type StrengthSession,
   type StrengthState,
   type WorkoutTemplate,
@@ -149,56 +151,144 @@ const initial: AppState = {
   settings: {},
   capabilities: {},
 };
-type Tab = 'Heute' | 'Läufe' | 'Fokus' | 'Mehr';
+/**
+ * Vier Ziele, in der Reihenfolge, in der jemand danach fragt: Was mache ich
+ * jetzt? Was habe ich gemacht? Wie entwickelt sich das? Was kann ich einstellen?
+ */
+type Tab = 'Heute' | 'Einheiten' | 'Statistik' | 'Mehr';
+/** Unterseiten. Jede hat genau einen Einstieg in der App. */
 type Page =
   | 'main'
+  | 'focus'
+  | 'session'
+  | 'plans'
+  | 'muscle-map'
   | 'profile'
   | 'devices'
   | 'data'
   | 'vendor-import'
   | 'presets'
   | 'models'
-  | 'statistics'
-  | 'chat'
-  | 'plans'
-  | 'strength-history'
-  | 'muscle-map';
+  | 'chat';
 
-const RunRow = memo(function RunRow({
-  run,
+/**
+ * Eine erfasste Einheit ist ein Lauf oder ein Krafttraining. Beide stehen in
+ * derselben Liste, weil sie dieselbe Frage beantworten: Was habe ich
+ * trainiert? Zusammengerechnet werden sie nirgends — Kilometer und Sätze sind
+ * keine gemeinsame Größe.
+ */
+type Unit =
+  | { kind: 'run'; key: string; at: number; run: Run }
+  | { kind: 'strength'; key: string; at: number; session: StrengthSession };
+type UnitFilter = 'all' | 'runs' | 'strength';
+
+const UNIT_FILTERS: { value: UnitFilter; label: string }[] = [
+  { value: 'all', label: 'Alle' },
+  { value: 'runs', label: 'Laufen' },
+  { value: 'strength', label: 'Krafttraining' },
+];
+const kilogramFormat = new Intl.NumberFormat('de-DE', {
+  maximumFractionDigits: 0,
+});
+/** Erfasste Dauer einer Krafteinheit. Ohne Endzeit bleibt sie 0. */
+const sessionSeconds = (session: StrengthSession) => {
+  const end = session.endTime ?? session.startTime;
+  return Math.max(0, Math.round((end - session.startTime) / 1000));
+};
+const unitKindLabel = (unit: Unit) =>
+  unit.kind === 'run' ? 'Lauf' : 'Krafttraining';
+const unitTitle = (unit: Unit) =>
+  unit.kind === 'run'
+    ? runTitle(unit.run)
+    : unit.session.name || 'Krafttraining';
+/** Kurzfassung für Listenzeilen außerhalb der Einheiten-Liste. */
+const unitSummary = (unit: Unit) => {
+  if (unit.kind === 'run') {
+    return `${date(unit.at)} · ${distance(unit.run)} km · ${pace(
+      unit.run,
+    )} /km`;
+  }
+  const sets = summarize(unit.session).completedSets;
+  return `${date(unit.at)} · ${sets} ${sets === 1 ? 'Satz' : 'Sätze'}`;
+};
+
+/** Bestätigte Sätze einer Übung als Wertekette. Übersprungene werden benannt,
+ *  nicht verschwiegen. */
+const setsLine = (exercise: SessionExercise) => {
+  const parts = exercise.sets
+    .filter(set => set.completedAt !== undefined || set.skipped)
+    .map(set => {
+      if (set.skipped) {
+        return 'übersprungen';
+      }
+      if (set.actualWeightKg && set.actualReps) {
+        return `${formatWeight(set.actualWeightKg)} kg × ${set.actualReps}`;
+      }
+      if (set.actualReps) {
+        return `${set.actualReps} Wdh.`;
+      }
+      if (set.actualSeconds) {
+        return `${set.actualSeconds} s`;
+      }
+      return 'ohne Werte';
+    });
+  return parts.length ? parts.join(' · ') : 'Kein bestätigter Satz';
+};
+
+const UnitRow = memo(function UnitRow({
+  unit,
   open,
 }: {
-  run: Run;
-  open: (id: string) => void;
+  unit: Unit;
+  open: (unit: Unit) => void;
 }) {
-  const title = runTitle(run);
-  const purposeNote =
-    hasNamedPurpose(run.purpose) && purposeLabel(run.purpose) !== title
-      ? ` · ${purposeLabel(run.purpose)}`
+  const title = unitTitle(unit);
+  const kind = unitKindLabel(unit);
+  const summary = unit.kind === 'strength' ? summarize(unit.session) : null;
+  const value =
+    unit.kind === 'run' ? distance(unit.run) : String(summary!.completedSets);
+  const valueUnit =
+    unit.kind === 'run'
+      ? 'km'
+      : summary!.completedSets === 1
+      ? 'Satz'
+      : 'Sätze';
+  const note =
+    unit.kind === 'run'
+      ? hasNamedPurpose(unit.run.purpose) &&
+        purposeLabel(unit.run.purpose) !== title
+        ? ` · ${purposeLabel(unit.run.purpose)}`
+        : ''
       : '';
+  const detail =
+    unit.kind === 'run'
+      ? `${duration(unit.run.durationSeconds)} · ${pace(unit.run)} /km`
+      : summary!.volumeKg > 0
+      ? `${duration(sessionSeconds(unit.session))} · ${kilogramFormat.format(
+          summary!.volumeKg,
+        )} kg`
+      : duration(sessionSeconds(unit.session));
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${title}, ${date(run.startTime)}, ${distance(
-        run,
-      )} Kilometer`}
-      onPress={() => open(run.id)}
+      accessibilityLabel={`${kind}: ${title}, ${date(
+        unit.at,
+      )}, ${value} ${valueUnit}`}
+      onPress={() => open(unit)}
       style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}
     >
       <View style={styles.runTop}>
         <Text style={styles.runTitle}>{title}</Text>
         <Text style={styles.muted}>
-          {date(run.startTime)}
-          {purposeNote}
+          {kind} · {date(unit.at)}
+          {note}
         </Text>
       </View>
       <View style={styles.runBottom}>
         <Text style={styles.runDistance}>
-          {distance(run)} <Text style={styles.runUnit}>km</Text>
+          {value} <Text style={styles.runUnit}>{valueUnit}</Text>
         </Text>
-        <Text style={styles.muted}>
-          {duration(run.durationSeconds)} · {pace(run)} /km
-        </Text>
+        <Text style={styles.muted}>{detail}</Text>
         <Text style={styles.arrow}>›</Text>
       </View>
     </Pressable>
@@ -212,6 +302,10 @@ export function RunbackApp() {
   const [tab, setTab] = useState<Tab>('Heute');
   const [page, setPage] = useState<Page>('main');
   const [selected, setSelected] = useState<Run | null>(null);
+  const [selectedSession, setSelectedSession] = useState<StrengthSession | null>(
+    null,
+  );
+  const [unitFilter, setUnitFilter] = useState<UnitFilter>('all');
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -262,6 +356,44 @@ export function RunbackApp() {
   const analyses = useMemo(
     () => runs.map(run => ({ run, analysis: analyzeRun(run, experiment) })),
     [runs, experiment],
+  );
+  const finishedSessions = useMemo(
+    () => strengthSessions.filter(session => session.status === 'finished'),
+    [strengthSessions],
+  );
+  // Läufe und Krafteinheiten in einer Zeitachse, neueste zuerst.
+  const units = useMemo<Unit[]>(
+    () =>
+      [
+        ...runs.map(
+          (run): Unit => ({
+            kind: 'run',
+            key: `run-${run.id}`,
+            at: run.startTime,
+            run,
+          }),
+        ),
+        ...finishedSessions.map(
+          (session): Unit => ({
+            kind: 'strength',
+            key: `strength-${session.id}`,
+            at: session.startTime,
+            session,
+          }),
+        ),
+      ].sort((a, b) => b.at - a.at || a.key.localeCompare(b.key)),
+    [runs, finishedSessions],
+  );
+  const visibleUnits = useMemo(
+    () =>
+      unitFilter === 'all'
+        ? units
+        : units.filter(unit =>
+            unitFilter === 'runs'
+              ? unit.kind === 'run'
+              : unit.kind === 'strength',
+          ),
+    [units, unitFilter],
   );
   const candidate = analyses.find(
     a =>
@@ -452,6 +584,7 @@ export function RunbackApp() {
         }
         if (page !== 'main') {
           setPage('main');
+          setSelectedSession(null);
           return true;
         }
         if (tab !== 'Heute') {
@@ -501,8 +634,22 @@ export function RunbackApp() {
     },
     [action],
   );
+  const openUnit = useCallback(
+    (unit: Unit) => {
+      if (unit.kind === 'run') {
+        openRun(unit.run.id);
+        return;
+      }
+      setSelectedSession(unit.session);
+      setPage('session');
+    },
+    [openRun],
+  );
   const openPage = (next: Page) => {
     setPage(next);
+    if (next !== 'session') {
+      setSelectedSession(null);
+    }
     if (next === 'muscle-map') {
       setNow(Date.now());
     }
@@ -515,8 +662,18 @@ export function RunbackApp() {
     setTab(next);
     setPage('main');
     setSelected(null);
+    setSelectedSession(null);
     setError('');
     setMessage('');
+  };
+  const leaveDetail = () => {
+    if (selected) {
+      setSelected(null);
+      setMoreDetails(false);
+      return;
+    }
+    setPage('main');
+    setSelectedSession(null);
   };
 
   // ── Krafttraining ────────────────────────────────────────────────────────
@@ -636,8 +793,9 @@ export function RunbackApp() {
     void action(async () => {
       const next = acceptRecommendation(recommendation, Date.now(), experiment);
       await persist({ experiments: [...(settings.experiments || []), next] });
-      setTab('Fokus');
       setSelected(null);
+      setTab('Heute');
+      setPage('focus');
     });
   };
   const changeExperiment = (status: ExperimentStatus) => {
@@ -702,16 +860,19 @@ export function RunbackApp() {
     () => Object.fromEntries(allRegionIds().map(id => [id, null])) as Record<RegionId, null>,
     [],
   );
+  const latestSoreness = useMemo(
+    () => [...sorenessReports].sort((a, b) => b.at - a.at)[0] ?? null,
+    [sorenessReports],
+  );
   const sorenessValues = useMemo(() => {
-    const latest = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
     const byId = new Map(
-      latest?.entries.map(entry => [entry.regionId, entry.value]) ?? [],
+      latestSoreness?.entries.map(entry => [entry.regionId, entry.value]) ?? [],
     );
     return allRegionIds().reduce((values, id) => {
       values[id] = byId.get(id) ?? null;
       return values;
     }, {} as Record<RegionId, number | null>);
-  }, [sorenessReports]);
+  }, [latestSoreness]);
   const openSorenessCapture = () => {
     setNow(Date.now());
     setSorenessOpen(true);
@@ -738,9 +899,10 @@ export function RunbackApp() {
     });
   };
 
-  // Startseite: eine Handlung (Lauf starten), darunter nur Kontext, der diese
-  // Handlung stützt. Kein Datum, keine Zustandsprosa, kein fiktiver „geplanter
-  // Lauf“ — der Zweck ist eine sichtbare Auswahl und bleibt später änderbar.
+  // Startseite: die Handlungen von heute, darunter nur Kontext, der sie stützt.
+  // Kein Datum, keine Zustandsprosa, kein fiktiver „geplanter Lauf“. Jede
+  // Unterseite hat genau einen Einstieg — hier stehen die, die man heute
+  // braucht: starten, melden, nachsehen.
   const renderHome = () => (
     <>
       <Title>Heute</Title>
@@ -810,60 +972,72 @@ export function RunbackApp() {
             ) : null}
             <Row
               title="Trainingspläne"
-              subtitle="Vorlagen anlegen, ändern und starten"
+              subtitle="Übungsfolgen anlegen, ändern und starten"
               onPress={() => openPage('plans')}
-            />
-            <Row
-              title="Kraft-Historie"
-              subtitle="Erfasste Einheiten, Sätze und Volumen"
-              onPress={() => openPage('strength-history')}
-            />
-            <Row
-              title="Muskelkarte"
-              subtitle="Gemeldeten Muskelkater und gerechnete Frische ansehen"
-              onPress={() => openPage('muscle-map')}
             />
           </>
         )}
       </Section>
-      {experiment ? (
-        <Section title="Dein Fokus">
-          <Row
-            title={experiment.recommendation.title}
-            subtitle={
-              experiment.status === 'paused'
+      <Section title="Dein Fokus">
+        <Row
+          title={
+            experiment
+              ? experiment.recommendation.title
+              : candidate
+              ? candidate.title
+              : 'Noch kein Fokus'
+          }
+          subtitle={
+            experiment
+              ? experiment.status === 'paused'
                 ? 'Pausiert'
                 : experiment.recommendation.action
-            }
-            onPress={() => switchTab('Fokus')}
-          />
-        </Section>
-      ) : null}
-      {runs.length ? (
-        <Section title="Letzte Läufe">
-          {runs.slice(0, 3).map(run => (
+              : candidate
+              ? 'Ein Vorschlag wartet auf deine Entscheidung'
+              : 'Eine Änderung, die Runback über mehrere Läufe prüft'
+          }
+          onPress={() => openPage('focus')}
+        />
+      </Section>
+      <Section title="Dein Körper">
+        <Row
+          title="Muskelkater melden"
+          subtitle={
+            latestSoreness
+              ? `Zuletzt gemeldet: ${date(latestSoreness.at)}`
+              : 'Noch nichts gemeldet'
+          }
+          onPress={openSorenessCapture}
+        />
+        <Row
+          title="Muskelkarte"
+          subtitle="Gemeldeter Muskelkater und gerechnete Frische je Region"
+          onPress={() => openPage('muscle-map')}
+        />
+      </Section>
+      {units.length ? (
+        <Section title="Zuletzt">
+          {units.slice(0, 3).map(unit => (
             <Row
-              key={run.id}
-              title={runTitle(run)}
-              subtitle={`${date(run.startTime)} · ${distance(run)} km · ${pace(
-                run,
-              )} /km`}
-              onPress={() => openRun(run.id)}
+              key={unit.key}
+              title={unitTitle(unit)}
+              subtitle={`${unitKindLabel(unit)} · ${unitSummary(unit)}`}
+              onPress={() => openUnit(unit)}
             />
           ))}
-          {runs.length > 3 ? (
+          {units.length > 3 ? (
             <Button
               secondary
               small
-              title="Alle Läufe ansehen"
-              onPress={() => switchTab('Läufe')}
+              title="Alle Einheiten ansehen"
+              onPress={() => switchTab('Einheiten')}
             />
           ) : null}
         </Section>
       ) : (
         <EmptyState
-          title="Noch keine Läufe"
-          copy="Dein erster Lauf erscheint hier. Vorhandene Historie importierst du unter Mehr → Daten & Speicher."
+          title="Noch keine Einheit"
+          copy="Dein erster Lauf und dein erstes Krafttraining erscheinen hier. Vorhandene Historie importierst du unter Mehr → Deine Daten."
         />
       )}
       {settings.presets?.length ? (
@@ -1110,8 +1284,8 @@ export function RunbackApp() {
                   ? {
                       title: needsPurpose
                         ? 'Zweck deiner Läufe ergänzen'
-                        : 'Läufe ansehen',
-                      onPress: () => switchTab('Läufe'),
+                        : 'Einheiten ansehen',
+                      onPress: () => switchTab('Einheiten'),
                     }
                   : {
                       title: 'Ersten Lauf starten',
@@ -1232,7 +1406,8 @@ export function RunbackApp() {
               title="Als Fokus prüfen"
               onPress={() => {
                 setSelected(null);
-                setTab('Fokus');
+                setTab('Heute');
+                setPage('focus');
               }}
             />
           ) : null}
@@ -1415,81 +1590,62 @@ export function RunbackApp() {
       thumbColor={value ? color.ink : color.muted}
     />
   );
+  // „Mehr“ ist kein Sammelbecken mehr: erst was die App über dich weiß, dann
+  // deine Daten, dann Erklärungen. Inhalte, die man beim Trainieren braucht,
+  // stehen nicht hier, sondern auf Heute, Einheiten und Statistik.
   const renderMore = () => (
     <>
       <Title>Mehr</Title>
-      <Section title="Dein Training">
-        <Row
-          title="Statistik"
-          subtitle="Wochenumfang, Tempo und Laufgefühl"
-          onPress={() => openPage('statistics')}
-        />
-        <Row
-          title="Trainingspläne"
-          subtitle="Vorlagen für dein Krafttraining"
-          onPress={() => openPage('plans')}
-        />
-        <Row
-          title="Kraft-Historie"
-          subtitle="Erfasste Einheiten, Sätze und Volumen"
-          onPress={() => openPage('strength-history')}
-        />
-        <Row
-          title="Muskelkarte"
-          subtitle="Gemeldeten Muskelkater und gerechnete Frische ansehen"
-          onPress={() => openPage('muscle-map')}
-        />
-        <Row
-          title="Trainingschat"
-          subtitle="Fragen stellen und deine Läufe verstehen"
-          onPress={() => openPage('chat')}
-        />
-      </Section>
-      <Section title="Deine Einstellungen">
-        <Row
-          title="Einrichtung"
-          subtitle="Ziel festlegen und Historie importieren"
-          onPress={() => setSetupOpen(true)}
-        />
+      <Section title="Einstellungen">
         <Row
           title="Ziel & Alltag"
-          subtitle="Trainingszweck, Zeit und Lauftage"
+          subtitle="Laufziel, Zeitbudget und mögliche Lauftage"
           onPress={() => openPage('profile')}
         />
         <Row
-          title="Geräte & Verbindungen"
-          subtitle="Telefon, Uhr und optionale Datenquellen"
-          onPress={() => openPage('devices')}
-        />
-        <Row
           title="Laufvorlagen"
-          subtitle="Wiederkehrende Einstellungen speichern"
+          subtitle="Zweck und Zeit für den Laufstart speichern"
           onPress={() => openPage('presets')}
         />
         <Row
-          title="Daten & Speicher"
-          subtitle="Import, Backup, Export und Löschen"
-          onPress={() => openPage('data')}
+          title="Geräte & Verbindungen"
+          subtitle="Uhr, Sensoren und optionale Datenquellen"
+          onPress={() => openPage('devices')}
         />
         <Row
-          title="Auswertung & Modelle"
-          subtitle="Grundlagen und verfügbare Aussagen"
-          onPress={() => openPage('models')}
-        />
-      </Section>
-      <Section title="Während des Laufs">
-        <Row
-          title="Herzfrequenz anzeigen"
+          title="Herzfrequenz beim Laufen"
           subtitle="Nur mit vorhandenen Messdaten"
           trailing={toggle(Boolean(settings.showHeartRate), value =>
             save({ showHeartRate: value }),
           )}
         />
+        <Row
+          title="Einrichtung erneut öffnen"
+          subtitle="Ziel festlegen und Historie importieren"
+          onPress={() => setSetupOpen(true)}
+        />
       </Section>
-      <Section title="Lokal. Ohne Konto.">
+      <Section title="Deine Daten">
+        <Row
+          title="Importieren, sichern & löschen"
+          subtitle="Aus anderen Apps übernehmen, Backup anlegen, Daten entfernen"
+          onPress={() => openPage('data')}
+        />
         <Copy muted>
-          Deine Läufe bleiben auf diesem Gerät. Ein Backup exportierst du selbst.
+          Alles bleibt auf diesem Gerät. Ein Backup exportierst du selbst.
         </Copy>
+      </Section>
+      <Section title="Verstehen">
+        <Row
+          title="Trainingschat"
+          subtitle="Fragen zu deinen Einheiten stellen"
+          onPress={() => openPage('chat')}
+        />
+        <Row
+          title="Wie Runback rechnet"
+          subtitle="Grundlagen, Grenzen und gesperrte Modelle"
+          onPress={() => openPage('models')}
+        />
       </Section>
     </>
   );
@@ -1598,7 +1754,7 @@ export function RunbackApp() {
   );
   const renderData = () => (
     <>
-      <Title>Daten & Speicher</Title>
+      <Title>Deine Daten</Title>
       <Section title="Aus anderen Apps übernehmen">
         <Row
           title="App-Importe"
@@ -1805,68 +1961,59 @@ export function RunbackApp() {
     </>
   );
 
-  const renderStrengthHistory = () => {
-    const sessions = [...strengthSessions]
-      .filter(session => session.status === 'finished')
-      .sort(
-        (a, b) =>
-          (b.endTime ?? b.startTime) - (a.endTime ?? a.startTime) ||
-          b.id.localeCompare(a.id),
-      );
+  // Detail einer Krafteinheit. Gezeigt wird, was bestätigt wurde — Planwerte
+  // erscheinen hier nicht als Ist-Werte (T-6).
+  const renderSession = () => {
+    if (!selectedSession) {
+      return null;
+    }
+    const session = selectedSession;
+    const summary = summarize(session);
+    const seconds = sessionSeconds(session);
     return (
       <>
-        <Text style={styles.title}>Kraft-Historie</Text>
+        <Title>{session.name || 'Krafttraining'}</Title>
+        <Copy muted>{date(session.startTime)}</Copy>
+        <View style={styles.metrics}>
+          <Stat value={String(summary.completedSets)} label="Sätze" />
+          <Stat value={seconds ? duration(seconds) : '–'} label="Dauer" />
+          <Stat
+            value={
+              summary.volumeKg > 0
+                ? kilogramFormat.format(summary.volumeKg)
+                : '–'
+            }
+            label="Volumen kg"
+          />
+        </View>
+        <Section title="Übungen">
+          {session.exercises.length ? (
+            session.exercises.map((exercise, index) => (
+              <Row
+                key={`${exercise.exerciseId}-${index}`}
+                title={exercise.name}
+                subtitle={setsLine(exercise)}
+              />
+            ))
+          ) : (
+            <Copy muted>In dieser Einheit ist keine Übung erfasst.</Copy>
+          )}
+        </Section>
+        {session.note ? (
+          <Section title="Notiz">
+            <Copy>{session.note}</Copy>
+          </Section>
+        ) : null}
         <Copy muted>
-          Hier bleibt sichtbar, was du tatsächlich erfasst hast. Planwerte und
-          tatsächliche Sätze werden getrennt gehalten.
+          Volumen ist Last mal Wiederholungen. Sätze ohne Gewichtsangabe zählen
+          nicht hinein.
         </Copy>
-        <Copy muted>
-          Die Ansicht zeigt höchstens die 500 neuesten Einheiten nach
-          Trainingsbeginn. Ältere Einheiten bleiben im Backup erhalten.
-        </Copy>
-        {sessions.length ? (
-          sessions.map(session => {
-            const summary = summarize(session);
-            return (
-              <View key={session.id} style={styles.historyCard}>
-                <Text style={styles.subTitle}>{session.name}</Text>
-                <Text style={styles.muted}>{date(session.startTime)}</Text>
-                <View style={styles.metrics}>
-                  <Stat label="Sätze" value={String(summary.completedSets)} />
-                  <Stat
-                    label="Volumen"
-                    value={`${number(summary.volumeKg, 1)} kg`}
-                  />
-                </View>
-                <Copy muted>
-                  {session.exercises
-                    .map(
-                      exercise => `${exercise.name} (${exercise.sets.length})`,
-                    )
-                    .join(' · ')}
-                </Copy>
-              </View>
-            );
-          })
-        ) : (
-          <View style={styles.empty}>
-            <Text style={styles.subTitle}>Noch keine Kraft-Einheit.</Text>
-            <Copy muted>
-              Starte ein freies Training oder einen Plan. Jede bestätigte
-              Einheit erscheint danach hier.
-            </Copy>
-            <Button
-              title="Zum Krafttraining"
-              onPress={() => switchTab('Heute')}
-            />
-          </View>
-        )}
       </>
     );
   };
 
   const renderMuscleMap = () => {
-    const latestReport = [...sorenessReports].sort((a, b) => b.at - a.at)[0];
+    const latestReport = latestSoreness;
     return (
       <>
         <Text style={styles.title}>Muskelkarte</Text>
@@ -1947,7 +2094,7 @@ export function RunbackApp() {
 
   const renderModels = () => (
     <>
-      <Title>Auswertung & Modelle</Title>
+      <Title>Wie Runback rechnet</Title>
       <Section title="Was bereits möglich ist">
         <Copy>
           Basiswerte, Datenqualität und Einordnung des Laufzwecks werden lokal
@@ -1992,12 +2139,10 @@ export function RunbackApp() {
 
   const content = selected ? (
     renderDetail()
-  ) : page === 'statistics' ? (
-    <Statistics
-      runs={runs}
-      view={statisticsView}
-      onViewChange={next => save({ statisticsView: next })}
-    />
+  ) : page === 'session' ? (
+    renderSession()
+  ) : page === 'focus' ? (
+    renderFocus()
   ) : page === 'plans' ? (
     <PlanList
       busy={busy}
@@ -2013,8 +2158,6 @@ export function RunbackApp() {
       templates={strength.templates}
       today={new Date().getDay()}
     />
-  ) : page === 'strength-history' ? (
-    renderStrengthHistory()
   ) : page === 'chat' ? (
     <TrainingChat onSettings={() => openPage('models')} />
   ) : page === 'profile' ? (
@@ -2037,8 +2180,13 @@ export function RunbackApp() {
     ) : (
       renderHome()
     )
-  ) : tab === 'Fokus' ? (
-    renderFocus()
+  ) : tab === 'Statistik' ? (
+    <Statistics
+      runs={runs}
+      sessions={finishedSessions}
+      view={statisticsView}
+      onViewChange={next => save({ statisticsView: next })}
+    />
   ) : (
     renderMore()
   );
@@ -2187,7 +2335,48 @@ export function RunbackApp() {
       </View>
     );
   }
-  const isHistory = !selected && page === 'main' && tab === 'Läufe';
+  const isUnits = !selected && page === 'main' && tab === 'Einheiten';
+  const runCount = units.filter(unit => unit.kind === 'run').length;
+  const sessionCount = units.length - runCount;
+  const unitCountLabel =
+    unitFilter === 'runs'
+      ? `${runCount} ${runCount === 1 ? 'Lauf' : 'Läufe'}`
+      : unitFilter === 'strength'
+      ? `${sessionCount} ${
+          sessionCount === 1 ? 'Krafteinheit' : 'Krafteinheiten'
+        }`
+      : `${runCount} ${runCount === 1 ? 'Lauf' : 'Läufe'} · ${sessionCount} ${
+          sessionCount === 1 ? 'Krafteinheit' : 'Krafteinheiten'
+        }`;
+  const unitEmptyState =
+    unitFilter === 'strength' ? (
+      <EmptyState
+        title="Noch keine Krafteinheit"
+        copy="Jede bestätigte Einheit erscheint hier, mit Sätzen und Volumen."
+        action={{
+          title: 'Krafttraining starten',
+          onPress: () => switchTab('Heute'),
+        }}
+      />
+    ) : unitFilter === 'runs' ? (
+      <EmptyState
+        title="Noch kein Lauf"
+        copy="Nach deinem ersten Lauf stehen hier Strecke, Laufgefühl und der nächste Schritt."
+        action={{
+          title: 'Ersten Lauf starten',
+          onPress: () => switchTab('Heute'),
+        }}
+      />
+    ) : (
+      <EmptyState
+        title="Hier beginnt deine Historie"
+        copy="Läufe und Krafteinheiten stehen ab dem ersten Mal gemeinsam in dieser Liste."
+        action={{
+          title: 'Ersten Lauf starten',
+          onPress: () => switchTab('Heute'),
+        }}
+      />
+    );
   // Der Chat braucht die volle Höhe: Verlauf scrollt, die Eingabe bleibt unten.
   const isChat = !selected && page === 'chat';
   return (
@@ -2197,14 +2386,7 @@ export function RunbackApp() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Zurück"
-            onPress={() => {
-              if (selected) {
-                setSelected(null);
-                setMoreDetails(false);
-              } else {
-                setPage('main');
-              }
-            }}
+            onPress={leaveDetail}
             style={styles.back}
           >
             <Text style={styles.backText}>‹</Text>
@@ -2242,39 +2424,46 @@ export function RunbackApp() {
         </View>
       ) : isChat ? (
         <TrainingChat onSettings={() => openPage('models')} />
-      ) : isHistory ? (
+      ) : isUnits ? (
         <FlatList
-          data={runs}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => <RunRow run={item} open={openRun} />}
+          data={visibleUnits}
+          keyExtractor={item => item.key}
+          renderItem={({ item }) => <UnitRow unit={item} open={openUnit} />}
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <View style={styles.historyHeader}>
-              <Title>Deine Läufe</Title>
-              {runs.length ? (
-                <Copy muted>
-                  {runs.length} {runs.length === 1 ? 'Lauf' : 'Läufe'}
-                </Copy>
-              ) : null}
+              <Title>Einheiten</Title>
+              <ChipGroup
+                label="Einheiten filtern"
+                options={UNIT_FILTERS}
+                value={unitFilter}
+                onChange={setUnitFilter}
+              />
+              {units.length ? <Copy muted>{unitCountLabel}</Copy> : null}
             </View>
           }
-          ListEmptyComponent={
-            <EmptyState
-              title="Hier beginnt deine Historie"
-              copy="Nach deinem ersten Lauf stehen hier Strecke, Laufgefühl und der nächste Schritt."
-              action={{
-                title: 'Ersten Lauf starten',
-                onPress: () => switchTab('Heute'),
-              }}
-            />
+          ListEmptyComponent={unitEmptyState}
+          ListFooterComponent={
+            strengthSessions.length >= 500 ? (
+              <Copy muted>
+                Krafteinheiten: höchstens die 500 neuesten. Ältere bleiben im
+                Backup erhalten.
+              </Copy>
+            ) : null
           }
           initialNumToRender={12}
           maxToRenderPerBatch={10}
           windowSize={7}
           refreshing={busy}
           onRefresh={() => {
+            // Die Liste zeigt beides, also lädt sie auch beides nach. Fehlt die
+            // native Kraftunterstützung, bleibt der Rest unberührt.
             void action(async () => {
               await refresh();
+              await native
+                .strengthSessions(500)
+                .then(setStrengthSessions)
+                .catch(() => {});
             });
           }}
         />
@@ -2290,7 +2479,7 @@ export function RunbackApp() {
       <View
         style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
       >
-        {(['Heute', 'Läufe', 'Fokus', 'Mehr'] as Tab[]).map(name => (
+        {(['Heute', 'Einheiten', 'Statistik', 'Mehr'] as Tab[]).map(name => (
           <Pressable
             key={name}
             accessibilityRole="tab"
