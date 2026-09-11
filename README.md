@@ -22,6 +22,7 @@ Android-Telefon-App (React Native + Kotlin), eigenständige Wear-OS-App und geme
 - [Glossar](docs/glossar.md) — verständliche Bedeutungen neben englischen Fach- und Suchbegriffen.
 - [Änderungen zum ursprünglichen Entwurf](docs/aenderungen.md) — übernommene Klarstellungen und fachliche Verbesserungen.
 - [Design Language](docs/design-language.md) — verbindliche Token, Bausteine, Text- und Affordanzregeln für jede Oberfläche.
+- [Wochenplanung und Entwicklung](docs/planning.md) — Kalender, verfügbare Zeit, Änderungsvorschläge und belegbarer Fortschritt.
 - [Bedienung und spätere Auslieferung](docs/bedienung-und-auslieferung.md) — flexible Funktionswahl, klare UI und Anforderungen an spätere Test-APKs.
 - [Interaktive Systemkarte](docs/runback-system-map.html) — visueller Datenfluss von Sensorsamples bis zur Handlungsempfehlung.
 

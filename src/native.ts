@@ -11,6 +11,7 @@ import type {
   WorkoutTemplate,
 } from './domain/strength';
 import { summarize } from './domain/strength';
+import type { ScheduleState } from './domain/schedule';
 import type {
   SorenessReport as CapturedSorenessReport,
   StructuredSorenessItem,
@@ -24,6 +25,7 @@ export interface Preset {
   cues: boolean;
 }
 export interface Settings {
+  schedule?: ScheduleState;
   goal?: string;
   minutes?: number;
   purpose?: RunPurpose;
@@ -195,7 +197,8 @@ export const native = {
 export function normalizeStrength(raw: any): StrengthState {
   return {
     templates: Array.isArray(raw?.templates) ? raw.templates : [],
-    active: raw?.active && raw.active.id ? (raw.active as StrengthSession) : null,
+    active:
+      raw?.active && raw.active.id ? (raw.active as StrengthSession) : null,
     history: Array.isArray(raw?.history) ? raw.history : [],
   };
 }

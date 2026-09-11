@@ -125,6 +125,12 @@ Ein Plan besteht aus Einheiten-Slots mit Zielvorgaben. Erfasst wird, was tatsäc
 
 Die Struktur eines Plans — welche Tage, welche Übungen, welcher Umfang — steht zur Diskussion, nicht unter ständiger Bearbeitung. Last, Sätze und Wiederholungen dürfen häufiger vorgeschlagen werden, weil sie ohnehin je Einheit neu gesetzt werden.
 
+Die Kalenderplanung unterscheidet davon ausdrücklich eine vom Nutzer ausgelöste
+Terminänderung: Eine einzelne Woche darf jederzeit an verfügbare Zeit angepasst
+werden. Das verändert weder rückwirkend die Durchführung noch automatisch den
+üblichen Rhythmus oder den langfristigen Trainingsaufbau. Zusätzliche Änderungen
+an anderen Einheiten erscheinen gemeinsam als Vorschlag vor dem Übernehmen.
+
 **Fertig, wenn:**
 - Ein Strukturvorschlag höchstens etwa monatlich erscheint, sofern er begründet ist, und „Plan unverändert lassen“ ein zulässiges und häufiges Ergebnis ist.
 - Jeder Vorschlag Anlass, betroffene Slots, erwartete Wirkung und Prüfkriterium nennt.
