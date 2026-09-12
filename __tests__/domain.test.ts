@@ -87,7 +87,7 @@ describe('domain rules', () => {
     );
     expect(() =>
       transitionExperiment(completed, 'active', 3000, 'wieder öffnen'),
-    ).toThrow(/Beendete Versuche/);
+    ).toThrow(/Beendete Empfehlungen/);
   });
 
   it('tracks adherence while keeping evaluation explicitly non-causal', () => {
@@ -223,7 +223,7 @@ describe('domain rules', () => {
     );
 
     expect(result.verdict).toBe('insufficient_evidence');
-    expect(result.summary).toMatch(/Kein einheitlicher relevanter Unterschied/);
+    expect(result.summary).toMatch(/Noch nicht klar/);
     // Baseline fade 20%, follow-up fade 21%: one percentage point worse.
     expect(result.changePercentPoints).toBeCloseTo(-1, 3);
   });

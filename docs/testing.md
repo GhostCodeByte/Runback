@@ -25,7 +25,7 @@ Stand: 6. September 2026 (Emulatortests am 5. und 6. September). Dieser Bericht 
 | Wear-Aufzeichnung ohne Telefon | Berechtigungen, Start, Pause, Speichern und Historie geprüft; Übertragung zeigt „Handy verbinden“ statt unbestätigten Erfolg |
 | ZIP-Import | Synthetisches Archiv: 1 importierter Lauf, 1 erkannte Kopie, 1 übersprungene Datei, 1 fehlerhafte GPX; andere Dateien werden trotzdem verarbeitet |
 | RPE | Beine und Atmung getrennt per Tap an synthetischem Importlauf eingegeben |
-| Entscheidungsablauf | Importlauf: Zweck „Locker“ ergänzt, Pacing-Vorschlag angezeigt und als Arbeitsthema angenommen; Folgeläufe korrekt noch ausstehend |
+| Entscheidungsablauf | Importlauf: Zweck „Locker“ ergänzt, Pacing-Vorschlag angezeigt und als Empfehlung angenommen; Folgeläufe korrekt noch ausstehend |
 | Visuelle Kontrolle | Startseite, Aufzeichnung, Post-Run, Historie und rundes Uhrenlayout anhand echter Emulator-Screenshots geprüft |
 
 Synthetische Daten entstehen reproduzierbar mit `python scripts/generate_test_fixtures.py`. Sie sind technische Testdaten und keine Wirksamkeitsvalidierung. `scripts/device_ui.py` unterstützt beobachtungsbasierte ADB-Interaktionen; lokale Screenshots liegen unter `test-results/` und werden nicht als Nutzerdaten veröffentlicht.
@@ -59,7 +59,7 @@ Die offene Funktionsliste und Grenzen stehen in [implementation.md](implementati
 ## Ergänzung: Freie Aufzeichnung mit Sportart (11. September 2026)
 
 - Eine Aufzeichnung ist ohne Kalendereintrag startbar: Art (Laufen, Radfahren) und Zweck als Chips auf „Heute“, bei geplantem Lauf über „Stattdessen frei aufzeichnen“. Freie Aufzeichnungen verknüpfen sich nicht mit dem Termin; ein geplanter Lauf bleibt geplant.
-- `sport` wird nativ beim Start gespeichert, fehlt bei Altdaten (gilt dann als Lauf) und ist per Feedback korrigierbar. Laufauswertung, Statistik, Entwicklung, Fokus, Wochenkilometer und die Chat-Summen zählen nur Läufe. Jest-Regressionen für Sportart-Normalisierung, Titel, Statistik, Entwicklung und die Oberfläche (Start, Livewerte, Einheitenfilter, Detail ohne Laufauswertung) ergänzt; `npm test`, `npm run typecheck` und die Kotlin-Kompilierung (app, core, wear, Unit- und Instrumentationstests) bestanden.
+- `sport` wird nativ beim Start gespeichert, fehlt bei Altdaten (gilt dann als Lauf) und ist per Feedback korrigierbar. Laufauswertung, Empfehlungen, Statistik, Entwicklung, Wochenkilometer und die Chat-Summen zählen nur Läufe. Jest-Regressionen für Sportart-Normalisierung, Titel, Statistik, Entwicklung und die Oberfläche (Start, Livewerte, Einheitenfilter, Detail ohne Laufauswertung) ergänzt; `npm test`, `npm run typecheck` und die Kotlin-Kompilierung (app, core, wear, Unit- und Instrumentationstests) bestanden.
 - Nicht nachgewiesen: Radfahrt auf physischer Hardware mit GPS, Health-Connect-Export als `EXERCISE_TYPE_BIKING`, Wear-OS-Start (die Uhr startet weiterhin nur Läufe). Instrumentationstest `sportIsStoredAtStartAndCorrectableThroughFeedback` ergänzt, aber nicht auf einem Emulator ausgeführt.
 
 ## PR-Review und Integration (9. September 2026)

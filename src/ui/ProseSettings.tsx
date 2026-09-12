@@ -46,7 +46,8 @@ export function ProseSettings() {
       <Copy muted>
         Hier verbindest du deinen eigenen OpenRouter-Schlüssel. Im Trainingschat
         kannst du Fragen stellen und lokale Trainingsdaten einbeziehen. Die
-        Laufanalyse und Experimente werden weiterhin unabhängig lokal berechnet.
+        Laufanalyse und Empfehlungen werden weiterhin unabhängig lokal
+        berechnet.
       </Copy>
       <Row
         title="OpenRouter verwenden"

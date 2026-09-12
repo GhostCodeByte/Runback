@@ -184,7 +184,7 @@ Kovarianz          P ← (I − K·aᵀ)·P + Q
 
 Das kostet pro Meldung Millisekunden und liefert zwei Dinge gratis:
 
-1. **`P` ist die Unsicherheit.** Damit kann die App sagen: „Beinpresse → Quadrizeps: 1,4 ± 0,4, aus 6 Meldungen“. Das erfüllt Invariante 5 nicht nur formal, sondern inhaltlich.
+1. **`P` ist die Unsicherheit.** Damit kann die App sagen: „Beinpresse → Quadrizeps: 1,4 ± 0,4, aus 6 Meldungen“. Das erfüllt Grundregel 5 nicht nur formal, sondern inhaltlich.
 2. **`Q` erlaubt langsame Veränderung.** Wenn der Nutzer über Monate an eine Übung gewöhnt, sinkt ihr Koeffizient tatsächlich. Ein starres Modell würde das für Messrauschen halten.
 
 ### 6.4 Nicht unterscheidbare Koeffizienten
@@ -253,7 +253,7 @@ Der Frischeanteil ist bewusst klein — höchstens 8 Prozent. Das Modell darf di
 - Ab etwa zehn vergleichbaren Läufen: eine kleine Regression `Nachlassen ~ β₀ + β₁·(100 − F_bein) + β₂·Temperatur`, höchstens zwei Störgrößen. Ausgegeben wird der bereinigte Anteil, ausdrücklich als Beobachtung.
 - Darunter: **Caliper-Vergleich** — nur Läufe heranziehen, deren Beinfrische sich um höchstens 10 Punkte unterscheidet. Weniger Läufe, aber ein ehrlicher Vergleich.
 
-Beides sind Vergleichsregeln, keine Ursachenbehauptungen (Invariante 13).
+Beides sind Vergleichsregeln, keine Ursachenbehauptungen (Grundregel 13).
 
 **Vorwärtssimulation für die Planung.** Aus §5.3 ergibt sich für jeden geplanten Termin eine erwartete Frische. Ein Vorschlag entsteht, wenn eine als wichtig markierte Einheit vorhersehbar bei niedriger Frische der für sie entscheidenden Region landet.
 
@@ -267,7 +267,7 @@ Beides sind Vergleichsregeln, keine Ursachenbehauptungen (Invariante 13).
 2. **Zuordnung, regelbasiert.** Ein Lexikon bildet Wörter auf Regionen ab („Wade“, „Waden“, „Zwilling“ → `calf_gastroc`), auf Seiten („links“, „rechts“, „beide“) und auf Stärken („leicht“ = 3, „mittel“ = 5, „ordentlich“ = 6, „stark“ = 8, „extrem“ = 9). Diese Zuordnung ist festgeschrieben und versioniert, nicht bei jedem Aufruf neu erfunden.
 3. **Unschärfe.** Erkennungsfehler werden über normalisierte Levenshtein-Distanz (≥ 0,8) und Trigramm-Ähnlichkeit gegen das Lexikon abgefangen.
 4. **Bestätigung.** Das Ergebnis färbt sofort die Figur. Erst ein Tippen speichert.
-5. **Der LLM-Weg endet an derselben Prüfung.** Wenn OpenRouter benutzt wird, liefert es strukturierte Felder, die durch dasselbe Lexikon müssen. Eine Region, die es nicht gibt, wird verworfen, nicht erfunden. Damit bleibt Invariante 6 gewahrt: Das Modell hört zu, die Regeln entscheiden.
+5. **Der LLM-Weg endet an derselben Prüfung.** Wenn OpenRouter benutzt wird, liefert es strukturierte Felder, die durch dasselbe Lexikon müssen. Eine Region, die es nicht gibt, wird verworfen, nicht erfunden. Damit bleibt Grundregel 6 gewahrt: Das Modell hört zu, die Regeln entscheiden.
 
 ---
 
@@ -286,9 +286,9 @@ Schlägt das Modell diese nicht, ist es Zierde und bleibt aus.
 
 **Zeitverhaltensprüfung.** Der beobachtete Anstieg nach einer harten Einheit muss die Form von `h_total` treffen. Wenn Meldungen regelmäßig ihr Maximum nach 48 statt nach 24 Stunden erreichen, sind die Zeitkonstanten falsch.
 
-**Stabilitätsprüfung.** Eine einzelne zusätzliche Meldung darf keine Region um mehr als eine festgelegte Spanne verschieben (Invariante 14).
+**Stabilitätsprüfung.** Eine einzelne zusätzliche Meldung darf keine Region um mehr als eine festgelegte Spanne verschieben (Grundregel 14).
 
-**Ausfallprüfung.** Ohne Meldungen, ohne Katalogwerte, mit widersprüchlichen Angaben und mit einer Lücke von Monaten muss das Modell „unbekannt“ liefern und nicht abstürzen (Invariante 7).
+**Ausfallprüfung.** Ohne Meldungen, ohne Katalogwerte, mit widersprüchlichen Angaben und mit einer Lücke von Monaten muss das Modell „unbekannt“ liefern und nicht abstürzen (Grundregel 7).
 
 ---
 

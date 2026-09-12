@@ -307,13 +307,13 @@ export function queryEngine(
     ? analyzeRun(latest, active)
     : undefined;
   const answer = !analysis
-    ? 'Noch keine Läufe vorhanden. Eine wichtigste Trainingsänderung ist nicht beurteilbar.'
+    ? 'Noch keine Läufe vorhanden. Für eine Empfehlung fehlen noch passende Daten.'
     : question === 'why'
     ? active?.recommendation.reason ?? analysis.focus
     : question === 'what_would_change'
     ? active
-      ? 'Die vorab festgelegte Prüfung geeigneter Folgeläufe, ein geändertes Ziel oder ein Modellfehler. Neue Daten allein ändern dein Arbeitsthema nicht.'
-      : 'Ein passender Laufzweck, mindestens vier geeignete flache Abschnitte und eine belegbare Tempoauffälligkeit können die nächste Einordnung ändern.'
+      ? 'Die Auswertung späterer passender Läufe, ein geändertes Ziel oder ein Fehler im Rechenmodell können Anlass sein, neu zu entscheiden. Neue Daten allein ersetzen deine Empfehlung nicht.'
+      : 'Wenn klar ist, wofür du gelaufen bist, können mindestens vier passende flache Abschnitte zeigen, ob ein ruhigerer Start sinnvoll wäre.'
     : analysis.focus;
   return {
     answer,

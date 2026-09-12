@@ -227,7 +227,7 @@ class OpenRouterProse(context: Context) {
 
     private fun render(engine: JSONObject, hash: String, variant: String, source: String, reason: String?): JSONObject {
         val fields = if (variant == "action_first") listOf("nextAction", "classification", "focus") else listOf("classification", "focus", "nextAction")
-        val labels = mapOf("classification" to "Einordnung", "focus" to "Fokus", "nextAction" to "Nächster Schritt")
+        val labels = mapOf("classification" to "Einordnung", "focus" to "Stand der Empfehlung", "nextAction" to "Nächster Schritt")
         return JSONObject().put("inputHash", hash).put("modelVersion", engine.optString("model_version"))
             .put("formulationVersion", FORMULATION_VERSION).put("source", source).put("variant", variant)
             .put("classification", engine.optString("classification")).put("focus", engine.optString("focus"))

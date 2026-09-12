@@ -81,6 +81,7 @@ export interface PacingAnalysis {
   segmentIds: string[];
 }
 export interface Recommendation extends Provenance {
+  priority?: { version: string; focusLabel: string; weight: number };
   id: string;
   kind: 'calmer_start';
   title: string;

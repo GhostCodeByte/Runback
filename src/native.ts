@@ -1,4 +1,5 @@
 import { NativeModules } from 'react-native';
+import type { TrainingFocus } from './domain/focus';
 import type {
   RunSummary,
   RunPurpose,
@@ -29,6 +30,8 @@ export interface Preset {
 export interface Settings {
   schedule?: ScheduleState;
   goal?: string;
+  goalTargetDate?: string;
+  trainingFocus?: TrainingFocus | null;
   minutes?: number;
   purpose?: RunPurpose;
   /** Zuletzt gewählte Sportart für die freie Aufzeichnung. */

@@ -12,14 +12,14 @@ Ziel: Eine neue Seite sieht sofort richtig aus, weil sie nichts selbst entscheid
 
 1. **Eine Aussage je Fläche.** Jede Karte, jeder Abschnitt beantwortet genau eine Frage.
    Zwei Aussagen sind zwei Flächen.
-2. **Zahlen statt Sätze.** Was messbar ist, wird als Wert mit Einheit gezeigt, nicht
-   umschrieben. Erklärtext ist die teuerste Form von Information.
+2. **Ein Satz für die Handlung.** Die wichtigste Aussage steht als kurzer Satz
+   im Imperativ. Eine Zahl erscheint nur, wenn sie eine Entscheidung verändert.
 3. **Ehrliche Affordanzen.** Ein Bedienelement sieht genau so aus, wie es sich verhält
    (§ 8). Kein Symbol verspricht etwas, das nicht passiert.
 4. **Der Inhalt trägt, nicht die Dekoration.** Keine Schatten, keine Verläufe, keine
    Zierlinien. Struktur entsteht durch Fläche, Abstand und eine Trennlinie.
-5. **Kein Text ohne Konsequenz.** Wenn ein Satz die nächste Handlung des Nutzers nicht
-   ändert, wird er gelöscht.
+5. **Kein Text ohne Konsequenz.** Wenn ein Satz die Empfehlung oder die nächste
+   Entscheidung des Nutzers nicht ändert, wird er gelöscht.
 
 ## 2. Farbe
 
@@ -108,7 +108,7 @@ Varianten davon.
 - **`Notice`** — Fehler- oder Erfolgsmeldung, `raised` mit grünem Balken links,
   antippbar zum Schließen, `accessibilityLiveRegion="polite"`.
 - **`EmptyState`** — Titel, ein Satz, genau eine Aktion. Leere Zustände erklären nicht
-  die App, sondern bieten den nächsten Schritt an.
+  die App, sondern bieten die nächste Entscheidung an.
 
 ## 6. Seitengerüst
 
@@ -118,8 +118,8 @@ Jeder Bildschirm folgt derselben Reihenfolge:
    Ladeanzeige).
 2. **Titel** — genau ein `title` je Bildschirm. Kein Datum, keine Begrüßung, kein
    Untertitel, der den Titel wiederholt.
-3. **Handlung** — die eine Sache, die der Nutzer hier tun kann, so weit oben wie möglich.
-4. **Kontext** — Werte und Listen, die diese Handlung stützen.
+3. **Empfehlung** — die eine Sache, die der Nutzer hier tun kann, so weit oben wie möglich.
+4. **Kontext** — Werte und Listen, die diese Empfehlung stützen.
 5. **Nebenwege** — Verwaltung, Details, Löschen; unten, sekundär, gern hinter
    „Details ansehen“.
 
@@ -136,9 +136,21 @@ Verboten im Kopfbereich: aktuelles Datum, Uhrzeit, Begrüßungsformeln, Zustands
   die zugehörige Detail- oder Einstellungsseite, nicht auf die Startseite. Sie
   verschwinden nicht, sie stehen nur dort, wo sie gebraucht werden.
 - Aktionen beginnen mit dem Verb: „Lauf starten“, „Backup exportieren“,
-  „Fokus festlegen“.
+  „Fokus speichern“.
 - Anleitungen werden erst gezeigt, **nachdem** der Nutzer gewählt hat, worum es geht
   (§ 9). Nie alle Varianten gleichzeitig.
+- Die Ebene 1 zeigt nur den Satz der Empfehlung. Ebene 2 erklärt in höchstens
+  zwei Zeilen, warum er erscheint. Ebene 3 zeigt unter „Details“ Datenbasis,
+  Modellversion und Unsicherheit.
+- Unsicherheit wird in Worten beschrieben: „ziemlich sicher“, „eher ein
+  Eindruck“ oder „noch nicht klar“. Intervalle gehören unter „Details“ und
+  erscheinen nicht als scheinpräzise Alltagssicherheit.
+- Zustände stehen als Labels neben dem Inhalt: „Vorschlag“, „Angenommen“,
+  „Aktiv“, „Pausiert“, „Abgeschlossen“ und „Abgebrochen“. Sie werden nicht in
+  einem Fachbegriff versteckt.
+- Kein Fachwort, das ein Laufkumpel nicht schon kennt. „HR-Drift 8 bpm bei
+  stabiler GAP“ wird zu „Dein Puls ist im letzten Drittel um 8 Schläge
+  gestiegen, obwohl du gleich schnell warst“.
 - Duzen, deutsche Anführungszeichen („…“), Halbgeviertstrich mit Leerzeichen als
   Gedankenstrich (` — `), Mittelpunkt als Trennzeichen in Werteketten (` · `).
 
@@ -185,6 +197,11 @@ Jede datengetriebene Ansicht deckt vier Zustände ab:
 - **Beschäftigt** — auslösendes Element `disabled`, Statusanzeige im Kopf. Die
   Oberfläche springt dabei nicht um.
 
+Empfehlungen tragen zusätzlich ihr sichtbares Ablauf-Label: „Vorschlag“ vor
+der Annahme, „Angenommen“ nach der Annahme sowie „Aktiv“, „Pausiert“,
+„Abgeschlossen“ oder „Abgebrochen“ danach. Der Fokus hat kein Ergebnislabel,
+weil er nicht bewertet wird.
+
 ## 11. Barrierefreiheit
 
 - Jedes bedienbare Element hat `accessibilityRole` und, wenn die Beschriftung allein
@@ -226,7 +243,9 @@ sprechend und werden verworfen.
 
 - [ ] Nur Token aus `color`, `space`, `radius`, `type` verwendet.
 - [ ] Genau ein `title`, genau eine primäre Aktion.
-- [ ] Kein Satz, der die nächste Handlung nicht ändert.
+- [ ] Kein Satz, der die Empfehlung oder eine Entscheidung nicht ändert.
+- [ ] Die Hauptebene ist ein kurzer Imperativ; Begründung und Datenbasis liegen tiefer.
+- [ ] Keine Fachwörter ohne klaren Alltagsnutzen.
 - [ ] Jedes Symbol hält, was § 8 verspricht.
 - [ ] Leer-, Lade-, Fehler- und Beschäftigt-Zustand vorhanden.
 - [ ] Berührungsflächen ≥ 48 dp, `accessibilityRole` und `-State` gesetzt.

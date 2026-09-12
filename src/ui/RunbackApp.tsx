@@ -22,6 +22,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FocusEditor } from './FocusEditor';
+import { focusLabel } from '../domain/focus';
+import { selectRecommendations } from '../domain/recommendationSelection';
 import { Onboarding } from './Onboarding';
 import { Statistics, readStatisticsView } from './Statistics';
 import { PlanningScreen } from './PlanningScreen';
@@ -186,6 +189,7 @@ type Tab = 'Heute' | 'Planung' | 'Einheiten' | 'Statistik' | 'Mehr';
 type Page =
   | 'main'
   | 'focus'
+  | 'orientation'
   | 'session'
   | 'plans'
   | 'muscle-map'
@@ -367,6 +371,9 @@ export function RunbackApp() {
   const [importStatus, setImportStatus] = useState<any>(null);
   const [moreDetails, setMoreDetails] = useState(false);
   const [criteriaOpen, setCriteriaOpen] = useState(false);
+  const [pastRecommendationOpen, setPastRecommendationOpen] = useState<
+    string | null
+  >(null);
   const [goalInput, setGoalInput] = useState('');
   const [goalStartInput, setGoalStartInput] = useState('');
   const [goalTargetInput, setGoalTargetInput] = useState('');
@@ -406,7 +413,7 @@ export function RunbackApp() {
     [settings.schedule, settings.trainingDays, settings.minutes],
   );
   const runs = state.runs;
-  // Nur Läufe tragen Tempo, Fokus und Kilometer; Radfahrten stehen daneben.
+  // Nur Läufe tragen diese Tempoauswertung und Kilometer; Radfahrten stehen daneben.
   const runningRuns = useMemo(() => runs.filter(isRun), [runs]);
   const statisticsView = useMemo(
     () => readStatisticsView(settings.statisticsView),
@@ -458,13 +465,32 @@ export function RunbackApp() {
     () => units.filter(unit => unitMatches(unit, unitFilter)),
     [units, unitFilter],
   );
-  const candidate = analyses.find(
-    a =>
-      a.analysis.recommendation &&
-      !settings.dismissedRecommendations?.includes(
-        a.analysis.recommendation.id,
-      ),
-  )?.analysis.recommendation;
+  const selection = useMemo(
+    () =>
+      selectRecommendations(runningRuns, {
+        active: experiment,
+        experiments: settings.experiments,
+        dismissed: settings.dismissedRecommendations,
+        postponedUntil: settings.postponedUntil,
+        focus: settings.trainingFocus,
+        targetDate: settings.goalTargetDate || schedule.goal?.targetDate,
+        today: localDateKey(now),
+        now,
+      }),
+    [
+      runningRuns,
+      experiment,
+      settings.experiments,
+      settings.dismissedRecommendations,
+      settings.postponedUntil,
+      settings.trainingFocus,
+      settings.goalTargetDate,
+      schedule.goal?.targetDate,
+      now,
+    ],
+  );
+  const candidate = experiment ? undefined : selection.selected;
+  const queued = experiment ? selection.selected : undefined;
   const purpose = settings.purpose || 'free';
   const sport = normalizeSport(settings.sport);
   const words = sportWords(sport);
@@ -749,7 +775,9 @@ export function RunbackApp() {
     if (next === 'profile') {
       setGoalInput(schedule.goal?.name || settings.goal || '');
       setGoalStartInput(schedule.goal?.startDate || '');
-      setGoalTargetInput(schedule.goal?.targetDate || '');
+      setGoalTargetInput(
+        settings.goalTargetDate || schedule.goal?.targetDate || '',
+      );
       setGoalPhaseInput(schedule.goal?.phase || '');
       setMinuteInput(String(settings.minutes || 30));
     }
@@ -1356,24 +1384,45 @@ export function RunbackApp() {
       </Section>
       <Section title="Dein Fokus">
         <Row
+          title={focusLabel(settings.trainingFocus)}
+          subtitle="Deine dauerhafte Orientierung"
+          onPress={() => openPage('orientation')}
+        />
+      </Section>
+      <Section title="Dein Ziel">
+        <Row
+          title={settings.goal || schedule.goal?.name || 'Kein Ziel gesetzt'}
+          subtitle="Ziel & Alltag"
+          onPress={() => openPage('profile')}
+        />
+      </Section>
+      <Section title="Empfehlung">
+        <Row
           title={
             experiment
-              ? experiment.recommendation.title
+              ? experiment.recommendation.action
               : candidate
-              ? candidate.title
-              : 'Noch kein Fokus'
+              ? candidate.action
+              : 'Noch keine Empfehlung'
           }
           subtitle={
             experiment
               ? experiment.status === 'paused'
-                ? 'Pausiert'
-                : experiment.recommendation.action
+                ? 'Angenommen · Pausiert'
+                : 'Angenommen · Aktiv'
               : candidate
-              ? 'Ein Vorschlag wartet auf deine Entscheidung'
-              : 'Eine Änderung, die Runback über mehrere Läufe prüft'
+              ? 'Vorschlag'
+              : 'Zeichne weiter auf oder sieh nach, was noch fehlt.'
           }
           onPress={() => openPage('focus')}
         />
+        {queued ? (
+          <Row
+            title="Danach vorgesehen"
+            subtitle={queued.action}
+            onPress={() => openPage('focus')}
+          />
+        ) : null}
       </Section>
       <Section title="Dein Körper">
         <Row
@@ -1519,9 +1568,15 @@ export function RunbackApp() {
 
   // Prüfkriterien bleiben nachvollziehbar, stehen aber hinter einem Schalter:
   // Auf der Seite steht die Handlung, nicht das Verfahren.
-  const renderCriteria = (recommendation: Recommendation) => (
+  const renderCriteria = (recommendation: Recommendation, accepted = false) => (
     <>
+      <Copy>Woran erkennen wir, dass es geholfen hat?</Copy>
       <Copy muted>{recommendation.goal}</Copy>
+      <Copy muted>
+        {accepted
+          ? 'Vor dem Start festgelegt. Ein Fokuswechsel ändert diese Regeln nicht.'
+          : 'Bei der Annahme werden diese Regeln festgeschrieben.'}
+      </Copy>
       <Copy muted>
         {recommendation.criteria.minimumObservations} geeignete Läufe über
         mindestens {recommendation.criteria.minimumDays} Tage ·{' '}
@@ -1533,29 +1588,115 @@ export function RunbackApp() {
           {text}
         </Copy>
       ))}
+      <Row title="Modellversion" subtitle={recommendation.model_version} />
+      <Copy muted>
+        Wenn nach {recommendation.criteria.maxDays} Tagen noch zu wenig
+        vergleichbare Läufe vorliegen, entscheide neu, wie du weitertrainieren
+        möchtest.
+      </Copy>
+      <Section title="Vergleichsläufe">
+        {recommendation.criteria.baselineRunIds.map(id => {
+          const run = runningRuns.find(item => item.id === id);
+          return (
+            <Row
+              key={id}
+              title={
+                run ? runTitle(run) : 'Vergleichslauf nicht mehr vorhanden'
+              }
+              subtitle={run ? date(run.startTime) : undefined}
+            />
+          );
+        })}
+      </Section>
+      <Section title="So priorisiert Runback">
+        {recommendation.priority ? (
+          <Row
+            title={recommendation.priority.focusLabel}
+            subtitle={`${recommendation.priority.version} · redaktionelles Gewicht ${recommendation.priority.weight}`}
+          />
+        ) : (
+          <Copy muted>
+            Für diese ältere Empfehlung wurde keine Fokus-Priorisierung
+            gespeichert.
+          </Copy>
+        )}
+        <Copy muted>
+          Die Auswahlregeln sind redaktionell festgelegt. Sie lernen keine
+          Vorlieben aus deinen Läufen.
+        </Copy>
+        <Copy muted>
+          Derzeit ist nur der ruhigere Start als überprüfbare Empfehlung
+          verfügbar. Pulsverlauf und Schrittfrequenz liefern noch keine eigenen
+          Empfehlungen.
+        </Copy>
+      </Section>
     </>
   );
 
+  const storedRunTitle = (id: string) => {
+    const run = runningRuns.find(item => item.id === id);
+    return run ? runTitle(run) : 'Lauf nicht mehr vorhanden';
+  };
+  const renderAlternatives = () => (
+    <Section
+      title={
+        experiment ? 'Auswahl für danach' : 'Andere geprüfte Möglichkeiten'
+      }
+    >
+      <Copy muted>
+        Diese Auswahl nutzt die aktuell vorhandenen Läufe. Die gespeicherte
+        Prüfung bleibt unverändert.
+      </Copy>
+      {selection.alternatives.length ? (
+        selection.alternatives.map(item => (
+          <Row
+            key={item.runId}
+            title={`${
+              item.recommendation?.title || 'Starteinteilung'
+            } · ${storedRunTitle(item.runId)}`}
+            subtitle={item.reason}
+          />
+        ))
+      ) : (
+        <Copy muted>
+          Keine weitere Möglichkeit aus den vorhandenen Daten geprüft.
+        </Copy>
+      )}
+    </Section>
+  );
   const renderRecommendation = (recommendation: Recommendation) => (
     <>
       <Copy>{recommendation.action}</Copy>
       <Copy muted>{recommendation.reason}</Copy>
       <Button
-        title="Fokus übernehmen"
+        title="Empfehlung annehmen"
         onPress={() => accept(recommendation)}
         disabled={busy}
       />
       <Button
         secondary
         small
-        title={criteriaOpen ? 'Prüfkriterien ausblenden' : 'Wie wird geprüft?'}
+        title={criteriaOpen ? 'Details ausblenden' : 'Details ansehen'}
         onPress={() => setCriteriaOpen(value => !value)}
       />
-      {criteriaOpen ? renderCriteria(recommendation) : null}
+      {criteriaOpen ? (
+        <>
+          {renderCriteria(recommendation)}
+          {renderAlternatives()}
+        </>
+      ) : null}
+      <Button
+        secondary
+        small
+        title="Später entscheiden"
+        disabled={busy}
+        onPress={() => save({ postponedUntil: Date.now() + DAY })}
+      />
       <Button
         secondary
         small
         title="Vorschlag ablehnen"
+        disabled={busy}
         onPress={() =>
           save({
             dismissedRecommendations: [
@@ -1573,7 +1714,15 @@ export function RunbackApp() {
       ? evaluateExperiment(experiment, runningRuns, settings.adherence)
       : null;
     const needsPurpose = runningRuns.some(run => !hasNamedPurpose(run.purpose));
-    const missing = !runningRuns.length
+    const maintaining = analyses[0]?.analysis.state === 'maintain';
+    const postponed = Boolean(
+      settings.postponedUntil && settings.postponedUntil > now,
+    );
+    const missing = postponed
+      ? 'Du hast den Vorschlag auf morgen verschoben.'
+      : maintaining
+      ? analyses[0].analysis.focus
+      : !runningRuns.length
       ? 'Dafür fehlt noch ein aufgezeichneter Lauf.'
       : needsPurpose
       ? 'Dafür fehlt bei mindestens einem Lauf der Trainingszweck.'
@@ -1583,22 +1732,54 @@ export function RunbackApp() {
     );
     return (
       <>
-        <Title>Dein Fokus</Title>
+        <Title>
+          {experiment?.status === 'paused'
+            ? 'Entscheide, wann du weitermachst.'
+            : experiment
+            ? 'Bleib bei deiner Empfehlung.'
+            : candidate
+            ? 'Prüfe, ob der Vorschlag zu dir passt.'
+            : 'Sieh nach, was deine Läufe zeigen.'}
+        </Title>
         {experiment ? (
           <>
             <Card>
               <Text style={styles.cardTitle}>
-                {experiment.recommendation.title}
+                {experiment.recommendation.action}
               </Text>
-              <Copy>{experiment.recommendation.action}</Copy>
               <Copy muted>
                 {experiment.status === 'paused'
-                  ? 'Pausiert'
-                  : `Aktiv seit ${date(experiment.acceptedAt)}`}
+                  ? 'Angenommen · Pausiert'
+                  : `Angenommen · Aktiv seit ${date(experiment.acceptedAt)}`}
               </Copy>
             </Card>
             <Section title="Ergebnis bisher">
-              <Copy>{evaluation?.summary}</Copy>
+              <Row
+                title="Hast du es ausprobiert?"
+                subtitle={
+                  evaluation?.adherence.some(item => item.value === 'yes')
+                    ? 'Ja, in passenden Läufen.'
+                    : evaluation?.verdict === 'not_implemented'
+                    ? 'Du hast es bisher nicht probiert.'
+                    : 'Noch nicht klar.'
+                }
+              />
+              <Row
+                title="Ist es besser geworden?"
+                subtitle={
+                  evaluation?.verdict === 'improved'
+                    ? 'Du hast zum Ende weniger Tempo verloren.'
+                    : evaluation?.verdict === 'worsened'
+                    ? 'Du hast zum Ende mehr Tempo verloren.'
+                    : evaluation?.verdict === 'no_relevant_effect'
+                    ? 'Kein spürbarer Unterschied.'
+                    : 'Noch nicht klar.'
+                }
+              />
+              <Row
+                title="Lag es an der Empfehlung?"
+                subtitle="Noch nicht klar. Wetter und Tagesform können mitwirken."
+              />
               <Copy muted>
                 {evaluation?.eligibleRunIds.length || 0} geeignete Läufe seit
                 dem Start
@@ -1606,22 +1787,51 @@ export function RunbackApp() {
               <Button
                 secondary
                 small
-                title={
-                  criteriaOpen
-                    ? 'Prüfkriterien ausblenden'
-                    : 'Wie wird geprüft?'
-                }
+                title={criteriaOpen ? 'Details ausblenden' : 'Details ansehen'}
                 onPress={() => setCriteriaOpen(value => !value)}
               />
-              {criteriaOpen ? renderCriteria(experiment.recommendation) : null}
+              {criteriaOpen ? (
+                <>
+                  <Copy muted>{evaluation?.summary}</Copy>
+                  {renderCriteria(experiment.recommendation, true)}
+                  {evaluation?.excluded.map(item => (
+                    <Row
+                      key={item.runId}
+                      title={storedRunTitle(item.runId)}
+                      subtitle={item.reason}
+                    />
+                  ))}
+                </>
+              ) : null}
             </Section>
-            <Section title="Fokus verwalten">
+            {queued ? (
+              <Section title="Danach vorgesehen">
+                <Copy>{queued.action}</Copy>
+                <Copy muted>{queued.reason}</Copy>
+                <Copy muted>
+                  Eine Vorschau aus späteren Läufen. Sie startet nicht
+                  automatisch und wird nach Abschluss erneut geprüft.
+                </Copy>
+              </Section>
+            ) : null}
+            {criteriaOpen ? (
+              <>
+                {queued ? (
+                  <Section title="Grundlage der Vorschau">
+                    {renderCriteria(queued)}
+                  </Section>
+                ) : null}
+                {renderAlternatives()}
+              </>
+            ) : null}
+            <Section title="Empfehlung verwalten">
               <Button
                 secondary
+                disabled={busy}
                 title={
                   experiment.status === 'paused'
-                    ? 'Fokus fortsetzen'
-                    : 'Fokus pausieren'
+                    ? 'Empfehlung fortsetzen'
+                    : 'Empfehlung pausieren'
                 }
                 onPress={() =>
                   changeExperiment(
@@ -1631,15 +1841,17 @@ export function RunbackApp() {
               />
               <Button
                 secondary
-                title="Fokus abschließen"
+                title="Empfehlung abschließen"
+                disabled={busy}
                 onPress={() => changeExperiment('completed')}
               />
               <Button
                 danger
-                title="Fokus abbrechen"
+                title="Empfehlung abbrechen"
+                disabled={busy}
                 onPress={() =>
                   Alert.alert(
-                    'Fokus abbrechen?',
+                    'Empfehlung abbrechen?',
                     'Die bisherige Prüfung bleibt gespeichert.',
                     [
                       { text: 'Zurück', style: 'cancel' },
@@ -1654,14 +1866,22 @@ export function RunbackApp() {
             </Section>
           </>
         ) : candidate ? (
-          <Section title={candidate.title}>
-            {renderRecommendation(candidate)}
-          </Section>
+          <Section title="Vorschlag">{renderRecommendation(candidate)}</Section>
         ) : (
           <>
             <EmptyState
-              title="Noch kein Fokus"
-              copy="Ein Fokus ist eine einzelne Änderung, die Runback über mehrere Läufe hinweg überprüft."
+              title={
+                postponed
+                  ? 'Entscheide morgen in Ruhe.'
+                  : maintaining
+                  ? 'Behalte deine Einteilung bei.'
+                  : 'Noch keine Empfehlung'
+              }
+              copy={
+                maintaining
+                  ? 'Für diesen Lauf ist aktuell keine Änderung nötig.'
+                  : 'Zeichne weiter auf. Eine Empfehlung erscheint, wenn deine Daten sie tragen.'
+              }
               action={
                 runningRuns.length
                   ? {
@@ -1677,20 +1897,50 @@ export function RunbackApp() {
               }
             />
             <Copy muted>{missing}</Copy>
+            <Button
+              secondary
+              small
+              title={criteriaOpen ? 'Details ausblenden' : 'Details ansehen'}
+              onPress={() => setCriteriaOpen(value => !value)}
+            />
+            {criteriaOpen ? renderAlternatives() : null}
+            {postponed ? (
+              <Button
+                secondary
+                title="Vorschlag jetzt ansehen"
+                onPress={() => save({ postponedUntil: 0 })}
+              />
+            ) : null}
           </>
         )}
         {past.length ? (
-          <Section title="Frühere Fokusthemen">
+          <Section title="Frühere Empfehlungen">
             {past.map(e => (
-              <Row
-                key={e.id}
-                title={e.recommendation.title}
-                subtitle={`${
+              <Card key={e.id}>
+                <Copy>{e.recommendation.action}</Copy>
+                <Copy muted>{`${
                   e.status === 'completed' ? 'Abgeschlossen' : 'Abgebrochen'
                 } · ${
                   evaluateExperiment(e, runningRuns, settings.adherence).summary
-                }`}
-              />
+                }`}</Copy>
+                <Button
+                  secondary
+                  small
+                  title={
+                    pastRecommendationOpen === e.id
+                      ? 'Gespeicherte Details ausblenden'
+                      : 'Gespeicherte Details ansehen'
+                  }
+                  onPress={() =>
+                    setPastRecommendationOpen(
+                      pastRecommendationOpen === e.id ? null : e.id,
+                    )
+                  }
+                />
+                {pastRecommendationOpen === e.id
+                  ? renderCriteria(e.recommendation, true)
+                  : null}
+              </Card>
             ))}
           </Section>
         ) : null}
@@ -1808,7 +2058,7 @@ export function RunbackApp() {
             <Copy>{snapshot.nextAction}</Copy>
             {snapshot.recommendation && !experiment ? (
               <Button
-                title="Als Fokus prüfen"
+                title="Empfehlung ansehen"
                 onPress={() => {
                   setSelected(null);
                   setTab('Heute');
@@ -1853,7 +2103,7 @@ export function RunbackApp() {
         {experiment &&
         snapshot &&
         selected.startTime > experiment.acceptedAt ? (
-          <Section title="Fokus umgesetzt?">
+          <Section title="Hast du die Empfehlung ausprobiert?">
             <View style={styles.choiceRow}>
               {(
                 [
@@ -1970,7 +2220,7 @@ export function RunbackApp() {
                 onPress={() =>
                   Alert.alert(
                     'Diese Aufzeichnung löschen?',
-                    'Originaldaten und Feedback dieser Aufzeichnung werden dauerhaft entfernt. Bereits gespeicherte Prüfbedingungen bleiben erhalten.',
+                    'Originaldaten und Feedback dieser Aufzeichnung werden dauerhaft entfernt. Die vorher festgelegten Regeln bleiben gespeichert.',
                     [
                       { text: 'Behalten', style: 'cancel' },
                       {
@@ -2011,8 +2261,13 @@ export function RunbackApp() {
       <Title>Mehr</Title>
       <Section title="Einstellungen">
         <Row
+          title="Dein Fokus"
+          subtitle={focusLabel(settings.trainingFocus)}
+          onPress={() => openPage('orientation')}
+        />
+        <Row
           title="Ziel & Alltag"
-          subtitle="Laufziel, Zeitbudget und mögliche Lauftage"
+          subtitle="Optionales Ziel, Zeitbudget und mögliche Lauftage"
           onPress={() => openPage('profile')}
         />
         <Row
@@ -2065,17 +2320,39 @@ export function RunbackApp() {
 
   const renderProfile = () => (
     <>
-      <Title>Ziel & Alltag</Title>
+      <Title>Plane dein Training.</Title>
       <Section title="Was möchtest du erreichen?">
         <TextInput
-          accessibilityLabel="Übergeordnetes Laufziel"
+          accessibilityLabel="Dein Ziel"
           value={goalInput}
           onChangeText={setGoalInput}
-          placeholder="Zum Beispiel: regelmäßig laufen"
+          placeholder="Zum Beispiel: Halbmarathon im April"
           placeholderTextColor={color.muted}
           style={styles.input}
           selectionColor={color.green}
         />
+        {settings.goal || schedule.goal ? (
+          <Button
+            secondary
+            small
+            title="Ziel entfernen"
+            disabled={busy}
+            onPress={() => {
+              void action(async () => {
+                await persist({
+                  goal: '',
+                  goalTargetDate: '',
+                  schedule: { ...schedule, goal: undefined },
+                });
+                setGoalInput('');
+                setGoalStartInput('');
+                setGoalTargetInput('');
+                setGoalPhaseInput('');
+                setMessage('Ziel entfernt. Dein Fokus bleibt bestehen.');
+              });
+            }}
+          />
+        ) : null}
       </Section>
       <Section title="Zeit für den nächsten Lauf">
         <View style={styles.timeInput}>
@@ -2112,12 +2389,12 @@ export function RunbackApp() {
             style={styles.input}
           />
         </Field>
-        <Field label="Aktueller Schwerpunkt (optional)">
+        <Field label="Trainingsphase (optional)">
           <TextInput
-            accessibilityLabel="Aktueller Schwerpunkt"
+            accessibilityLabel="Trainingsphase"
             value={goalPhaseInput}
             onChangeText={setGoalPhaseInput}
-            placeholder="Zum Beispiel: regelmäßig trainieren"
+            placeholder="Zum Beispiel: Wettkampfvorbereitung"
             placeholderTextColor={color.muted}
             style={styles.input}
           />
@@ -2191,12 +2468,15 @@ export function RunbackApp() {
                   );
                 }
               }
-              if (targetDate && (!startDate || targetDate < startDate)) {
+              if (targetDate && startDate && targetDate < startDate) {
                 throw new Error(
                   'Trage einen Planbeginn ein, der spätestens am Zieldatum liegt.',
                 );
               }
-              if ((startDate || goalPhaseInput.trim()) && !goalInput.trim()) {
+              if (
+                (startDate || targetDate || goalPhaseInput.trim()) &&
+                !goalInput.trim()
+              ) {
                 throw new Error('Trage zuerst dein Ziel ein.');
               }
               if (goalPhaseInput.trim() && !startDate) {
@@ -2206,6 +2486,7 @@ export function RunbackApp() {
               }
               await persist({
                 goal: goalInput.trim(),
+                goalTargetDate: targetDate,
                 minutes,
                 schedule: {
                   ...schedule,
@@ -2639,6 +2920,12 @@ export function RunbackApp() {
     />
   ) : page === 'session' ? (
     renderSession()
+  ) : page === 'orientation' ? (
+    <FocusEditor
+      focus={settings.trainingFocus}
+      goal={settings.goal || schedule.goal?.name || ''}
+      persist={trainingFocus => persist({ trainingFocus })}
+    />
   ) : page === 'focus' ? (
     renderFocus()
   ) : page === 'plans' ? (

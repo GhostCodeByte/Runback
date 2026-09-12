@@ -42,7 +42,7 @@ type ProseSettings = {
 const SUGGESTIONS = [
   'Was steht diese Woche an?',
   'Wie war mein letzter Lauf?',
-  'Erkläre meinen Fokus',
+  'Erkläre meine Empfehlung',
 ];
 
 /**
@@ -216,7 +216,10 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
           accessibilityRole="button"
           accessibilityLabel="Chat-Optionen"
           onPress={() => setOptionsOpen(true)}
-          style={({ pressed }) => [styles.headAction, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.headAction,
+            pressed && styles.pressed,
+          ]}
         >
           <Text style={styles.headActionText}>Optionen</Text>
         </Pressable>
@@ -377,8 +380,9 @@ export function TrainingChat({ onSettings }: { onSettings: () => void }) {
             </View>
             {model ? <Copy muted>Modell: {model}</Copy> : null}
             <Copy muted>
-              Nachrichten und freigegebene Trainingsdaten gehen an OpenRouter und
-              den gewählten Modellanbieter. GPS-Koordinaten und Rohsamples nicht.
+              Nachrichten und freigegebene Trainingsdaten gehen an OpenRouter
+              und den gewählten Modellanbieter. GPS-Koordinaten und Rohsamples
+              nicht.
             </Copy>
             <Copy muted>
               Antworten sind Einschätzungen und ändern keine Auswertung.

@@ -1,7 +1,7 @@
 # Runback – Zielspezifikation Training (Gym + Laufen)
 
 > Erweiterung der [Zielspezifikation V1 / V2](zielspezifikation.md). Beschreibt **Ziele und Akzeptanzkriterien**, nicht Implementierung.
-> Die Invarianten aus §3 der Hauptspezifikation gelten unverändert. Wo diese Erweiterung §6 der Hauptspezifikation ändert, steht das in §3 dieses Dokuments ausdrücklich.
+> Die Grundregeln aus §3 der Hauptspezifikation gelten unverändert. Wo diese Erweiterung §6 der Hauptspezifikation ändert, steht das in §3 dieses Dokuments ausdrücklich.
 > Die rechnerische Grundlage des Muskelmodells steht getrennt und versioniert im [Muskel- und Belastungsmodell](muskelmodell.md).
 > Begriffe: [Glossar](glossar.md).
 
@@ -11,11 +11,14 @@
 
 Runback ist bisher eine Lauf-App. Diese Erweiterung macht daraus eine **Trainings-App mit zwei Einheitenarten**, die dasselbe Auswertungs- und Entscheidungsgerüst benutzen.
 
-Der Kern bleibt: Eine Einheit rein → eine begründete, umsetzbare und prüfbare nächste Handlung raus, wenn die Daten sie tragen.
+Der Kern bleibt: Eine Einheit rein → höchstens eine begründete, umsetzbare und
+prüfbare Empfehlung raus, wenn die Daten sie tragen.
 
 Neu ist, dass „die Daten“ jetzt auch Krafttraining, gemeldeten Muskelkater und Körperdaten umfassen, und dass Laufen und Krafttraining sich gegenseitig beeinflussen dürfen.
 
-**Was ausdrücklich nicht neu ist:** die Invarianten, der Regelkreis aus Hypothese → Annahme → Prüfung → Urteil, die Trennung von Messung, Schätzung und Empfehlung, und die Regel, dass höchstens ein Arbeitsthema aktiv geprüft wird.
+**Was ausdrücklich nicht neu ist:** die Grundregeln, der Regelkreis aus
+Vermutung → Annahme → Prüfung → Urteil, die Trennung von Messung, Schätzung und
+Empfehlung, und die Regel, dass höchstens eine Empfehlung aktiv geprüft wird.
 
 ---
 
@@ -43,9 +46,15 @@ Neu ist, dass „die Daten“ jetzt auch Krafttraining, gemeldeten Muskelkater u
 
 Die Frische-Skala, ihre Referenzbedingungen und ihr Einsatzbereich sind vor der ersten Ausspielung im [Muskelmodell](muskelmodell.md) dokumentiert und versioniert. Frische, Effort und subjektive Anstrengung sind drei getrennte Größen und werden nicht vermischt.
 
+Auch hier gelten die drei Ebenen der Hauptspezifikation: Ein Ziel ist optional
+und kann ein Datum haben, ein Fokus bleibt ohne Enddatum und wird nicht
+bewertet, eine Empfehlung ist die einzige konkrete Sache, die geprüft wird.
+Krafttraining und Laufen können dieselbe Empfehlung beeinflussen; dadurch
+entsteht keine zweite parallele Prüfung.
+
 ---
 
-## 3. Änderung an §6 der Hauptspezifikation
+## 3. Anpassung an §6 der Hauptspezifikation
 
 Die Hauptspezifikation verbietet in §6 einen „Universellen Readiness- oder Verletzungsrisikoscore“. Diese Erweiterung schärft den Eintrag, statt ihn aufzuheben.
 
@@ -53,7 +62,7 @@ Die Hauptspezifikation verbietet in §6 einen „Universellen Readiness- oder Ve
 |---|---|---|
 | Universeller Readiness- oder Verletzungsrisikoscore | Universeller **Ganzkörper**-Readiness-, Belastbarkeits- oder Verletzungsrisikoscore | Eine einzelne Zahl für die Tagesform des ganzen Menschen behauptet, Schlaf, Stress, Sehnen, Immunlage und Psyche mitzumessen, die Runback nicht sieht. Das bleibt verboten. |
 | — | Ergänzung: Eine **regionenbezogene Frische** ist zulässig, wenn ihre Rechenvorschrift, ihre Eingaben, ihre Unsicherheit und ihre Grenzen sichtbar sind. | Sie beruht auf tatsächlich erfassten Sätzen und Läufen sowie auf ausdrücklichen Nutzerangaben und ist damit an ihrer eigenen Datengrundlage prüfbar. |
-| Vollständiger automatischer Trainingsplangenerator in V1 | Bleibt. Ergänzung: Ein Plan darf **erzeugt und geändert werden, wenn der Nutzer ihn bestätigt**; die App ändert keinen Plan von sich aus. | Der Plan ist ein Nutzerartefakt. Vorschlagen ist etwas anderes als selbsttätig umschreiben. |
+| Vollständiger automatischer Trainingsplangenerator in V1 | Bleibt. Ergänzung: Ein Plan darf **erzeugt und bearbeitet werden, wenn der Nutzer ihn bestätigt**; die App schreibt keinen Plan von sich aus um. | Der Plan ist ein Nutzerartefakt. Vorschlagen ist etwas anderes als selbsttätig umschreiben. |
 
 Unverändert verboten bleiben: medizinische Diagnosen, Verletzungsbehandlung, Aussagen über Gesundheit oder Belastbarkeit, und die Gleichsetzung einer Modellschätzung mit einer Messung.
 
@@ -121,7 +130,7 @@ Ein Plan besteht aus Einheiten-Slots mit Zielvorgaben. Erfasst wird, was tatsäc
 - Die erfasste Abweichung als Umsetzungssignal für den Regelkreis der Hauptspezifikation zur Verfügung steht.
 - Der Plan rückwirkend nicht so verändert werden kann, dass eine frühere Bewertung stillschweigend anders ausfällt.
 
-### T-6 · Planänderungen sind seltene, begründete Vorschläge
+### T-6 · Vorschläge für Pläne sind selten und begründet
 
 Die Struktur eines Plans — welche Tage, welche Übungen, welcher Umfang — steht zur Diskussion, nicht unter ständiger Bearbeitung. Last, Sätze und Wiederholungen dürfen häufiger vorgeschlagen werden, weil sie ohnehin je Einheit neu gesetzt werden.
 
@@ -133,7 +142,7 @@ an anderen Einheiten erscheinen gemeinsam als Vorschlag vor dem Übernehmen.
 
 **Fertig, wenn:**
 - Ein Strukturvorschlag höchstens etwa monatlich erscheint, sofern er begründet ist, und „Plan unverändert lassen“ ein zulässiges und häufiges Ergebnis ist.
-- Jeder Vorschlag Anlass, betroffene Slots, erwartete Wirkung und Prüfkriterium nennt.
+- Jede Empfehlung Anlass, betroffene Slots, erwartete Wirkung und die Regel nennt, woran wir erkennen, dass sie geholfen hat.
 - Kein Vorschlag ohne Bestätigung des Nutzers wirksam wird.
 - Ein abgelehnter Vorschlag nicht in der nächsten Woche unverändert wiederkehrt.
 - Ein Vorschlag den erklärten Trainingszweck des Nutzers nicht durch eine bequemere Kennzahl ersetzt.
@@ -195,7 +204,7 @@ Beide zahlen auf dieselben Regionen ein und werden bei Vorschlägen für die jew
 **Fertig, wenn:**
 - Ein Laufabschnitt seine regionsbezogene Belastung erzeugt, abhängig von Umfang, Intensität und Gefälle.
 - Die Beinfrische bei Empfehlungen zum nächsten Lauf und die Laufbelastung bei Vorschlägen zum Krafttraining berücksichtigt werden.
-- Weiterhin höchstens ein Arbeitsthema aktiv geprüft wird, auch wenn beide Richtungen im Modell wirken.
+- Weiterhin höchstens eine Empfehlung aktiv geprüft wird, auch wenn beide Richtungen im Modell wirken.
 - Bei der Bewertung eines Versuchs vergleichbare Frischezustände herangezogen oder der Einfluss offengelegt wird.
 - Ein Zusammenhang zwischen Frische und Laufergebnis als Beobachtung und nicht als Ursache dargestellt wird.
 - Die Verzahnung abschaltbar ist und beide Trainingsarten dann getrennt ausgewertet bleiben.
@@ -207,7 +216,7 @@ Vorschläge zu Last, Sätzen und Wiederholungen entstehen aus dem beobachteten V
 **Fertig, wenn:**
 - Der Leistungsverlauf je Übung mit Unsicherheit geschätzt wird und einzelne schlechte Tage ihn nicht kippen.
 - Ein Stillstand als solcher erkannt und von normaler Schwankung unterschieden wird.
-- Ein Vorschlag Zielbereich, erwartete Anstrengung und Prüfkriterium nennt.
+- Jede Empfehlung Zielbereich, erwartete Anstrengung und die Regel nennt, woran wir erkennen, dass sie geholfen hat.
 - „So weitermachen“ ein zulässiges Ergebnis ist.
 - Übertroffene oder unterschrittene Vorgaben ohne Wertung erfasst werden und in den nächsten Vorschlag eingehen.
 - Eine Steigerung nicht empfohlen wird, wenn die Ausführungsqualität dafür nicht beurteilbar ist, und der Grund benannt wird.
@@ -247,21 +256,21 @@ Ein Chat kann beim Einrichten und später einen Plan erzeugen und ändern. Er be
 
 ---
 
-## 5. Prüfung gegen die Invarianten
+## 5. Prüfung gegen die Grundregeln
 
-| Invariante | Berührter Punkt | Wie sie eingehalten wird |
+| Grundregel | Berührter Punkt | Wie sie eingehalten wird |
 |---|---|---|
 | 1 Originaldaten unverändert | Persönliche Koeffizienten, korrigierte Anteile | Erfasste Sätze und Meldungen bleiben unverändert. Anpassungen liegen als eigene Schicht daneben und sind rücksetzbar. |
 | 2 Nachvollziehbare Ableitungen | Frische, Koeffizienten, Vorschläge | Jeder Wert trägt Modellversion, Katalogversion und die verwendeten Sessions und Meldungen. |
-| 3 Kein Vorschlag ohne Prüfung | Plan-, Last- und Verzahnungsvorschläge | Jeder Vorschlag nennt Änderung, Einsatzbereich, Ziel und vorab festgelegtes Prüfkriterium. Die Frischeanzeige selbst ist eine neutrale Beobachtung und braucht keins. |
-| 4 Keine Pflicht zur Veränderung | T-6, T-12 | „Plan unverändert“ und „so weitermachen“ sind ausdrücklich zulässige Ergebnisse. |
+| 3 Keine Empfehlung ohne Prüfung | Plan-, Last- und Verzahnungsvorschläge | Jede Empfehlung nennt Handlung, Einsatzbereich, Ziel und die vorher festgelegte Regel, woran wir erkennen, dass sie geholfen hat. Die Frischeanzeige selbst ist eine neutrale Beobachtung und braucht keine Prüfung. |
+| 4 Keine Pflicht zu einem neuen Verhalten | T-6, T-12 | „Plan unverändert“ und „so weitermachen“ sind ausdrücklich zulässige Ergebnisse. |
 | 5 Grundlage und Unsicherheit | Frische, Koeffizienten | Zahl nur bei tragfähiger Grundlage, sonst unbekannt. Unsicherheit wird mitgeführt, Meldungen sind als Eingaben gekennzeichnet. |
 | 6 LLM formuliert, Engine entscheidet | Sprachabfrage, Planungschat | Zuordnung gesprochener Angaben erfolgt regelbasiert und wird bestätigt. Der Chat schreibt Pläne, keine Bewertungen. Frische und Vorschläge entstehen reproduzierbar. |
 | 7 Fehlende Daten begrenzen nur die betroffene Aussage | Unbekannte Regionen, fehlende Meldungen | Eine Region ohne Grundlage blockiert nicht die übrigen. Keine Ersatzwerte. |
 | 8 Keine Rohsample-Ströme über die JS-Grenze | Sätze, Figur, Verläufe | Sätze sind bereits Aggregate. Figur und Verläufe erhalten abgeleitete, begrenzte Darstellungsdaten. |
 | 9 Zweckbezogene Datenweitergabe | Sprache, Chat | Nur Transkriptionsanfrage und Planentwurf. Keine Rohdaten, keine Koordinaten, keine Fotos, keine Schlüssel in Logs oder Exporten. |
 | 10 Alles gehört dem Nutzer | T-15 | Vollständiges Backup ohne Konto, einschließlich Fotos und Koeffizienten. |
-| 11 Trainingszweck bleibt maßgeblich | T-6, T-11, T-12 | Ein Vorschlag darf die Frische nicht dadurch verbessern, dass er das erklärte Trainingsziel aufgibt. |
+| 11 Trainingszweck bleibt maßgeblich | T-6, T-11, T-12 | Eine Empfehlung darf die Frische nicht dadurch verbessern, dass sie das erklärte Trainingsziel aufgibt. |
 | 12 Maßstäbe ändern sich nicht rückwirkend | Katalog- und Modellversionen | Ältere Sessions behalten die Version, mit der sie bewertet wurden. Ein Versuch behält seine ursprünglichen Bedingungen. |
 | 13 Umsetzung, Ergebnis, Ursache getrennt | T-5, T-11 | Plan-Ist-Abweichung ist Umsetzung, nicht Ergebnis. Zusammenhänge zwischen Frische und Laufergebnis bleiben Beobachtung. |
 | 14 Empfehlungen bleiben stabil | T-6, T-10 | Eine einzelne Muskelkater-Meldung löst keinen Themenwechsel aus. Strukturvorschläge sind selten und begründet. |
@@ -276,7 +285,7 @@ Ein Chat kann beim Einrichten und später einen Plan erzeugen und ändern. Er be
 >
 > Meldungen, die dem Modell widersprechen, verschieben mit der Zeit die Koeffizienten der betroffenen Übungen — sichtbar, gedämpft und rücksetzbar. Nicht unterscheidbare Koeffizienten bleiben begründet bei ihrer Ausgangsannahme.
 >
-> Krafttraining und Laufen zahlen auf dieselben Regionen ein und gehen wechselseitig in die Vorschläge ein. Es bleibt bei höchstens einem geprüften Arbeitsthema. Vorschläge zu Plan und Last nennen Grund, erwartete Wirkung und Prüfkriterium; Beibehalten bleibt zulässig.
+> Krafttraining und Laufen zahlen auf dieselben Regionen ein und gehen wechselseitig in die Empfehlungen ein. Es bleibt bei höchstens einer geprüften Empfehlung. Empfehlungen zu Plan und Last nennen Grund, erwartete Wirkung und die Regel, woran wir Hilfe erkennen; Beibehalten bleibt zulässig.
 >
 > Alles funktioniert ohne Internet, jede Zusatzfunktion ist abschaltbar, und der gesamte Datenbestand einschließlich Körperdaten lässt sich sichern, wiederherstellen und löschen.
 
