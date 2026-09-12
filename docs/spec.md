@@ -48,9 +48,8 @@ kaum. Wer nur einen Bereich nutzt, sieht vom anderen nichts.
 - Auf „Heute“ steht die Empfehlung für die Einheit, die gerade gestartet wird.
   Nie beide untereinander.
 
-*Stand:* Der Code kennt heute eine Empfehlung für den Bereich Laufen. Die
-Bereichstrennung ist die Richtung, in die jede Änderung an Ziel, Fokus und
-Empfehlung führen muss.
+Freigeschaltete Handlungsklassen: Laufen „ruhigerer Start“, Krafttraining
+„Last einer Übung“. Mehr Kennzahlen müssen nicht mehr Klassen erzeugen.
 
 ## Die drei Ebenen
 

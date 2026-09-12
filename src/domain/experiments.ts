@@ -5,8 +5,12 @@ import {
   pacingFor,
   provenance,
 } from './analysis';
+import { isRunRecommendation, recommendationArea } from './areas';
+import type { StrengthSession } from './strength';
+import { evaluateStrengthExperiment } from './strengthRecommendation';
 import {
   Adherence,
+  AnyRecommendation,
   Experiment,
   ExperimentEvaluation,
   ExperimentStatus,
@@ -23,21 +27,27 @@ function immutable<T>(value: T): T {
   }
   return value;
 }
-export function acceptRecommendation(
-  recommendation: Recommendation,
+/**
+ * `existing` ist die offene Empfehlung desselben Bereichs. Je Bereich läuft
+ * höchstens eine; ein anderer Bereich blockiert die Annahme nicht.
+ */
+export function acceptRecommendation<R extends AnyRecommendation>(
+  recommendation: R,
   now: number,
   existing?: Experiment,
-): Experiment {
+): Experiment<R> {
   if (!Number.isFinite(now)) {
     throw new Error('Ungültiger Annahmezeitpunkt.');
   }
   if (
     existing &&
-    (existing.status === 'active' || existing.status === 'paused')
+    (existing.status === 'active' || existing.status === 'paused') &&
+    recommendationArea(existing.recommendation) ===
+      recommendationArea(recommendation)
   ) {
     throw new Error('Zuerst die bestehende Empfehlung beenden.');
   }
-  const snapshot = JSON.parse(JSON.stringify(recommendation)) as Recommendation;
+  const snapshot = JSON.parse(JSON.stringify(recommendation)) as R;
   return immutable({
     id: `experiment:${recommendation.id}:${now}`,
     recommendation: snapshot,
@@ -50,14 +60,14 @@ export function acceptRecommendation(
         reason: 'Empfehlung und Regeln für die Prüfung angenommen.',
       },
     ],
-  } as Experiment);
+  } as Experiment<R>);
 }
-export function transitionExperiment(
-  experiment: Experiment,
+export function transitionExperiment<R extends AnyRecommendation>(
+  experiment: Experiment<R>,
   status: ExperimentStatus,
   now: number,
   reason: string,
-): Experiment {
+): Experiment<R> {
   if (!reason.trim()) {
     throw new Error('Ein Zustandswechsel braucht eine Begründung.');
   }
@@ -104,8 +114,27 @@ function activeAt(experiment: Experiment, time: number): boolean {
   }
   return status === 'active';
 }
-export function evaluateExperiment(
+/** Prüft eine Empfehlung an den Daten ihres Bereichs. */
+export function evaluateAnyExperiment(
   experiment: Experiment,
+  runs: RunSummary[],
+  sessions: StrengthSession[],
+  reported: Record<string, Adherence> = {},
+): ExperimentEvaluation {
+  return isRunRecommendation(experiment.recommendation)
+    ? evaluateExperiment(
+        experiment as Experiment<Recommendation>,
+        runs,
+        reported,
+      )
+    : evaluateStrengthExperiment(
+        experiment as Experiment<import('./types').StrengthRecommendation>,
+        sessions,
+        reported,
+      );
+}
+export function evaluateExperiment(
+  experiment: Experiment<Recommendation>,
   runs: RunSummary[],
   reported: Record<string, Adherence> = {},
 ): ExperimentEvaluation {

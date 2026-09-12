@@ -25,6 +25,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FocusEditor } from './FocusEditor';
 import { focusLabel } from '../domain/focus';
 import { selectRecommendations } from '../domain/recommendationSelection';
+import { selectStrengthRecommendation } from '../domain/strengthRecommendation';
+import {
+  AREA_LABELS,
+  activeExperimentFor,
+  isRunRecommendation,
+  isStrengthRecommendation,
+  recommendationArea,
+} from '../domain/areas';
 import { Onboarding } from './Onboarding';
 import { Statistics, readStatisticsView } from './Statistics';
 import { PlanningScreen } from './PlanningScreen';
@@ -75,14 +83,18 @@ import {
   acceptRecommendation,
   analyzeRun,
   allRegionIds,
+  evaluateAnyExperiment,
   evaluateExperiment,
   transitionExperiment,
 } from '../domain';
 import type {
+  AnyRecommendation,
+  Experiment,
   ExperimentStatus,
   Recommendation,
   RunPurpose,
   Sport,
+  StrengthRecommendation,
 } from '../domain/types';
 import {
   SPORTS,
@@ -190,6 +202,8 @@ type Page =
   | 'main'
   | 'focus'
   | 'orientation'
+  | 'strength-focus'
+  | 'strength-orientation'
   | 'session'
   | 'plans'
   | 'muscle-map'
@@ -423,8 +437,11 @@ export function RunbackApp() {
   const isRecording = Boolean(recording);
   const showOnboarding =
     loaded && !isRecording && (setupOpen || !settings.onboardedAt);
-  const experiment = settings.experiments?.find(
-    e => e.status === 'active' || e.status === 'paused',
+  // Je Bereich höchstens eine offene Empfehlung; beide teilen sich die Liste.
+  const experiment = activeExperimentFor(settings.experiments, 'running');
+  const strengthExperiment = activeExperimentFor(
+    settings.experiments,
+    'strength',
   );
   const analyses = useMemo(
     () =>
@@ -469,6 +486,7 @@ export function RunbackApp() {
     () =>
       selectRecommendations(runningRuns, {
         active: experiment,
+        otherActive: strengthExperiment ? [strengthExperiment] : [],
         experiments: settings.experiments,
         dismissed: settings.dismissedRecommendations,
         postponedUntil: settings.postponedUntil,
@@ -480,6 +498,7 @@ export function RunbackApp() {
     [
       runningRuns,
       experiment,
+      strengthExperiment,
       settings.experiments,
       settings.dismissedRecommendations,
       settings.postponedUntil,
@@ -491,6 +510,37 @@ export function RunbackApp() {
   );
   const candidate = experiment ? undefined : selection.selected;
   const queued = experiment ? selection.selected : undefined;
+  const strengthSelection = useMemo(
+    () =>
+      selectStrengthRecommendation(finishedSessions, {
+        active: strengthExperiment,
+        otherActive: experiment ? [experiment] : [],
+        experiments: settings.experiments,
+        dismissed: settings.dismissedRecommendations,
+        postponedUntil: settings.strengthPostponedUntil as number | undefined,
+        focus: settings.strengthFocus,
+        targetDate: settings.strengthGoalTargetDate,
+        today: localDateKey(now),
+        now,
+      }),
+    [
+      finishedSessions,
+      strengthExperiment,
+      experiment,
+      settings.experiments,
+      settings.dismissedRecommendations,
+      settings.strengthPostponedUntil,
+      settings.strengthFocus,
+      settings.strengthGoalTargetDate,
+      now,
+    ],
+  );
+  const strengthCandidate = strengthExperiment
+    ? undefined
+    : strengthSelection.selected;
+  const strengthQueued = strengthExperiment
+    ? strengthSelection.selected
+    : undefined;
   const purpose = settings.purpose || 'free';
   const sport = normalizeSport(settings.sport);
   const words = sportWords(sport);
@@ -1098,22 +1148,30 @@ export function RunbackApp() {
       await refresh();
     });
   };
-  const accept = (recommendation: Recommendation) => {
+  const accept = (recommendation: AnyRecommendation) => {
     void action(async () => {
-      const next = acceptRecommendation(recommendation, Date.now(), experiment);
+      const area = recommendationArea(recommendation);
+      const next = acceptRecommendation(
+        recommendation,
+        Date.now(),
+        area === 'running' ? experiment : strengthExperiment,
+      );
       await persist({ experiments: [...(settings.experiments || []), next] });
       setSelected(null);
       setTab('Heute');
-      setPage('focus');
+      setPage(area === 'running' ? 'focus' : 'strength-focus');
     });
   };
-  const changeExperiment = (status: ExperimentStatus) => {
-    if (!experiment) {
+  const changeExperiment = (
+    status: ExperimentStatus,
+    target: Experiment | undefined = experiment,
+  ) => {
+    if (!target) {
       return;
     }
     void action(async () => {
       const updated = transitionExperiment(
-        experiment,
+        target,
         status,
         Date.now(),
         'Vom Nutzer geändert',
@@ -1325,6 +1383,9 @@ export function RunbackApp() {
         />
       </Section>
       <Section title="Krafttraining">
+        {strengthExperiment?.status === 'active' ? (
+          <Copy>{strengthExperiment.recommendation.action}</Copy>
+        ) : null}
         {strength.active ? (
           <>
             <Copy muted>
@@ -1385,16 +1446,30 @@ export function RunbackApp() {
       <Section title="Dein Fokus">
         <Row
           title={focusLabel(settings.trainingFocus)}
-          subtitle="Deine dauerhafte Orientierung"
+          subtitle="Laufen · deine dauerhafte Orientierung"
           onPress={() => openPage('orientation')}
         />
+        {finishedSessions.length || settings.strengthFocus ? (
+          <Row
+            title={focusLabel(settings.strengthFocus)}
+            subtitle="Krafttraining · deine dauerhafte Orientierung"
+            onPress={() => openPage('strength-orientation')}
+          />
+        ) : null}
       </Section>
       <Section title="Dein Ziel">
         <Row
           title={settings.goal || schedule.goal?.name || 'Kein Ziel gesetzt'}
-          subtitle="Ziel & Alltag"
+          subtitle="Laufen · Ziel & Alltag"
           onPress={() => openPage('profile')}
         />
+        {finishedSessions.length || settings.strengthGoal ? (
+          <Row
+            title={settings.strengthGoal || 'Kein Ziel gesetzt'}
+            subtitle="Krafttraining"
+            onPress={() => openPage('strength-orientation')}
+          />
+        ) : null}
       </Section>
       <Section title="Empfehlung">
         <Row
@@ -1405,7 +1480,7 @@ export function RunbackApp() {
               ? candidate.action
               : 'Noch keine Empfehlung'
           }
-          subtitle={
+          subtitle={`Laufen · ${
             experiment
               ? experiment.status === 'paused'
                 ? 'Angenommen · Pausiert'
@@ -1413,14 +1488,42 @@ export function RunbackApp() {
               : candidate
               ? 'Vorschlag'
               : 'Zeichne weiter auf oder sieh nach, was noch fehlt.'
-          }
+          }`}
           onPress={() => openPage('focus')}
         />
         {queued ? (
           <Row
             title="Danach vorgesehen"
-            subtitle={queued.action}
+            subtitle={`Laufen · ${queued.action}`}
             onPress={() => openPage('focus')}
+          />
+        ) : null}
+        {finishedSessions.length || strengthExperiment ? (
+          <Row
+            title={
+              strengthExperiment
+                ? strengthExperiment.recommendation.action
+                : strengthCandidate
+                ? strengthCandidate.action
+                : 'Noch keine Empfehlung'
+            }
+            subtitle={`Krafttraining · ${
+              strengthExperiment
+                ? strengthExperiment.status === 'paused'
+                  ? 'Angenommen · Pausiert'
+                  : 'Angenommen · Aktiv'
+                : strengthCandidate
+                ? 'Vorschlag'
+                : 'Trainiere weiter oder sieh nach, was noch fehlt.'
+            }`}
+            onPress={() => openPage('strength-focus')}
+          />
+        ) : null}
+        {strengthQueued ? (
+          <Row
+            title="Danach vorgesehen"
+            subtitle={`Krafttraining · ${strengthQueued.action}`}
+            onPress={() => openPage('strength-focus')}
           />
         ) : null}
       </Section>
@@ -1728,7 +1831,9 @@ export function RunbackApp() {
       ? 'Dafür fehlt bei mindestens einem Lauf der Trainingszweck.'
       : 'Vorschläge entstehen aus lockeren und langen Läufen mit mindestens vier gleichmäßigen Abschnitten ab 500 m.';
     const past = (settings.experiments || []).filter(
-      e => e.status === 'completed' || e.status === 'aborted',
+      (e): e is Experiment<Recommendation> =>
+        (e.status === 'completed' || e.status === 'aborted') &&
+        isRunRecommendation(e.recommendation),
     );
     return (
       <>
@@ -1939,6 +2044,369 @@ export function RunbackApp() {
                 />
                 {pastRecommendationOpen === e.id
                   ? renderCriteria(e.recommendation, true)
+                  : null}
+              </Card>
+            ))}
+          </Section>
+        ) : null}
+      </>
+    );
+  };
+
+  // Krafttraining hat seine eigene Empfehlungsseite: gleiche drei Fragen,
+  // gleiche Zustände, aber an Einheiten und Sätzen geprüft statt an Läufen.
+  const sessionTitle = (id: string) => {
+    const session = strengthSessions.find(item => item.id === id);
+    return session
+      ? `${session.name} · ${date(session.startTime)}`
+      : 'Einheit nicht mehr vorhanden';
+  };
+  const renderStrengthCriteria = (
+    recommendation: StrengthRecommendation,
+    accepted = false,
+  ) => (
+    <>
+      <Copy>Woran erkennen wir, dass es geholfen hat?</Copy>
+      <Copy muted>{recommendation.goal}</Copy>
+      <Copy muted>
+        {accepted
+          ? 'Vor dem Start festgelegt. Ein Fokuswechsel ändert diese Regeln nicht.'
+          : 'Bei der Annahme werden diese Regeln festgeschrieben.'}
+      </Copy>
+      <Copy muted>
+        {recommendation.criteria.minimumObservations} passende Einheiten ·
+        Zielbereich {number(recommendation.criteria.targetMinKg, 1)}–
+        {number(recommendation.criteria.targetMaxKg, 1)} kg ×{' '}
+        {recommendation.criteria.targetReps}
+      </Copy>
+      {recommendation.criteria.exclusions.map((text, i) => (
+        <Copy muted key={i}>
+          {text}
+        </Copy>
+      ))}
+      {recommendation.criteria.stopConditions.map((text, i) => (
+        <Copy muted key={`stop-${i}`}>
+          {text}
+        </Copy>
+      ))}
+      <Row title="Modellversion" subtitle={recommendation.model_version} />
+      <Copy muted>
+        Wenn nach {recommendation.criteria.maxDays} Tagen noch zu wenig passende
+        Einheiten vorliegen, entscheide neu.
+      </Copy>
+      <Section title="Vergleichseinheiten">
+        {recommendation.criteria.baselineSessionIds.map(id => (
+          <Row key={id} title={sessionTitle(id)} />
+        ))}
+      </Section>
+      <Section title="So priorisiert Runback">
+        {recommendation.priority ? (
+          <Row
+            title={recommendation.priority.focusLabel}
+            subtitle={`${recommendation.priority.version} · redaktionelles Gewicht ${recommendation.priority.weight}`}
+          />
+        ) : null}
+        <Copy muted>
+          Die Auswahlregeln sind redaktionell festgelegt. Sie lernen keine
+          Vorlieben aus deinen Einheiten. Derzeit ist nur die Last einer Übung
+          als überprüfbare Empfehlung verfügbar.
+        </Copy>
+      </Section>
+    </>
+  );
+  const renderStrengthAlternatives = () => (
+    <Section
+      title={
+        strengthExperiment
+          ? 'Auswahl für danach'
+          : 'Andere geprüfte Möglichkeiten'
+      }
+    >
+      {strengthSelection.alternatives.length ? (
+        strengthSelection.alternatives.map(item => (
+          <Row
+            key={item.exerciseId}
+            title={item.exerciseName}
+            subtitle={item.reason}
+          />
+        ))
+      ) : (
+        <Copy muted>
+          Keine weitere Möglichkeit aus den vorhandenen Einheiten geprüft.
+        </Copy>
+      )}
+    </Section>
+  );
+  const renderStrengthFocus = () => {
+    const evaluation = strengthExperiment
+      ? evaluateAnyExperiment(
+          strengthExperiment,
+          runningRuns,
+          strengthSessions,
+          settings.adherence,
+        )
+      : null;
+    const postponed = Boolean(
+      settings.strengthPostponedUntil && settings.strengthPostponedUntil > now,
+    );
+    const past = (settings.experiments || []).filter(
+      (e): e is Experiment<StrengthRecommendation> =>
+        (e.status === 'completed' || e.status === 'aborted') &&
+        isStrengthRecommendation(e.recommendation),
+    );
+    return (
+      <>
+        <Title>
+          {strengthExperiment?.status === 'paused'
+            ? 'Entscheide, wann du weitermachst.'
+            : strengthExperiment
+            ? 'Bleib bei deiner Empfehlung.'
+            : strengthCandidate
+            ? 'Prüfe, ob der Vorschlag zu dir passt.'
+            : 'Sieh nach, was dein Krafttraining zeigt.'}
+        </Title>
+        <Copy muted>{AREA_LABELS.strength}</Copy>
+        {strengthExperiment ? (
+          <>
+            <Card>
+              <Text style={styles.cardTitle}>
+                {strengthExperiment.recommendation.action}
+              </Text>
+              <Copy muted>
+                {strengthExperiment.status === 'paused'
+                  ? 'Angenommen · Pausiert'
+                  : `Angenommen · Aktiv seit ${date(
+                      strengthExperiment.acceptedAt,
+                    )}`}
+              </Copy>
+            </Card>
+            <Section title="Ergebnis bisher">
+              <Row
+                title="Hast du es ausprobiert?"
+                subtitle={
+                  evaluation?.adherence.some(item => item.value === 'yes')
+                    ? 'Ja, in passenden Einheiten.'
+                    : evaluation?.verdict === 'not_implemented'
+                    ? 'Du hast es bisher nicht probiert.'
+                    : 'Noch nicht klar.'
+                }
+              />
+              <Row
+                title="Ist es besser geworden?"
+                subtitle={
+                  evaluation?.verdict === 'improved'
+                    ? 'Dein bestes Arbeitsgewicht ist gestiegen.'
+                    : evaluation?.verdict === 'worsened'
+                    ? 'Dein bestes Arbeitsgewicht ist gesunken.'
+                    : evaluation?.verdict === 'no_relevant_effect'
+                    ? 'Kein spürbarer Unterschied.'
+                    : 'Noch nicht klar.'
+                }
+              />
+              <Row
+                title="Lag es an der Empfehlung?"
+                subtitle="Noch nicht klar. Schlaf, Muskelkater und Tagesform können mitwirken."
+              />
+              <Copy muted>
+                {evaluation?.eligibleRunIds.length || 0} geeignete Einheiten
+                seit dem Start
+              </Copy>
+              <Button
+                secondary
+                small
+                title={criteriaOpen ? 'Details ausblenden' : 'Details ansehen'}
+                onPress={() => setCriteriaOpen(value => !value)}
+              />
+              {criteriaOpen ? (
+                <>
+                  <Copy muted>{evaluation?.summary}</Copy>
+                  {renderStrengthCriteria(
+                    strengthExperiment.recommendation,
+                    true,
+                  )}
+                  {evaluation?.excluded.map(item => (
+                    <Row
+                      key={item.runId}
+                      title={sessionTitle(item.runId)}
+                      subtitle={item.reason}
+                    />
+                  ))}
+                  {renderStrengthAlternatives()}
+                </>
+              ) : null}
+            </Section>
+            {strengthQueued ? (
+              <Section title="Danach vorgesehen">
+                <Copy>{strengthQueued.action}</Copy>
+                <Copy muted>{strengthQueued.reason}</Copy>
+                <Copy muted>
+                  Eine Vorschau aus späteren Einheiten. Sie startet nicht
+                  automatisch und wird nach Abschluss erneut geprüft.
+                </Copy>
+              </Section>
+            ) : null}
+            <Section title="Empfehlung verwalten">
+              <Button
+                secondary
+                disabled={busy}
+                title={
+                  strengthExperiment.status === 'paused'
+                    ? 'Empfehlung fortsetzen'
+                    : 'Empfehlung pausieren'
+                }
+                onPress={() =>
+                  changeExperiment(
+                    strengthExperiment.status === 'paused'
+                      ? 'active'
+                      : 'paused',
+                    strengthExperiment,
+                  )
+                }
+              />
+              <Button
+                secondary
+                title="Empfehlung abschließen"
+                disabled={busy}
+                onPress={() =>
+                  changeExperiment('completed', strengthExperiment)
+                }
+              />
+              <Button
+                danger
+                title="Empfehlung abbrechen"
+                disabled={busy}
+                onPress={() =>
+                  Alert.alert(
+                    'Empfehlung abbrechen?',
+                    'Die bisherige Prüfung bleibt gespeichert.',
+                    [
+                      { text: 'Zurück', style: 'cancel' },
+                      {
+                        text: 'Abbrechen',
+                        onPress: () =>
+                          changeExperiment('aborted', strengthExperiment),
+                      },
+                    ],
+                  )
+                }
+              />
+            </Section>
+          </>
+        ) : strengthCandidate ? (
+          <Section title="Vorschlag">
+            <Copy>{strengthCandidate.action}</Copy>
+            <Copy muted>{strengthCandidate.reason}</Copy>
+            <Button
+              title="Empfehlung annehmen"
+              onPress={() => accept(strengthCandidate)}
+              disabled={busy}
+            />
+            <Button
+              secondary
+              small
+              title={criteriaOpen ? 'Details ausblenden' : 'Details ansehen'}
+              onPress={() => setCriteriaOpen(value => !value)}
+            />
+            {criteriaOpen ? (
+              <>
+                {renderStrengthCriteria(strengthCandidate)}
+                {renderStrengthAlternatives()}
+              </>
+            ) : null}
+            <Button
+              secondary
+              small
+              title="Später entscheiden"
+              disabled={busy}
+              onPress={() => save({ strengthPostponedUntil: Date.now() + DAY })}
+            />
+            <Button
+              secondary
+              small
+              title="Vorschlag ablehnen"
+              disabled={busy}
+              onPress={() =>
+                save({
+                  dismissedRecommendations: [
+                    ...(settings.dismissedRecommendations || []),
+                    strengthCandidate.id,
+                  ],
+                })
+              }
+            />
+          </Section>
+        ) : (
+          <>
+            <EmptyState
+              title={
+                postponed
+                  ? 'Entscheide morgen in Ruhe.'
+                  : 'Noch keine Empfehlung'
+              }
+              copy={
+                postponed
+                  ? 'Du hast den Vorschlag auf morgen verschoben.'
+                  : 'Eine Empfehlung erscheint, wenn eine Übung mindestens drei abgeschlossene Einheiten mit Arbeitssätzen hat und der Verlauf eine Richtung zeigt.'
+              }
+              action={
+                finishedSessions.length
+                  ? {
+                      title: 'Einheiten ansehen',
+                      onPress: () => switchTab('Einheiten'),
+                    }
+                  : {
+                      title: 'Erstes Training starten',
+                      onPress: () => switchTab('Heute'),
+                    }
+              }
+            />
+            <Button
+              secondary
+              small
+              title={criteriaOpen ? 'Details ausblenden' : 'Details ansehen'}
+              onPress={() => setCriteriaOpen(value => !value)}
+            />
+            {criteriaOpen ? renderStrengthAlternatives() : null}
+            {postponed ? (
+              <Button
+                secondary
+                title="Vorschlag jetzt ansehen"
+                onPress={() => save({ strengthPostponedUntil: 0 })}
+              />
+            ) : null}
+          </>
+        )}
+        {past.length ? (
+          <Section title="Frühere Empfehlungen">
+            {past.map(e => (
+              <Card key={e.id}>
+                <Copy>{e.recommendation.action}</Copy>
+                <Copy muted>{`${
+                  e.status === 'completed' ? 'Abgeschlossen' : 'Abgebrochen'
+                } · ${
+                  evaluateAnyExperiment(
+                    e,
+                    runningRuns,
+                    strengthSessions,
+                    settings.adherence,
+                  ).summary
+                }`}</Copy>
+                <Button
+                  secondary
+                  small
+                  title={
+                    pastRecommendationOpen === e.id
+                      ? 'Gespeicherte Details ausblenden'
+                      : 'Gespeicherte Details ansehen'
+                  }
+                  onPress={() =>
+                    setPastRecommendationOpen(
+                      pastRecommendationOpen === e.id ? null : e.id,
+                    )
+                  }
+                />
+                {pastRecommendationOpen === e.id
+                  ? renderStrengthCriteria(e.recommendation, true)
                   : null}
               </Card>
             ))}
@@ -2261,9 +2729,14 @@ export function RunbackApp() {
       <Title>Mehr</Title>
       <Section title="Einstellungen">
         <Row
-          title="Dein Fokus"
+          title="Dein Fokus · Laufen"
           subtitle={focusLabel(settings.trainingFocus)}
           onPress={() => openPage('orientation')}
+        />
+        <Row
+          title="Dein Fokus · Krafttraining"
+          subtitle={focusLabel(settings.strengthFocus)}
+          onPress={() => openPage('strength-orientation')}
         />
         <Row
           title="Ziel & Alltag"
@@ -2922,12 +3395,28 @@ export function RunbackApp() {
     renderSession()
   ) : page === 'orientation' ? (
     <FocusEditor
+      area="running"
       focus={settings.trainingFocus}
       goal={settings.goal || schedule.goal?.name || ''}
       persist={trainingFocus => persist({ trainingFocus })}
     />
+  ) : page === 'strength-orientation' ? (
+    <FocusEditor
+      area="strength"
+      focus={settings.strengthFocus}
+      goal={settings.strengthGoal || ''}
+      persist={strengthFocus => persist({ strengthFocus })}
+      goalEditor={{
+        value: settings.strengthGoal || '',
+        targetDate: settings.strengthGoalTargetDate || '',
+        persist: (strengthGoal, strengthGoalTargetDate) =>
+          persist({ strengthGoal, strengthGoalTargetDate }),
+      }}
+    />
   ) : page === 'focus' ? (
     renderFocus()
+  ) : page === 'strength-focus' ? (
+    renderStrengthFocus()
   ) : page === 'plans' ? (
     <PlanList
       busy={busy}

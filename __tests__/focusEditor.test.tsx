@@ -50,6 +50,7 @@ describe('Dauerhafter Fokus', () => {
       version: 'focus-v1',
       kind: 'habit',
       label: 'Schneller? Erst mal regelmäßig!',
+      area: 'running',
     });
     await act(async () => {
       tree.unmount();

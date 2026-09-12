@@ -40,9 +40,9 @@ Lies vor Änderungen:
 - **Die Brücke bleibt schlank.** Rohsamples bleiben in Kotlin; JS bekommt
   Aggregate und begrenzte Darstellungsdaten.
 - **Bereiche trennen.** Ziel, Fokus und Empfehlung gehören immer zu einem
-  Bereich. Der Code kennt heute nur Laufen; baue nichts, was eine zweite
-  Empfehlung im selben Bereich erlaubt oder eine bereichsübergreifende ohne
-  Kopplungsprüfung.
+  Bereich (`areas.ts`). Baue nichts, was eine zweite Empfehlung im selben
+  Bereich erlaubt oder die Kopplungssperre umgeht. Neue Empfehlungsarten
+  erweitern `AnyRecommendation` und bekommen eigene Auswahl und Prüfung.
 - **Der Nutzer entscheidet.** Vorschläge sind Vorschau, bis er sie anwendet.
   Nichts ändert Pläne, Empfehlungen oder Daten ohne seine Aktion.
 - **Deutsch, kurz, im Imperativ.** UI-Text nach Design Language: ein Satz,

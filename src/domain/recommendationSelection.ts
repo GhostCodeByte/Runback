@@ -1,4 +1,5 @@
 import { analyzeRun } from './analysis';
+import { couplingGate, isRunRecommendation } from './areas';
 import { FOCUS_TYPES, type TrainingFocus } from './focus';
 import { relevance, RELEVANCE_VERSION } from './prioritization';
 import type { Experiment, Recommendation, RunSummary } from './types';
@@ -41,7 +42,9 @@ export function sameRecommendation(
 export function selectRecommendations(
   runs: RunSummary[],
   options: {
-    active?: Experiment;
+    active?: Experiment<Recommendation>;
+    /** Aktive Empfehlungen anderer Bereiche für die Kopplungssperre. */
+    otherActive?: Experiment[];
     experiments?: Experiment[];
     dismissed?: string[];
     postponedUntil?: number;
@@ -76,9 +79,10 @@ export function selectRecommendations(
       options.experiments?.some(
         item =>
           item.recommendation.id === recommendation.id ||
-          item.recommendation.criteria.baselineRunIds.some(
-            id => id === run.id || id === canonical,
-          ),
+          (isRunRecommendation(item.recommendation) &&
+            item.recommendation.criteria.baselineRunIds.some(
+              id => id === run.id || id === canonical,
+            )),
       )
     ) {
       reject(
@@ -107,6 +111,11 @@ export function selectRecommendations(
     );
     if (priority.blocked) {
       reject(priority.blocked);
+      continue;
+    }
+    const coupling = couplingGate(recommendation, options.otherActive ?? []);
+    if (coupling.blocked) {
+      reject(coupling.blocked);
       continue;
     }
     if (options.postponedUntil && options.postponedUntil > options.now) {

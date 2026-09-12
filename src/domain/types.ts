@@ -10,6 +10,12 @@ export type RunPurpose =
  * ältere Datensätze ohne Migration lesbar. Labels und Regeln: sport.ts.
  */
 export type Sport = 'running' | 'cycling';
+/**
+ * Bereich einer Empfehlung, eines Fokus oder Ziels. Laufen und Krafttraining
+ * werden an getrennten Daten geprüft und haben je höchstens eine aktive
+ * Empfehlung. Fehlt das Feld, ist es Laufen (ältere Datensätze).
+ */
+export type Area = 'running' | 'strength';
 
 /** Native, bounded derived splits, never a raw sensor stream. */
 export interface SegmentAggregate {
@@ -84,6 +90,7 @@ export interface Recommendation extends Provenance {
   priority?: { version: string; focusLabel: string; weight: number };
   id: string;
   kind: 'calmer_start';
+  area?: 'running';
   title: string;
   action: string;
   reason: string;
@@ -111,10 +118,45 @@ export interface ExperimentCriteria {
   exclusions: string[];
   stopConditions: string[];
 }
-export type ExperimentStatus = 'active' | 'paused' | 'completed' | 'aborted';
-export interface Experiment {
+/** Empfehlung im Bereich Krafttraining: die Last einer Übung. */
+export interface StrengthCriteria {
+  method: 'strength-e1rm-v1';
+  exerciseId: string;
+  baselineSessionIds: string[];
+  /** Median des besten Arbeits-e1RM der Vergleichseinheiten, in kg. */
+  baselineE1RM: number;
+  targetMinKg: number;
+  targetMaxKg: number;
+  targetReps: number;
+  outcome: 'best_working_e1rm_percent';
+  minimumRelevantChangePercent: number;
+  minimumObservations: number;
+  reviewAfterSessions: number;
+  maxDays: number;
+  exclusions: string[];
+  stopConditions: string[];
+}
+export interface StrengthRecommendation extends Provenance {
+  priority?: { version: string; focusLabel: string; weight: number };
   id: string;
-  recommendation: Recommendation;
+  kind: 'strength_load';
+  area: 'strength';
+  title: string;
+  action: string;
+  reason: string;
+  goal: string;
+  exerciseId: string;
+  exerciseName: string;
+  direction: 'increase' | 'reduce' | 'plateau';
+  /** Hauptregionen der Übung; entscheidet, ob sie Laufergebnisse beeinflusst. */
+  regions: string[];
+  criteria: StrengthCriteria;
+}
+export type AnyRecommendation = Recommendation | StrengthRecommendation;
+export type ExperimentStatus = 'active' | 'paused' | 'completed' | 'aborted';
+export interface Experiment<R extends AnyRecommendation = AnyRecommendation> {
+  id: string;
+  recommendation: R;
   acceptedAt: number;
   status: ExperimentStatus;
   history: { at: number; status: ExperimentStatus; reason: string }[];

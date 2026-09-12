@@ -5,14 +5,14 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 
 | Alltagswort | Codename | Wozu |
 | --- | --- | --- |
-| Bereich | `Sport` / `strength` | Laufen oder Krafttraining. Jeder Bereich hat eigenes Ziel, eigenen Fokus, eigene Empfehlung. |
+| Bereich | `Area` | Laufen oder Krafttraining. Jeder Bereich hat eigenes Ziel, eigenen Fokus, eigene Empfehlung. |
 | Ziel | `goal`, `targetDate` | Freiwilliges Vorhaben je Bereich, ggf. mit Datum. Darf enden. |
-| Fokus-Art | `FocusKind` | Kurze, versionierte Auswahl (Ausdauer, schneller, verletzungsfrei, Gewohnheit, Fitness), die Empfehlungen priorisiert. |
+| Fokus-Art | `FocusKind` | Kurze, versionierte Auswahl je Bereich (Laufen: Ausdauer, schneller, verletzungsfrei, Gewohnheit, Fitness · Kraft: stärker, Muskeln, verletzungsfrei, Gewohnheit, Fitness). |
 | Eigene Bezeichnung | `TrainingFocus.label` | Freitext des Nutzers zum Fokus. Wird angezeigt, nicht ausgewertet. |
 | Fokus | `TrainingFocus` | Dauerhaftes Thema ohne Enddatum, höchstens einer je Bereich, wird nie bewertet. |
-| Empfehlung | `Recommendation` → `Experiment` | Die eine konkrete Sache je Bereich, die gerade ausprobiert oder bewusst beibehalten wird. |
+| Empfehlung | `AnyRecommendation` → `Experiment` | Die eine konkrete Sache je Bereich, die gerade ausprobiert oder bewusst beibehalten wird. |
 | Danach vorgesehen | — | Nächste Empfehlung, die wartet, weil die aktive noch läuft oder die Kopplungssperre greift. |
-| Kopplungssperre | `coupling.ts` | Verhindert eine zweite Empfehlung, die die Prüfung der ersten verfälschen könnte. |
+| Kopplungssperre | `couplingGate` | Verhindert eine zweite Empfehlung, die die Prüfung der ersten verfälschen könnte. |
 | Vorschlag / Angenommen | `proposed` / `accepted` | Empfehlung vor bzw. nach der Zustimmung des Nutzers. |
 | Aktiv / Pausiert / Abgeschlossen / Abgebrochen | `ExperimentStatus` | Sichtbare Zustände einer angenommenen Empfehlung. |
 | Vergleichsläufe | `baselineRunIds` | Frühere passende Läufe, mit denen spätere verglichen werden. |
@@ -27,7 +27,7 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Effort | `EffortEstimate` | Modellierte äußere Anforderung eines Laufs. Kein Fitness- oder Ermüdungswert. |
 | Tempoindex | `EffortEstimate` | Einfaches Tempomaß relativ zu 3 m/s. Keine Leistung, kein Score. |
 | Relevanzmatrix | `prioritization.ts` | Versionierte Gewichte je Fokus-Art und Handlungsklasse. |
-| Handlungsklasse | `ActionClass` | Art einer Empfehlung, z. B. Startdisziplin, Umfang steigern, Tapering. |
+| Handlungsklasse | `ActionClass` | Art einer Empfehlung, z. B. Startdisziplin (`calmer_start`), Last einer Übung (`strength_load`). |
 | Einheit | `StrengthSession` / `RunSummary` | Trainingseinheit beliebiger Art mit Zeit, Zweck und Herkunft. |
 | Satz | `PlannedSet` / `LoggedSet` | Kleinste Krafteinheit: Übung, Wiederholungen/Dauer, Last, Pause. |
 | Plan | `WorkoutTemplate` | Vorlage aus Einheiten-Slots. Vorschlag, keine Verpflichtung. |

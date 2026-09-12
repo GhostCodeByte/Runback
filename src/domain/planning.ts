@@ -5,7 +5,13 @@ import {
   MODEL_VERSION,
 } from './analysis';
 import { uniqueRuns } from './experiments';
-import { Experiment, RunAnalysis, RunPurpose, RunSummary } from './types';
+import {
+  Experiment,
+  Recommendation,
+  RunAnalysis,
+  RunPurpose,
+  RunSummary,
+} from './types';
 
 export interface RunPreset {
   id: string;
@@ -298,7 +304,7 @@ export type EngineQuestion = 'biggest_problem' | 'why' | 'what_would_change';
 export function queryEngine(
   question: EngineQuestion,
   runs: RunSummary[],
-  active?: Experiment,
+  active?: Experiment<Recommendation>,
 ): { answer: string; model_version: string; runIds: string[] } {
   const latest = uniqueRuns(runs).sort(
     (a, b) => b.startTime - a.startTime || a.id.localeCompare(b.id),
@@ -321,7 +327,10 @@ export function queryEngine(
     runIds: latest ? [latest.id] : [],
   };
 }
-export function nextRunPlan(preset: RunPreset, active?: Experiment): string {
+export function nextRunPlan(
+  preset: RunPreset,
+  active?: Experiment<Recommendation>,
+): string {
   return `${preset.name}: etwa ${preset.durationMinutes} Minuten.${
     active?.status === 'active' &&
     active.recommendation.purpose === preset.purpose

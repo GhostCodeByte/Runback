@@ -32,6 +32,11 @@ export interface Settings {
   goal?: string;
   goalTargetDate?: string;
   trainingFocus?: TrainingFocus | null;
+  /** Bereich Krafttraining: eigenes Ziel und eigener Fokus. */
+  strengthGoal?: string;
+  strengthGoalTargetDate?: string;
+  strengthFocus?: TrainingFocus | null;
+  strengthPostponedUntil?: number;
   minutes?: number;
   purpose?: RunPurpose;
   /** Zuletzt gewählte Sportart für die freie Aufzeichnung. */

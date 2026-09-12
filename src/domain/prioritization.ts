@@ -1,33 +1,50 @@
-import type { FocusKind } from './focus';
+import { BROAD_FOCUS, type FocusKind } from './focus';
 
-export const RELEVANCE_VERSION = 'relevance-v1';
+export const RELEVANCE_VERSION = 'relevance-v2';
 export type ActionClass =
   | 'calmer_start'
   | 'heart_rate'
   | 'cadence'
   | 'volume'
   | 'technique'
-  | 'taper';
+  | 'taper'
+  | 'strength_load';
+/**
+ * Redaktionelle Gewichte 0–5 je Handlungsklasse und Fokus-Art. `null` ist eine
+ * harte Sperre. Fehlt eine Fokus-Art, zählt sie wie „kein Fokus“ (0). Die
+ * Gewichte werden nicht aus Nutzerdaten gelernt.
+ */
 const weights: Record<
   ActionClass,
-  readonly [number, number, number | null, number]
+  Partial<Record<FocusKind, number | null>>
 > = {
-  calmer_start: [5, 3, 3, 4],
-  heart_rate: [4, 3, 2, 1],
-  cadence: [2, 4, 1, 1],
-  volume: [5, 4, null, 3],
-  technique: [2, 4, 1, 1],
-  taper: [2, 3, 3, 0],
+  calmer_start: { endurance: 5, speed: 3, injury_free: 3, habit: 4 },
+  heart_rate: { endurance: 4, speed: 3, injury_free: 2, habit: 1 },
+  cadence: { endurance: 2, speed: 4, injury_free: 1, habit: 1 },
+  volume: { endurance: 5, speed: 4, injury_free: null, habit: 3 },
+  technique: { endurance: 2, speed: 4, injury_free: 1, habit: 1 },
+  taper: { endurance: 2, speed: 3, injury_free: 3, habit: 0 },
+  strength_load: {
+    strength: 5,
+    muscle: 4,
+    injury_free: 3,
+    habit: 2,
+    endurance: 1,
+    speed: 1,
+  },
 };
-const columns = { endurance: 0, speed: 1, injury_free: 2, habit: 3 } as const;
 export function relevance(
   action: ActionClass,
   focus?: FocusKind,
   targetDate?: string,
   today?: string,
 ): { weight: number; blocked?: string } {
+  const table = weights[action];
+  // `null` ist eine Sperre und darf nicht zu 0 werden.
   const weight =
-    focus && focus !== 'fitness' ? weights[action][columns[focus]] : 0;
+    focus && !BROAD_FOCUS.includes(focus) && focus in table
+      ? (table[focus] as number | null)
+      : 0;
   if (weight === null)
     return {
       weight: 0,
