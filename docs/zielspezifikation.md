@@ -1,8 +1,10 @@
 # Runback – Zielspezifikation V1 / V2
 
 > Für den Coding Agent. Beschreibt **Ziele und Akzeptanzkriterien**, nicht Implementierung.
-> Wie ein Ziel erreicht wird, entscheidet der Agent, solange die Invarianten in §3 gelten.
-> Überarbeitete Fassung aus der Produktbesprechung. Begriffe: [Glossar](glossar.md).
+> Wie ein Ziel erreicht wird, entscheidet der Agent, solange die Grundregeln in §3 gelten.
+> Überarbeitete Fassung aus der Produktbesprechung. Die aktuelle Sprach- und
+> Begriffsentscheidung steht in [Änderungen](aenderungen.md), die kurzen
+> Übersetzungen im [Glossar](glossar.md).
 > V1/V2 bezeichnen Produktstufen, nicht die Revisionsnummer dieses Dokuments.
 > Aktuell wird ausschließlich die Dokumentation gepflegt. Ergänzende Ziele: [Bedienung und spätere Auslieferung](bedienung-und-auslieferung.md), [Zielspezifikation Training (Gym + Laufen)](zielspezifikation-training.md).
 
@@ -10,20 +12,33 @@
 
 ## 1. Was Runback ist
 
-Eine Android-Lauf-App, die aus Laufdaten und Trainingskontext die **aktuell wichtigste sinnvolle Handlung** ableitet, sie verständlich begründet und später überprüft, ob sie umgesetzt wurde und mit einer Verbesserung verbunden war.
+Eine Android-Lauf-App, die aus Laufdaten und Trainingskontext die **aktuell wichtigste sinnvolle Empfehlung** ableitet, sie verständlich begründet und später überprüft, ob sie umgesetzt wurde und mit einer Verbesserung verbunden war.
 
 Interne Komplexität ist erlaubt. Der Output bleibt schmal. **Keine neue Empfehlung ist ein zulässiges Ergebnis.**
 
-**Kernversprechen:** Ein Lauf rein → eine begründete, umsetzbare und prüfbare nächste Handlung raus, wenn die Daten sie tragen. Andernfalls erklärt die App knapp, was bereits bekannt ist und was noch fehlt.
+**Kernversprechen:** Ein Lauf rein → höchstens eine begründete, umsetzbare und prüfbare Empfehlung raus, wenn die Daten sie tragen. Andernfalls erklärt die App knapp, was bereits bekannt ist und was noch fehlt.
 
 Die App unterscheidet:
 - was gemessen oder subjektiv angegeben wurde;
 - was ein Modell daraus schätzt;
-- welche Änderung empfohlen wird;
+- welche Empfehlung vorgeschlagen wird;
 - ob sie umgesetzt wurde;
-- welche Wirkung beobachtet wurde und wie belastbar ihre Zuordnung zur Änderung ist.
+- welche Wirkung beobachtet wurde und wie belastbar ihre Zuordnung zur Empfehlung ist.
 
 Eine bessere Kennzahl ist nur dann ein Trainingserfolg, wenn der Zweck der Einheit und das übergeordnete Ziel erhalten bleiben.
+
+### Die drei Ebenen
+
+| Ebene | Verbindliche Bedeutung |
+|---|---|
+| Ziel | Optionales Vorhaben mit Datum. Ein Ziel darf enden; das Datum macht Aufbau und Tapering berechenbar. |
+| Fokus | Dauerhaftes allgemeines Thema ohne Enddatum. Höchstens einer ist aktiv. Der Fokus wird nicht bewertet. |
+| Empfehlung | Höchstens eine konkrete, überprüfbare Handlung. Sie kann ein neues Verhalten oder bewusstes Beibehalten sein. Nur sie durchläuft den Regelkreis. |
+
+Ziel, Fokus und Empfehlung bleiben unabhängig voneinander optional. Ein Ziel
+schlägt einen passenden Fokus vor. Ohne Ziel gibt der Nutzer den Fokus selbst ein;
+Runback rät dann keinen Fokus. Ein Fokuswechsel beendet eine laufende
+Empfehlung nicht automatisch.
 
 ---
 
@@ -48,31 +63,49 @@ Eine bessere Kennzahl ist nur dann ein Trainingserfolg, wenn der Zweck der Einhe
 | Gesamtbelastung | Über die Einheit angesammelte Belastung; Dauer und gewählte Belastungsdimension werden genannt. |
 | Subjektive Anstrengung | Vom Nutzer angegebene RPE, getrennt für Beine und Atmung. |
 | Effort | Modellierte äußere Anforderung unter Berücksichtigung der unterstützten Einflussfaktoren. Kein direkt gemessener Universalwert für Ermüdung, Fitness oder Gesundheit. |
-| Arbeitsthema | Höchstens eine vom Nutzer angenommene, aktiv verfolgte Änderung mit festgelegter Prüfung. |
+| Ziel | Optionales Vorhaben mit einem möglichen Enddatum. |
+| Fokus | Dauerhaftes allgemeines Thema ohne Enddatum; höchstens einer ist aktiv. |
+| Empfehlung | Höchstens eine vom Nutzer angenommene, konkret formulierte Handlung mit festgelegter Prüfung. |
+| Vergleichsläufe | Frühere passende Läufe, die als Vergleichsbasis für eine Empfehlung dienen. |
+| Woran erkennen wir, dass es geholfen hat? | Vor dem Start festgelegte Regel für die spätere Prüfung einer Empfehlung. |
 | Vergleichbar | Für eine bestimmte Fragestellung ausreichend ähnliche oder belastbar korrigierbare Bedingungen. Nicht zwingend gleiche Strecke. |
 
-Die mathematische Skala des Efforts, ihre Referenzbedingungen und unterstützten Einsatzbereiche werden vor der ersten Ausspielung dokumentiert und versioniert. Einheiten dürfen nicht stillschweigend vermischt werden.
+Die mathematische Skala des Efforts, ihre Referenzbedingungen und unterstützten Einsatzbereiche werden vor der ersten Ausspielung dokumentiert und versioniert. Einheiten dürfen nicht stillschweigend vermischt werden. Die Fokus-Arten und ihre Relevanzmatrix werden ebenfalls versioniert. Die eigene Bezeichnung des Nutzers steht im UI, wird aber nicht ausgewertet.
 
 ---
 
-## 3. Invarianten
+## 3. Grundregeln
 
 Gelten für jedes Feature in V1 und V2. Verletzung ist ein Bug, kein Trade-off.
 
-1. **Erhaltene Originaldaten werden nicht überschrieben.** Bereinigung, Korrekturen, Reduktion und Nutzeränderungen liegen getrennt. Begrenzte Aufbewahrung und ausdrückliches Löschen sind erlaubt. Reduzierte Daten werden nicht als vollständige Originale ausgegeben.
-2. **Ableitungen sind nachvollziehbar.** Sie tragen eine `model_version`, ihre Eingabequellen und deren Versionen beziehungsweise Zustand. Neuberechnung wird nur für Ergebnisse versprochen, deren notwendige Ausgangsdaten noch vorhanden sind.
-3. **Keine Handlungsempfehlung ohne Zweck und Prüfung.** Sie nennt konkrete Änderung, Einsatzbereich, Ziel und vorher festgelegtes Prüfkriterium. Reine Messwerte, Statusmeldungen und neutrale Beobachtungen brauchen kein eigenes Experiment.
-4. **Keine Pflicht zur Veränderung.** „Beibehalten“, „aktuell keine Änderung nötig“ und „noch nicht ausreichend beurteilbar“ sind unterschiedliche, begründete Outputs. Fehlende Evidenz wird nicht als Beweis für problemloses Training dargestellt.
-5. **Schätzungen zeigen ihre Grundlage und Unsicherheit.** Verwendete Läufe beziehungsweise Abschnitte, Datenqualität, Annahmen und Unsicherheitsbereich sind nachvollziehbar. Messwerte und Nutzereingaben werden als solche gekennzeichnet; exakte Zählwerte brauchen kein künstliches Intervall. Nicht belastbar quantifizierbare Schätzungen dürfen nicht mit erfundenen Intervallen erscheinen.
-6. **Das LLM formuliert, die Engine entscheidet.** Empfehlungen, Bewertungen und fachliche Behauptungen entstehen aus reproduzierbaren Regeln oder versionierten Modellen. Gleiche vollständige Eingaben und gleicher Modellzustand ergeben dieselbe Entscheidung.
-7. **Fehlende Daten begrenzen nur die betroffene Aussage.** Kein Absturz und keine erfundene Ersatzmessung. Nicht verfügbare Ergebnisse werden knapp erklärt; gute Daten bleiben nutzbar.
-8. **Keine hochfrequenten Rohsample-Ströme über die JS-Grenze.** JS sieht Aggregate und bei Bedarf begrenzte, für die Darstellung abgeleitete Geometrien oder Zeitreihen. Karten und Charts dürfen diese Regel nicht umgehen.
-9. **Daten verlassen das Gerät nur zweckbezogen.** Externe Anfragen entsprechen §2. Keine ungefragte Synchronisation der Laufdatenbank, keine Rohsamples an das LLM und keine Schlüssel in Logs oder Exporten.
-10. **Alles Erhaltene gehört dem Nutzer.** Vollständiges Backup, Wiederherstellung und Löschen sind ohne Runback-Account möglich. Austauschformate geben ihre Einschränkungen an.
-11. **Der Trainingszweck bleibt maßgeblich.** Eine Empfehlung darf eine Kennzahl nicht durch Aufgabe des eigentlichen Trainingsziels „verbessern“.
-12. **Versuche ändern ihre Maßstäbe nicht rückwirkend.** Angenommene Handlung, Vergleichsregeln, Zielgröße, relevante Mindeständerung und Auswertungsverfahren werden vor Beginn festgehalten. Spätere Erkenntnisse dürfen einen Versuch begründet beenden oder ersetzen, aber seine ursprüngliche Bewertung nicht heimlich umschreiben.
-13. **Umsetzung, Ergebnis und Ursache bleiben getrennt.** Nicht umgesetzt ist nicht widerlegt; ein Unterschied allein ist kein kausaler Nachweis. „Kein relevanter Effekt“ erfordert ausreichend präzise Evidenz.
-14. **Empfehlungen bleiben stabil.** Neue Daten lösen nicht automatisch eine neue Handlung aus. Ein Themenwechsel braucht einen nachvollziehbaren Grund oder einen Nutzerwunsch.
+1. **Originale bleiben original.** *Merksatz:* Was gespeichert ist, wird nicht heimlich besser gemacht.
+   *Genauer Text:* Erhaltene Originaldaten werden nicht überschrieben. Bereinigung, Korrekturen, Reduktion und Nutzeränderungen liegen getrennt. Begrenzte Aufbewahrung und ausdrückliches Löschen sind erlaubt. Reduzierte Daten werden nicht als vollständige Originale ausgegeben.
+2. **Jede Rechnung zeigt ihre Herkunft.** *Merksatz:* Jede Zahl braucht eine Spur zurück zu ihren Daten.
+   *Genauer Text:* Ableitungen tragen eine `model_version`, ihre Eingabequellen und deren Versionen beziehungsweise Zustand. Neuberechnung wird nur für Ergebnisse versprochen, deren notwendige Ausgangsdaten noch vorhanden sind.
+3. **Erst prüfen, dann empfehlen.** *Merksatz:* Keine Empfehlung ohne Zweck und die Frage, woran wir Hilfe erkennen.
+   *Genauer Text:* Eine Empfehlung nennt konkrete Handlung, Einsatzbereich, Ziel und die vorher festgelegte Regel, woran wir erkennen, dass sie geholfen hat. Reine Messwerte, Statusmeldungen und neutrale Beobachtungen brauchen keine eigene Prüfung.
+4. **Beibehalten ist erlaubt.** *Merksatz:* Nicht ständig etwas Neues zu tun ist ein vollwertiges Ergebnis.
+   *Genauer Text:* „Beibehalten“, „aktuell keine Empfehlung nötig“ und „noch nicht beurteilbar“ sind unterschiedliche, begründete Ausgaben. Fehlende Belege werden nicht als Beweis für problemloses Training dargestellt.
+5. **Unsicherheit bleibt sichtbar.** *Merksatz:* Lieber „eher ein Eindruck“ als eine präzise Zahl ohne Grundlage.
+   *Genauer Text:* Verwendete Läufe beziehungsweise Abschnitte, Datenqualität, Annahmen und Unsicherheit sind nachvollziehbar. Messwerte und Nutzereingaben werden als solche gekennzeichnet; exakte Zählwerte brauchen kein künstliches Intervall. Nicht belastbar quantifizierbare Schätzungen dürfen nicht mit erfundenen Intervallen erscheinen.
+6. **Regeln entscheiden, Sprache erklärt.** *Merksatz:* Das Sprachmodell darf formulieren; es darf keine Empfehlung oder Bewertung erfinden.
+   *Genauer Text:* Empfehlungen, Bewertungen und fachliche Behauptungen entstehen aus reproduzierbaren Regeln oder versionierten Modellen. Gleiche vollständige Eingaben und gleicher Modellzustand ergeben dieselbe Entscheidung.
+7. **Eine Lücke bleibt eine Lücke.** *Merksatz:* Fehlt ein Sensor, verlieren wir nur die Aussage, die ihn braucht.
+   *Genauer Text:* Fehlende Daten begrenzen nur die betroffene Aussage. Es gibt keinen Absturz und keine erfundene Ersatzmessung. Nicht verfügbare Ergebnisse werden knapp erklärt; gute Daten bleiben nutzbar.
+8. **Die Brücke bleibt schlank.** *Merksatz:* Viele Rohmessungen bleiben dort, wo sie gespeichert und verarbeitet werden.
+   *Genauer Text:* Es gibt keine hochfrequenten Rohsample-Ströme über die JS-Grenze. JS sieht Aggregate und bei Bedarf begrenzte, für die Darstellung abgeleitete Geometrien oder Zeitreihen. Karten und Charts dürfen diese Regel nicht umgehen.
+9. **Daten gehen nur für einen Grund hinaus.** *Merksatz:* Keine Weitergabe ohne klaren Zweck.
+   *Genauer Text:* Externe Anfragen entsprechen §2. Es gibt keine ungefragte Synchronisation der Laufdatenbank, keine Rohsamples an das LLM und keine Schlüssel in Logs oder Exporten.
+10. **Die Daten gehören dem Nutzer.** *Merksatz:* Was Runback behält, kann der Nutzer sichern, zurückholen und löschen.
+   *Genauer Text:* Vollständiges Backup, Wiederherstellung und Löschen sind ohne Runback-Account möglich. Austauschformate geben ihre Einschränkungen an.
+11. **Der Trainingszweck gewinnt.** *Merksatz:* Eine schönere Kennzahl ist kein Erfolg, wenn das eigentliche Training verloren geht.
+   *Genauer Text:* Eine Empfehlung darf eine Kennzahl nicht durch Aufgabe des eigentlichen Trainingsziels verbessern.
+12. **Vorher festlegen, später ehrlich bleiben.** *Merksatz:* Was vor dem Start galt, wird nach dem Ergebnis nicht passend gemacht.
+   *Genauer Text:* Angenommene Empfehlung, Vergleichsregeln, Zielgröße, relevante Mindeständerung und Auswertungsverfahren werden vor Beginn festgehalten. Spätere Erkenntnisse dürfen eine Prüfung begründet beenden oder ersetzen, aber ihre ursprüngliche Bewertung nicht heimlich umschreiben.
+13. **Drei Fragen, drei Antworten.** *Merksatz:* Erst fragen: Hat er’s gemacht? Dann: Ist es besser geworden? Erst dann: Lag’s daran? Nie zwei Schritte überspringen.
+   *Genauer Text:* Umsetzung, Ergebnis und Ursache bleiben getrennt. Nicht umgesetzt ist nicht widerlegt; ein Unterschied allein ist kein kausaler Nachweis. „Kein relevanter Effekt“ erfordert ausreichend präzise Evidenz.
+14. **Empfehlungen bleiben ruhig.** *Merksatz:* Ein neuer Lauf ist kein automatischer Grund für einen neuen Tipp.
+   *Genauer Text:* Neue Daten lösen nicht automatisch eine neue Empfehlung aus. Ein Themenwechsel braucht einen nachvollziehbaren Grund oder einen Nutzerwunsch. Ein Fokuswechsel beendet keine laufende Empfehlung automatisch.
 
 ---
 
@@ -180,44 +213,46 @@ Nach einem Lauf: RPE getrennt für Beine und Atmung, plus optionale Notiz. Zwei 
 - „Nicht angegeben“ nicht als geringe Anstrengung behandelt wird.
 - Ein großer Historienimport keine Flut verpflichtender Rückfragen auslöst.
 
-### V1-9 · Feedback erscheint, sobald die Daten es tragen
+### V1-9 · Empfehlungen erscheinen, sobald die Daten sie tragen
 
 Einzellauf-Aussagen wie Pacing-Verteilung, passende Effort-Verteilung, HR-Drift und Kadenzverlauf brauchen keine künstliche Mindesthistorie. Ihre Bewertung muss zum Trainingszweck passen.
 
 **Fertig, wenn:**
-- Schon nach Lauf 1 eine konkrete Handlung möglich ist, sofern für genau diese Handlung ausreichende Daten vorliegen.
-- Keine Trainingsänderung erzwungen wird, wenn nur eine Beobachtung oder eine sinnvolle Rückfrage möglich ist.
+- Schon nach Lauf 1 eine konkrete Empfehlung möglich ist, sofern für genau diese Empfehlung ausreichende Daten vorliegen.
+- Keine neue Empfehlung erzwungen wird, wenn nur eine Beobachtung oder eine sinnvolle Rückfrage möglich ist.
 - Ein kurzer, unvollständiger oder sensorarmer Lauf eine ehrliche Einordnung statt einer erfundenen Empfehlung erhält.
 - Sichtbar bleibt, auf welchen Läufen oder Abschnitten die Aussage beruht.
 - Weitere Daten die Unsicherheit verringern können, ohne zwangsläufig die Handlung zu ändern.
 - „Mehr Daten nötig“ möglichst konkret erklärt, welche geeignete Beobachtung fehlt.
 
-### V1-10 · Die Decision Engine schließt den Regelkreis
+### V1-10 · Die Decision Engine schließt den Regelkreis einer Empfehlung
 
-Hypothese → vorgeschlagene Handlung → Nutzerannahme → festgelegte Prüfung → Umsetzung → Beobachtung → Urteil.
+Vermutung → vorgeschlagene Empfehlung → Annahme durch den Nutzer → vorher festgelegte Regel → Umsetzung → Beobachtung → Urteil.
 
-Höchstens ein aktives Arbeitsthema. Priorisierung nach Zielrelevanz, erwartetem Nutzen, Evidenz, Umsetzbarkeit und Aufwand der Änderung. Neuheit allein rechtfertigt keinen Wechsel.
+Höchstens eine aktive Empfehlung wird geprüft. Die Reihenfolge entsteht aus
+der versionierten Relevanzmatrix, Datenqualität, Umsetzbarkeit und Aufwand.
+Neuheit allein rechtfertigt keinen Wechsel.
 
 **Fertig, wenn:**
 - Aus vielen Auffälligkeiten höchstens eine Hauptempfehlung entsteht; neutrale Details bleiben zugänglich.
-- Der Nutzer annehmen, verschieben, ablehnen und einen Versuch beenden kann.
-- Bei Annahme Handlung, Einsatzbereich, Baseline, Zielgröße, praktisch relevante Mindeständerung, Vergleichs-/Ausschlussregeln, Mindestbeobachtung, Prüfzeitpunkte und Abbruchbedingungen feststehen.
+- Der Nutzer eine Empfehlung annehmen, verschieben, ablehnen und eine Prüfung beenden kann.
+- Bei Annahme Empfehlung, Einsatzbereich, Vergleichsläufe, Zielgröße, praktisch relevante Mindeständerung, Vergleichs-/Ausschlussregeln, Mindestbeobachtung, Prüfzeitpunkte und Abbruchbedingungen feststehen.
 - Die Umsetzung separat erfasst oder belastbar aus Daten beurteilt wird; unbekannte Umsetzung als unbekannt bleibt.
-- Der Versuch die Zustände „vorgeschlagen“, „aktiv“, „pausiert“, „abgeschlossen“ und „abgebrochen/ersetzt“ nachvollziehbar durchläuft.
-- Das Urteil Verbesserung, Verschlechterung, keinen relevanten Effekt, unzureichende Evidenz und fehlende Umsetzung unterscheiden kann.
+- Die Empfehlung die Zustände „Vorschlag“, „Angenommen“, „Aktiv“, „Pausiert“, „Abgeschlossen“ und „Abgebrochen“ nachvollziehbar durchläuft.
+- Das Urteil Verbesserung, Verschlechterung, keinen relevanten Effekt, „noch nicht klar“ und fehlende Umsetzung unterscheiden kann.
 - Ein beobachteter Unterschied nicht automatisch als verursachte Wirkung der Empfehlung formuliert wird.
 - Drei geeignete Läufe eine Zwischenbewertung erlauben; die ausreichende Datenmenge und Beobachtungsdauer von der Fragestellung abhängen.
 - Ein widerlegter Versuch kontextbezogen berücksichtigt wird. Eine ganze Hypothesenklasse wird nicht dauerhaft durch einen einzelnen Fehlschlag gesperrt.
-- Neue Empfehlung, RPE-Nachtrag oder Wetteranreicherung keinen unbegründeten Themenwechsel erzeugt.
-- Ein Modellfehler oder verändertes Ziel einen Versuch begründet beenden kann; ein neuer Versuch erhält neue, vorab fixierte Bedingungen.
+- Neue Daten, ein RPE-Nachtrag, Wetteranreicherung oder ein Fokuswechsel keinen unbegründeten Wechsel der Empfehlung erzeugt.
+- Ein Modellfehler oder ein verändertes Ziel eine Prüfung begründet beenden kann; eine neue Empfehlung erhält neue, vorab fixierte Bedingungen.
 - „Beibehalten“ und „noch nicht beurteilbar“ mit eigenständigen Begründungen funktionieren.
 
 ### V1-11 · Die Post-Run-Zusammenfassung bleibt schmal
 
 Drei feste Informationsplätze:
 1. Einordnung des Laufs im Verhältnis zu seinem Zweck.
-2. Stand des Arbeitsthemas beziehungsweise derzeitige Beurteilbarkeit.
-3. Nächste konkrete Handlung, einschließlich Beibehalten oder Abwarten.
+2. Stand der Empfehlung beziehungsweise derzeitige Beurteilbarkeit.
+3. Die konkrete Empfehlung, einschließlich Beibehalten oder Abwarten.
 
 Lob und Verbesserungsbedarf werden nicht künstlich erzeugt. Vertiefung liegt unter „Details“.
 
@@ -226,7 +261,7 @@ Lob und Verbesserungsbedarf werden nicht künstlich erzeugt. Vertiefung liegt un
 - Größere Schrift und Bedienhilfen den Inhalt erreichbar lassen; notwendiges Scrollen ist dann erlaubt.
 - Datenbasis und Unsicherheit knapp erkennbar und mit einer Aktion genauer erklärbar sind.
 - Die Sprache keine unbelegte Ursache oder Sicherheit suggeriert.
-- Ein laufender Versuch nach einem weiteren Lauf bestätigt werden kann, statt einen neuen Tipp zu erzwingen.
+- Eine laufende Empfehlung nach einem weiteren Lauf bestätigt werden kann, statt einen neuen Tipp zu erzwingen.
 
 ### V1-12 · LLM-Formulierung ist optional
 
@@ -235,7 +270,7 @@ OpenRouter mit nutzereigenem Key. Eingabe: geprüfte Engine-Objekte und erforder
 **Fertig, wenn:**
 - Ohne Key die gesamte Entscheidung und eine verständliche Template-Fassung verfügbar sind.
 - Template zuerst erscheint; eine geprüfte LLM-Fassung ersetzt sie erst nach erfolgreicher Rückgabe.
-- Zahlen, Richtung, Aussageumfang, Ursache, Sicherheit, Handlung und Bedingungen mit der Engine übereinstimmen.
+- Zahlen, Richtung, Aussageumfang, Ursache, Sicherheit, Empfehlung und Bedingungen mit der Engine übereinstimmen.
 - Nicht ausreichend prüfbare freie Aussagen verworfen oder auf kontrollierte Formulierungen begrenzt werden.
 - Timeouts, Netzfehler, Budgetgrenzen und ungültige Antworten die App nicht blockieren.
 - Cache-Ergebnisse an Eingabe- und Formulierungsstand gebunden sind; veraltete Prosa keine neue Entscheidung überschreibt.
@@ -286,24 +321,42 @@ Komprimierung ohne Informationsverlust hat Vorrang vor Reduktion; Reduktion hat 
 - Dauerhafte Basisspeicherung nicht als unbegrenzte Speicherzusage verstanden wird: Nutzer können exportieren und bewusst löschen.
 - Eine geänderte Aufbewahrungsregel keine vollständige Neuberechenbarkeit bereits reduzierter Läufe vortäuscht.
 
-### V1-16 · Trainingszweck und Nutzerziel steuern die Bewertung
+### V1-16 · Trainingszweck, Ziel und Fokus steuern die Priorisierung
 
-Übergeordnetes Ziel, Zeitbudget und Trainingstage sind bearbeitbar. Jede Einheit kann einen Zweck tragen: locker, lang, Intervalle/Qualität, Wettkampf, freier Lauf oder unbekannt.
+Ein Ziel, ein Zieldatum, Zeitbudget und Trainingstage sind bearbeitbar. Ziel
+und Zieldatum bleiben optional. Der Fokus ist davon getrennt: Seine Art kommt
+aus der kurzen versionierten Liste Ausdauer aufbauen, schneller werden,
+verletzungsfrei bleiben, Gewohnheit aufbauen oder allgemeine Fitness. Eine
+eigene Bezeichnung darf ergänzt werden; sie wird angezeigt, aber nicht
+ausgewertet. Jede Einheit kann einen Zweck tragen: locker, lang,
+Intervalle/Qualität, Wettkampf, freier Lauf oder unbekannt.
 
 **Fertig, wenn:**
 - Aufzeichnung ohne Einrichtung und ohne Zielangabe möglich ist.
+- Ein Ziel ohne Zieldatum, ein Ziel mit Zieldatum, ein Fokus oder alle drei leer
+  jeweils gültige Zustände sind.
+- Ein Ziel mit Datum eine passende Fokus-Art vorschlägt, ohne sie automatisch
+  zu speichern oder ein Urteil über den Fokus zu erzeugen.
+- Ohne Ziel keine Fokus-Art vorgeschlagen wird; der Nutzer kann sie selbst
+  festlegen oder leer lassen.
+- Höchstens eine Fokus-Art gleichzeitig aktiv ist und ein Fokus kein Enddatum,
+  eigene Antwort auf „Woran erkennen wir, dass es geholfen hat?“ oder ein Urteil besitzt.
+- Eigene Bezeichnung und Fokus-Art getrennt gespeichert werden.
 - Ein vermuteter Laufzweck vorgeschlagen und vom Nutzer korrigiert werden kann.
 - Aufwärmen, Belastungs- und Erholungsphasen sowie Auslaufen getrennt berücksichtigt werden können.
 - Ein korrekt ausgeführter Intervalllauf nicht allein wegen wechselnder Pace/HR als schlecht eingeteilt gilt.
 - Bei unbekanntem Zweck keine zweckabhängige Fehlbewertung erzwungen wird.
 - Eine Korrektur neue Ableitungen ermöglicht, ohne die ursprüngliche Einordnung zu verbergen.
 
-### V1-17 · Der nächste Lauf ist konkret und passt in den Alltag
+### V1-17 · Die nächste Einheit ist konkret und passt in den Alltag
 
-Vor dem Start stehen Zweck, grober Umfang und die eine aktuell angenommene Handlung bereit. Ein vollständiger automatischer Trainingsplan ist für V1 nicht erforderlich.
+Vor dem Start stehen Zweck, grober Umfang und die eine aktuell angenommene
+Empfehlung bereit. Ein vollständiger automatischer Trainingsplan ist für V1
+nicht erforderlich.
 
 **Fertig, wenn:**
-- Der Nutzer vor dem Lauf weiß, was er heute beachten soll.
+- Der Nutzer vor der Einheit weiß, was er heute beachten soll.
+- Die Oberfläche den Satz der Empfehlung ohne Fachlabel und im Imperativ zeigt.
 - Zeitbudget, Trainingstage und verfügbares Training außerhalb des Laufens als Kontext berücksichtigt werden können.
 - „Passt heute nicht“ eine Verschiebung erlaubt und nicht als gescheiterter Trainingsversuch zählt.
 - Während der Aufzeichnung die zum gewählten Lauf nötigen Basiswerte sichtbar sind; komplexe Live-Cues bleiben V2.
@@ -327,7 +380,7 @@ V1 startet mit einer begrenzten, dokumentierten Auswahl von Handlungsklassen, di
 
 **Fertig, wenn:**
 - Jede freigeschaltete Handlungsklasse Zweck, Datenbedarf, Gültigkeitsbereich, Gegenanzeigen im Trainingskontext, bekannte Störfaktoren und Prüfregeln dokumentiert.
-- Mindestens eine konkrete Änderung, Beibehalten und unzureichende Beurteilbarkeit durchgängig funktionieren.
+- Mindestens eine konkrete Empfehlung, Beibehalten und noch nicht klare Beurteilbarkeit durchgängig funktionieren.
 - Weniger HR-Drift durch Aufgabe des geplanten Laufumfangs nicht automatisch als Trainingserfolg zählt.
 - Messbare Umsetzung nicht mit dem eigentlich erhofften Nutzen verwechselt wird.
 - Nicht ausreichend validierte Klassen sichtbar deaktiviert bleiben oder nur neutrale Beobachtungen liefern.
@@ -348,6 +401,45 @@ Die App muss mehr nachweisen als plausible Zahlen und technisch ausführbare Reg
 - Komplexere Modelle mit einer einfachen Ausgangsmethode verglichen werden. Ohne belastbaren Zusatznutzen bleibt die einfachere Methode aktiv.
 - Fehlalarme, Verweigerung von Aussagen, Prognosefehler und Unsicherheitskalibrierung passend zur jeweiligen Methode dokumentiert sind.
 - Der komplette Ablauf vom Lauf bis zum verständlichen Urteil auf dem Referenzgerät geprüft ist.
+
+### V1-21 · Ziel, Fokus und Empfehlung bleiben getrennt
+
+Die drei Ebenen sind in Datenmodell, Entscheidung und Oberfläche unterscheidbar.
+Ein Ziel kann enden. Ein Fokus bleibt ohne Enddatum bestehen. Eine Empfehlung
+kann abgeschlossen oder abgebrochen werden, ohne Ziel oder Fokus zu löschen.
+
+**Fertig, wenn:**
+
+- Die App ohne Ziel, ohne Fokus und ohne Empfehlung aufzeichnen kann.
+- Ein Ziel mit Datum seine verbleibenden Kalenderwochen für die Auswahl passender Handlungsklassen nutzt.
+- Das Erreichen, Ende oder Streichen eines Ziels den Fokus nicht löscht.
+- Das Abschließen oder Abbrechen einer Empfehlung den Fokus nicht als erledigt oder widerlegt markiert.
+- Der Fokus selbst nie durch „erreicht“, „widerlegt“ oder ein anderes Urteil bewertet wird und keine eigene Regel dafür besitzt.
+- Ein Fokuswechsel eine laufende Empfehlung nicht automatisch beendet.
+- Höchstens eine Empfehlung gleichzeitig aktiv geprüft wird; Vorschläge sind davon getrennt und erhalten sichtbare Zustandslabels.
+- Im UI keine der früheren Bezeichnungen als Name eines eigenen Objekts auftaucht.
+
+### V1-22 · Priorisierung ist fest, sichtbar und zeitlich passend
+
+Die Entscheidung aus mehreren zulässigen Handlungsklassen ist deterministisch.
+Eine versionierte Relevanzmatrix und feste Sperren beschreiben, wie der Fokus
+in die Reihenfolge eingreift. Die Gewichte sind redaktionelle Einschätzungen,
+keine aus einem einzelnen Nutzer gelernte Vorliebe.
+
+Die verbindliche Startmatrix `relevance-v1`, ihre sechs Handlungsklassen und
+die Reihenfolge der Tie-Breaker stehen in [Änderungen § Priorisierung](aenderungen.md#priorisierung).
+
+**Fertig, wenn:**
+
+- Jede Handlungsklasse für jede Fokus-Art ein dokumentiertes Gewicht besitzt.
+- Der Fokus „verletzungsfrei bleiben“ umfangssteigernde Klassen sperren kann.
+- Ein Zieldatum Technikumbau in den letzten drei Wochen und Tapering mehr als zwölf Wochen vor dem Ziel hart ausfiltert.
+- Die Auswahl bei gleichen vollständigen Eingaben und gleichem Modellstand reproduzierbar ist.
+- Datenqualität und Umsetzbarkeit unabhängig vom Fokus berücksichtigt werden.
+- Unter „Details“ die gewählte Empfehlung und verworfene Alternativen samt verständlichem Grund sichtbar sind.
+- Während eine Empfehlung läuft die nächste als „Danach vorgesehen“ gezeigt werden kann, ohne die aktive Prüfung zu verändern.
+- Die Oberfläche die Logik als „So priorisiert Runback“ beschreibt und nicht als „für dich berechnet“.
+- Die Relevanzmatrix eine eigene Version trägt und nicht aus den Daten eines einzelnen Nutzers gelernt wird.
 
 ---
 
@@ -431,7 +523,7 @@ Gespeicherte Laufkonfigurationen mit Geräten, Ziel, aktiven Cues und optionalem
 
 Tool-Zugriff auf eine begrenzte Query-API statt Rohdaten im Prompt. Fragen wie „Was ist mein größtes Problem?“, „Warum empfiehlst du das?“ und „Was müsste deine Empfehlung ändern?“ sind beantwortbar.
 
-**Fertig, wenn:** Fachliche Behauptungen und Unsicherheit auf Engine-Ergebnisse zurückführbar bleiben, fehlende Ergebnisse nicht erfunden werden und eine Unterhaltung keine aktiven Prüfbedingungen oder Trainingsziele stillschweigend verändert.
+**Fertig, wenn:** Fachliche Behauptungen und Unsicherheit auf Engine-Ergebnisse zurückführbar bleiben, fehlende Ergebnisse nicht erfunden werden und eine Unterhaltung keine aktiven Prüfregeln oder Trainingsziele stillschweigend verändert.
 
 ---
 
@@ -446,12 +538,12 @@ Tool-Zugriff auf eine begrenzte Query-API statt Rohdaten im Prompt. Fragen wie �
 | Plugin-System für beliebige Sensoren | Unnötiger Aufwand vor validierten Anwendungsfällen. |
 | Spotify-Integration, BPM-Matching | Nicht Bestandteil des Lauf- und Entscheidungsablaufs. |
 | Links/Rechts-Asymmetrie, Bodenkontaktzeit als Primärmetrik | Keine vorausgesetzte geeignete Hardware. |
-| ACWR-basierte Handlungsempfehlungen | Kein gewählter Ansatz für diese App. |
+| ACWR-basierte Empfehlungen | Kein gewählter Ansatz für diese App. |
 | Kostenpflichtige Pflichtbibliotheken oder Pflichtdienste | Der Kern muss kostenlos nutzbar bleiben. |
 | Medizinische Diagnosen, Gesundheitsfreigaben, Verletzungsbehandlung | Außerhalb des Produktumfangs. Beschwerden dürfen Anlass sein, eine Trainingsempfehlung auszusetzen, aber nicht für automatische Diagnosen. |
 | Universeller **Ganzkörper**-Readiness-, Belastbarkeits- oder Verletzungsrisikoscore | Die vorgesehenen Daten rechtfertigen keine solche Garantie. Eine regionenbezogene Frische mit offengelegter Rechenvorschrift ist davon ausgenommen, siehe [Zielspezifikation Training §3](zielspezifikation-training.md). |
 | Vollständiger automatischer Trainingsplangenerator in V1 | Zunächst den nächsten Lauf und den überprüfbaren Regelkreis beherrschen. Vorschlagen und vom Nutzer bestätigen lassen bleibt zulässig. |
-| Garantierter Tipp nach jedem Lauf | Würde unbegründeten Änderungsbedarf erzeugen. |
+| Garantierte Empfehlung nach jedem Lauf | Würde unbegründeten Handlungsbedarf erzeugen. |
 | Vollständige Neuberechenbarkeit nach Rohdatenlöschung | Physisch nicht erfüllbar. |
 | Gleichsetzung einer Modellschätzung mit einer Messung | Verletzt die Nachvollziehbarkeit der Aussagen. |
 
@@ -459,13 +551,18 @@ Tool-Zugriff auf eine begrenzte Query-API statt Rohdaten im Prompt. Fragen wie �
 
 ## 7. Definition of Done für V1
 
-> Ein Lauf wird aufgezeichnet oder importiert und im Kontext seines Trainingszwecks mit den verfügbaren Daten ausgewertet. Runback empfiehlt höchstens eine begründete Änderung oder erklärt, warum Beibehalten beziehungsweise noch keine Bewertung sinnvoll ist.
+> Ein Lauf wird aufgezeichnet oder importiert und im Kontext seines Trainingszwecks mit den verfügbaren Daten ausgewertet. Runback zeigt höchstens eine begründete Empfehlung oder erklärt, warum Beibehalten beziehungsweise noch keine Bewertung sinnvoll ist.
 >
-> Der Nutzer kann die Handlung annehmen. Vor dem nächsten passenden Lauf ist sie konkret sichtbar. Die App erkennt oder erfragt ihre Umsetzung und bewertet geeignete spätere Läufe nach vorher festgelegten Regeln. Nach drei geeigneten Läufen kann sie einen Zwischenstand geben; ein endgültiges Urteil richtet sich nach Fragestellung und Evidenz.
+> Der Nutzer kann die Empfehlung annehmen. Vor der nächsten passenden Einheit ist sie konkret sichtbar. Die App erkennt oder erfragt ihre Umsetzung und bewertet geeignete spätere Läufe nach vorher festgelegten Regeln. Nach drei geeigneten Läufen kann sie einen Zwischenstand geben; ein endgültiges Urteil richtet sich nach Fragestellung und Belegen.
 >
-> Verbesserung, Verschlechterung, kein relevanter Effekt, fehlende Umsetzung und unzureichende Evidenz bleiben unterscheidbar. Die App behauptet keinen kausalen Erfolg allein aufgrund eines besseren Folgelaufs. Entscheidungen bleiben mit ihrer damaligen Datenbasis nachvollziehbar.
+> Verbesserung, Verschlechterung, kein relevanter Effekt, fehlende Umsetzung und „noch nicht klar“ bleiben unterscheidbar. Die App behauptet keinen kausalen Erfolg allein aufgrund eines besseren Folgelaufs. Entscheidungen bleiben mit ihrer damaligen Datenbasis nachvollziehbar.
 >
 > Der Ablauf funktioniert ohne Internet für vorhandene lokale Daten, übersteht die festgelegten Aufzeichnungsfälle und lässt sich vollständig sichern und wiederherstellen, soweit Daten gemäß den sichtbaren Aufbewahrungsregeln erhalten wurden.
+
+Der Nutzer kann ein Ziel setzen, einen dauerhaften Fokus wählen oder beides leer
+lassen. Der Fokus bleibt ohne eigenes Urteil bestehen. Eine Empfehlung wird als
+„Vorschlag“ oder „Angenommen“ sichtbar und durchläuft danach die Zustände
+„Aktiv“, „Pausiert“, „Abgeschlossen“ oder „Abgebrochen“.
 
 Wenn dieser Ablauf mit wenigen fachlich geprüften Handlungsklassen steht, ist der Kern demonstriert. Das ist noch kein Nachweis, dass jede Empfehlung langfristig die Laufleistung steigert. Die übrigen V1-Ziele bleiben für die vollständige V1-Abnahme verbindlich.
 

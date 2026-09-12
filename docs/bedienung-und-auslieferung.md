@@ -10,7 +10,11 @@ Die Oberfläche verwendet ein ruhiges dunkles Grün und eine eindeutige Informat
 
 - Start, Pause, Fortsetzen und Ende ohne Suche bedienbar sind.
 - Nach dem Lauf die drei Informationsplätze aus V1-11 die Standardansicht bilden.
-- Ein aktives Arbeitsthema gegenüber weiteren Auffälligkeiten eindeutig Vorrang hat.
+- Eine aktive Empfehlung gegenüber weiteren Auffälligkeiten eindeutig Vorrang hat.
+- Ein Ziel, ein dauerhafter Fokus und die konkrete Empfehlung als getrennte
+  Ebenen erkennbar bleiben.
+- Der Fokus ohne eigenes Urteil auskommt; nur die Empfehlung trägt ein
+  Ablauf- oder Ergebnislabel.
 - Große Schrift, ausreichende Kontraste und verständliche Beschriftungen funktionieren; Farbe allein keine Bedeutung trägt.
 - Während des Laufens große Bedienelemente und wenige notwendige Interaktionen genügen.
 
@@ -27,7 +31,19 @@ Ein lokales Nutzerprofil kann Geräte, Ansichten, optionale Dienste und Hinweise
 - Deaktivierung einer Funktion weder vorhandene Daten ungefragt löscht noch die Aufzeichnung anderer Kanäle stoppt.
 - Abhängigkeiten sichtbar erklärt werden: Ein deaktivierter HR-Sensor verhindert beispielsweise keine GPS-Auswertung, begrenzt aber HR-bezogene Aussagen.
 - Geräte-, Speicher- und Datenschutzoptionen an einem nachvollziehbaren Ort liegen; komplexe Modellparameter keine Pflicht zur Bedienung werden.
-- Presets aus V2-12 Einstellungen wiederverwenden können, ohne die globale Datenhaltung oder unveränderliche Prüfbedingungen zu überschreiben.
+- Presets aus V2-12 Einstellungen wiederverwenden können, ohne die globale Datenhaltung oder unveränderliche Prüfregeln zu überschreiben.
+
+## Sprache der Oberfläche
+
+Die Hauptebene zeigt einen kurzen Imperativ, etwa „Starte die ersten 2 km
+langsamer.“ Darunter stehen höchstens zwei Zeilen Begründung. Datenbasis,
+Modellversion und Unsicherheit liegen unter „Details“. Fachwörter erscheinen
+nicht, wenn ein Laufkumpel dieselbe Information normal sagen würde.
+
+„Vorschlag“, „Angenommen“, „Aktiv“, „Pausiert“, „Abgeschlossen“ und
+„Abgebrochen“ stehen als Labels sichtbar am jeweiligen Inhalt. „Noch nicht
+klar“, „Zu wenig vergleichbare Läufe“ und „Du hast es bisher nicht probiert“
+sind die verständlichen Ergebnisformulierungen.
 
 ## Telefon und Uhr
 

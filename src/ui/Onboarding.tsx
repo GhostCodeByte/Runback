@@ -158,7 +158,11 @@ export function Onboarding({
         <Text style={styles.progress}>
           Einrichtung · {index + 1}/{STEPS.length}
         </Text>
-        <Pressable accessibilityRole="button" onPress={skip} disabled={!canLeave}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={skip}
+          disabled={!canLeave}
+        >
           <Text style={styles.link}>Später</Text>
         </Pressable>
       </View>
@@ -187,12 +191,12 @@ export function Onboarding({
       {step === 'goal' ? (
         <>
           <Text style={styles.title}>Dein nächster Lauf</Text>
-          <Section title="Übergeordnetes Ziel">
+          <Section title="Ziel (optional)">
             <TextInput
               accessibilityLabel="Laufziel"
               value={goal}
               onChangeText={setGoal}
-              placeholder="Zum Beispiel: regelmäßig laufen"
+              placeholder="Zum Beispiel: Halbmarathon im April"
               placeholderTextColor={color.muted}
               style={styles.input}
             />
@@ -267,8 +271,8 @@ export function Onboarding({
             Importiere FIT, GPX, TCX oder einen Strava Export. Doppelte
             Aktivitäten werden erkannt. Auch Fitbit, Google Fit, Strong, Mi
             Fitness, Apple Health, Samsung, Garmin und weitere Exporte
-            funktionieren — Details stehen später unter Mehr → Deine Daten
-            → App-Importe.
+            funktionieren — Details stehen später unter Mehr → Deine Daten →
+            App-Importe.
           </Copy>
           <Button
             title={importRunning ? 'Import läuft …' : 'Dateien importieren'}
@@ -276,7 +280,11 @@ export function Onboarding({
             disabled={busy || importRunning}
           />
           {importRunning && onCancelImport ? (
-            <Button secondary title="Import abbrechen" onPress={onCancelImport} />
+            <Button
+              secondary
+              title="Import abbrechen"
+              onPress={onCancelImport}
+            />
           ) : null}
           {status.imported !== undefined ? (
             <Copy>

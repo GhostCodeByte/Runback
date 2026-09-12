@@ -10,7 +10,7 @@
 
 Eine Aufzeichnung braucht keinen Plan: Auf „Heute“ wählt der Nutzer Art (Laufen, Radfahren) und Zweck (frei, locker, lang, Intervalle, Wettkampf, offen) und startet. Ein für heute geplanter Lauf steht voran, die freie Aufzeichnung bleibt einen Tipp entfernt („Stattdessen frei aufzeichnen“). Krafttraining startet weiterhin aus einer Vorlage oder als freies Training.
 
-Jeder Datensatz trägt `sport` (`running`, `cycling`). Fehlt das Feld — ältere Aufzeichnungen, Importe, Uhr — gilt der Datensatz als Lauf; es gibt keine Migration. Wie der Zweck ist die Sportart nachträglich über das Feedback korrigierbar; die ursprüngliche Einordnung bleibt im Datensatz und im Ereignisprotokoll. Laufauswertung (Tempoindex, Fokus, Auffälligkeiten), Statistik, Entwicklung und Wochenkilometer zählen ausschließlich Läufe; bei anderen Sportarten erscheinen sie gar nicht statt mit falschen Zahlen. Radfahrten zeigen km/h statt min/km und werden als `cycling` nach GPX (`<type>`), FIT (`Sport.CYCLING`) und Health Connect (`EXERCISE_TYPE_BIKING`) exportiert. Der Import lehnt Radfahrten weiterhin ab; das ist eine offene Entscheidung, keine Datenlücke.
+Jeder Datensatz trägt `sport` (`running`, `cycling`). Fehlt das Feld — ältere Aufzeichnungen, Importe, Uhr — gilt der Datensatz als Lauf; es gibt keine Migration. Wie der Zweck ist die Sportart nachträglich über das Feedback korrigierbar; die ursprüngliche Einordnung bleibt im Datensatz und im Ereignisprotokoll. Laufauswertung (Tempoindex, Fokus, Empfehlungen und Auffälligkeiten), Statistik, Entwicklung und Wochenkilometer zählen ausschließlich Läufe; bei anderen Sportarten erscheinen sie gar nicht statt mit falschen Zahlen. Radfahrten zeigen km/h statt min/km und werden als `cycling` nach GPX (`<type>`), FIT (`Sport.CYCLING`) und Health Connect (`EXERCISE_TYPE_BIKING`) exportiert. Der Import lehnt Radfahrten weiterhin ab; das ist eine offene Entscheidung, keine Datenlücke.
 
 ## Distanz und Tempoindex
 
@@ -18,11 +18,31 @@ Jeder Datensatz trägt `sport` (`running`, `cycling`). Fehlt das Feld — älter
 
 Der einfache Tempoindex ist `100 × Geschwindigkeit / 3 m/s`. Die aufsummierte Indexdauer wird getrennt als Index-Minuten angegeben. Das ist keine mechanische Leistung, keine metabolische Messung und kein Fitness- oder Ermüdungsscore. Wind-, Hitze-, Untergrund- und Steigungseffekte werden nicht als validierte numerische Korrekturen ausgegeben. Fehlende Faktoren bleiben unbekannt. Es gibt kein erfundenes Konfidenzintervall.
 
-## Arbeitsthema: ruhigerer Start
+## Empfehlung: ruhigerer Start
 
 Die versionierte TypeScript-Engine bietet bei lockeren/langen Läufen mit mindestens vier geeigneten Abschnitten ab 500 m und bekannten flachen Steigungen einen Pacing-Versuch an, wenn der spätere Tempoabfall mindestens 8 % beträgt. Die erste Hälfte soll etwa 5 % ruhiger begonnen werden, unter Erhalt von Zweck und Umfang. Unbekannter Zweck löst eine freiwillige Rückfrage aus; Intervall- und Wettkampfläufe erhalten diesen Vorschlag nicht.
 
-Bei Annahme werden Baseline, Methode, relevante Mindeständerung, Dauer-/Distanzfenster, Ausschlussregeln und Beobachtungszeit festgehalten. Mindestens sechs passende Beobachtungen über 14 Tage sind für eine abschließende Einordnung vorgesehen; nach drei Läufen ist nur ein Zwischenstand möglich. Umsetzung, beobachteter Unterschied und Ursache bleiben getrennt. Ein Vorher-/Nachher-Unterschied beweist keine Kausalität. Diese Ausgangsregeln sind synthetisch getestet; langfristige Wirksamkeit ist nicht nachgewiesen.
+Bei Annahme werden Vergleichsläufe, Methode, relevante Mindeständerung,
+Dauer-/Distanzfenster, Ausschlussregeln und Beobachtungszeit festgehalten.
+Mindestens sechs passende Beobachtungen über 14 Tage sind für eine
+abschließende Einordnung vorgesehen; nach drei Läufen ist nur ein Zwischenstand
+möglich. Umsetzung, beobachtetes Ergebnis und Ursache bleiben getrennt. Ein
+Vorher-/Nachher-Unterschied beweist keine Kausalität. Diese Ausgangsregeln sind
+synthetisch getestet; langfristige Wirksamkeit ist nicht nachgewiesen.
+
+## Ziel und Fokus
+
+`goal` ist ein optionales Ziel; `targetDate` macht die verbleibenden
+Kalenderwochen berechenbar. `focusType` ist die versionierte Fokus-Art aus der
+kurzen Liste, `focusLabel` die eigene Bezeichnung des Nutzers. Die Fokus-Art
+fließt in die feste Relevanzmatrix ein, die eigene Bezeichnung nicht. Der Fokus
+hat kein Prüfverfahren und wird nicht abgeschlossen oder widerlegt.
+
+Die Relevanzmatrix und die Sperren der Handlungsklassen werden als eigener
+Modellstand gespeichert. Ihre Gewichte sind redaktionelle Vorgaben und werden
+nicht aus einem einzelnen Nutzer gelernt. Bei laufender Empfehlung bleibt die
+gespeicherte Prüfung unverändert; eine nächste Empfehlung kann nur als
+„Danach vorgesehen“ erscheinen.
 
 ## Dateien, Aufbewahrung und Backup
 

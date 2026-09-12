@@ -343,7 +343,7 @@ it('uses the schedule goal as canonical and preserves its routine in profile sav
   );
   expect(
     tree.root.find(
-      node => node.props.accessibilityLabel === 'Übergeordnetes Laufziel',
+      node => node.props.accessibilityLabel === 'Dein Ziel',
     ).props.value,
   ).toBe(scheduleGoal.name);
 

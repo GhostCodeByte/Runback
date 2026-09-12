@@ -14,8 +14,9 @@ gespeichert und lokal versioniert (`schedule-v1`). Sie enthält:
   Zweck, Trainingsart, Belastung und optionalem `activityId`;
 - `availability`: verfügbares Zeitbudget je lokalem Datum;
 - `routine`: üblicher Rhythmus und Minutenbudget;
-- `goal`: das ausdrücklich gespeicherte Ziel mit `name`, `startDate` und den
-  optionalen Feldern `targetDate` und `phase`.
+- `goal`: das ausdrücklich gespeicherte Ziel mit `name`, `startDate` und dem
+  optionalen `targetDate`. Der dauerhafte Fokus gehört nicht in den
+  Kalendertermin.
 
 `activityId` verknüpft einen Termin mit einer Aufzeichnung. Es ist kein
 Abschlussflag. Ein Lauf gilt erst durch seinen eigenen abgeschlossenen Datensatz
@@ -54,9 +55,8 @@ Die Entwicklung zeigt drei Aussagen getrennt:
 
 1. **Ziel:** der gespeicherte Freitext und, wenn er eine eindeutige Strecke wie
    `10 km` enthält, die längste beobachtete abgeschlossene Strecke;
-2. **Im Trainingsplan:** genau die gespeicherten Zielangaben und der optionale
-   Schwerpunkt sowie die Kalenderwoche seit Planbeginn, bei Zieldatum mit
-   Gesamtwochenzahl. Vor dem Beginn und nach dem Ende wird der Zeitraum als
+2. **Zeitraum:** das Zieldatum, wenn vorhanden, und die Kalenderwoche seit
+   Planbeginn. Vor dem Beginn und nach dem Ende wird der Zeitraum als
    bevorstehend beziehungsweise beendet beschrieben; das belegt keine
    Zielerreichung. Eine Trainingsphase wird nicht vorhergesagt;
 3. **Tatsächliches Training:** abgeschlossene Einheiten in den letzten 28
@@ -75,8 +75,9 @@ externe Last bleibt deshalb als Volumen unbekannt.
 
 Die Anzeige stellt keinen Fitness-, Bereitschafts- oder Erfüllungsprozentsatz
 her. Ein Zielabgleich mit Freitext bleibt ein beobachteter Trainingshinweis und
-ist keine Prognose. Fehlen abgeschlossene Einheiten oder die gespeicherte
-Planposition, benennt die Entwicklung diese Grenze ausdrücklich.
+ist keine Prognose. Der Fokus wird dauerhaft separat gespeichert und bekommt
+kein Urteil. Fehlen abgeschlossene Einheiten oder die gespeicherte Planposition,
+benennt die Entwicklung diese Grenze ausdrücklich.
 
 Die Übersicht lädt höchstens 1.000 Läufe und 500 Kraft-Einheiten. Wenn diese
 Grenze erreicht ist, weist die Oberfläche darauf hin, dass Summen und längste

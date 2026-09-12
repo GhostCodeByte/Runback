@@ -327,7 +327,7 @@ describe('DevelopmentScreen', () => {
     expect(text).not.toContain(
       'Keine abgeschlossenen Krafttrainings mit bestätigten Werten.',
     );
-    tree.unmount();
+    TestRenderer.act(() => tree.unmount());
   });
 
   it('shows the loaded-data qualifier when the native history page is full', () => {
@@ -358,7 +358,7 @@ describe('DevelopmentScreen', () => {
     const text = tree.root.findAllByType(Text).map(textContent).join(' ');
     expect(text).toContain('Erfasste Einheiten');
     expect(text).toContain('Geladen sind höchstens 500 Kraft-Einheiten');
-    tree.unmount();
+    TestRenderer.act(() => tree.unmount());
   });
 });
 

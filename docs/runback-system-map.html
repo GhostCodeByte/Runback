@@ -513,7 +513,7 @@
       <div class="invariant"><svg class="icon"><use href="#i-database"/></svg><span><strong>Rohdaten bleiben unverändert.</strong><br>Ableitungen sind versioniert.</span></div>
       <div class="invariant"><svg class="icon"><use href="#i-phone"/></svg><span><strong>Native verarbeitet Samples.</strong><br>JS sieht nur Aggregate.</span></div>
       <div class="invariant"><svg class="icon"><use href="#i-lock"/></svg><span><strong>Keine Route nach außen.</strong><br>Nur grober Wetterort.</span></div>
-      <div class="invariant"><svg class="icon"><use href="#i-target"/></svg><span><strong>Kein Insight ohne Test.</strong><br>Aktion und Prüfkriterium gehören zusammen.</span></div>
+      <div class="invariant"><svg class="icon"><use href="#i-target"/></svg><span><strong>Keine Empfehlung ohne Prüfung.</strong><br>Empfehlung und die Regel, woran wir Hilfe erkennen, gehören zusammen.</span></div>
     </section>
 
     <section class="flow-shell" aria-labelledby="flow-title">
@@ -559,29 +559,29 @@
             <button class="node" data-detail="intent" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-compass"/></svg></span><span><strong>Session Intent</strong><small>Locker, lang, Qualität, Test, Rennen, frei</small></span></button>
             <button class="node" data-detail="hypotheses" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-brain"/></svg></span><span><strong>Hypothesen bilden</strong><small>Deterministische Kandidaten aus Features</small></span></button>
             <button class="node" data-detail="eligibility" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-check"/></svg></span><span><strong>Ausspiel-Gate</strong><small>Aktion + vorab fixierter Test nötig</small></span></button>
-            <button class="node" data-detail="ranking" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-target"/></svg></span><span><strong>Priorisieren</strong><small>Effekt, Konfidenz, Machbarkeit, Neuheit</small></span></button>
-            <button class="node" data-detail="prescription" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-timer"/></svg></span><span><strong>Nächste Einheit festlegen</strong><small>Zielband, Fokus, Test, Ausweichoption</small></span></button>
+            <button class="node" data-detail="ranking" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-target"/></svg></span><span><strong>Priorisieren</strong><small>Fokus-Art, Datenqualität, Machbarkeit, Sperren</small></span></button>
+            <button class="node" data-detail="prescription" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-timer"/></svg></span><span><strong>Nächste Einheit festlegen</strong><small>Ziel, Fokus, Empfehlung, Ausweichoption</small></span></button>
             <button class="node" data-detail="evaluation" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-chart"/></svg></span><span><strong>Ausführung & Wirkung prüfen</strong><small>Erfüllt, teilweise, nicht, unklar</small></span></button>
           </section>
 
           <section class="lane" aria-label="Ausgaben">
             <p class="lane-label"><strong>5</strong>Was der Nutzer sieht</p>
-            <button class="node" data-detail="summary" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-message"/></svg></span><span><strong>Drei Aussagen</strong><small>Gut · verbessern · nächster Lauf</small></span></button>
+            <button class="node" data-detail="summary" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-message"/></svg></span><span><strong>Drei Aussagen</strong><small>Gut · verbessern · Empfehlung</small></span></button>
             <button class="node" data-detail="metrics" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-chart"/></svg></span><span><strong>Messwerte mit Datenbasis</strong><small>Intervall, Qualität, Läufe, Version</small></span></button>
             <button class="node" data-detail="overlays" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-route"/></svg></span><span><strong>Karte & Verlauf</strong><small>Pace, GAP, HR, Kadenz, Effort, Qualität</small></span></button>
-            <button class="node" data-detail="verdict" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-check"/></svg></span><span><strong>Späteres Urteil</strong><small>Hilfreich, nicht hilfreich, inconclusive</small></span></button>
+            <button class="node" data-detail="verdict" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-check"/></svg></span><span><strong>Späteres Urteil</strong><small>Hilfreich, nicht hilfreich, noch nicht klar</small></span></button>
             <button class="node" data-detail="scorecard" data-stage="v1" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-shield"/></svg></span><span><strong>Engine-Scorecard</strong><small>Trefferquote und Intervallkalibrierung</small></span></button>
             <button class="node" data-detail="race" data-stage="v2" aria-pressed="false"><span class="node-icon"><svg class="icon"><use href="#i-compass"/></svg></span><span><strong>Live & Race</strong><small>Cues, Effort-Plan, Race Envelope, Fuel</small></span></button>
           </section>
         </div>
       </div>
 
-      <div class="feedback">Urteil verändert Hypothesengewicht und nächste Entscheidung</div>
+      <div class="feedback">Urteil dokumentiert die Empfehlung und die nächste Entscheidung</div>
 
       <div class="detail" aria-live="polite">
         <div><p class="detail-kicker">Ausgewählt</p><h3 id="d-title">Effort-Modell</h3></div>
         <div><p class="detail-label">Eingaben</p><p class="detail-value" id="d-input">Segmentpace, Steigung, Windkomponente, Temperatur, Herzfrequenz und Datenqualität.</p></div>
-        <div><p class="detail-label">Methode</p><p class="detail-value formula" id="d-method">Baseline + Steigung + Wind + Wärme + Tempo + Interaktion</p></div>
+        <div><p class="detail-label">Methode</p><p class="detail-value formula" id="d-method">Vergleichsläufe + Steigung + Wind + Wärme + Tempo + Wechselwirkung</p></div>
         <div><p class="detail-label">Ergebnis und Grenze</p><p class="detail-value" id="d-output">Effort je Segment mit Intervall und Beiträgen. Beiträge sind Modellanteile, keine direkt gemessenen Ursachen.</p></div>
       </div>
     </section>
@@ -615,7 +615,7 @@
         <div class="contract-list">
           <div class="contract-row"><span class="step">1</span><div><strong>Absicht</strong><span>Welchen Zweck hat die nächste Einheit?</span></div></div>
           <div class="contract-row"><span class="step">2</span><div><strong>Konkrete Handlung</strong><span>Zielband und messbarer Fokus statt allgemeinem Rat.</span></div></div>
-          <div class="contract-row"><span class="step">3</span><div><strong>Prüfbedingung vor dem Start</strong><span>Geeignete Läufe, Zielwert, Vergleichsbasis und Ausschlussgründe.</span></div></div>
+          <div class="contract-row"><span class="step">3</span><div><strong>Woran erkennen wir, dass es geholfen hat?</strong><span>Geeignete Läufe, Zielwert, Vergleichsbasis und Ausschlussgründe.</span></div></div>
           <div class="contract-row"><span class="step">4</span><div><strong>Adherence</strong><span>Ausgeführt, teilweise, nicht ausgeführt oder nicht beurteilbar.</span></div></div>
           <div class="contract-row"><span class="step">5</span><div><strong>Urteil</strong><span>Hilfreich, nicht hilfreich oder unklar. Danach wird neu priorisiert.</span></div></div>
         </div>
@@ -657,21 +657,21 @@
       fusion: ["Multi-Device-Fusion", "Mehrere Aufzeichnungen desselben Laufs und überlappende Sensorstreams.", "Duplikaterkennung + Uhrendrift-Schätzung + qualitätsgewichtete Fusion", "Ein abgeleiteter Best-Estimate-Stream. Alle Originale bleiben getrennt erhalten."],
       segments: ["Streckensegmentierung", "Zeit, Distanz, Höhe und Pausen.", "Kilometergrenzen + Gradientwechsel + Belastungsphasen", "Vergleichbare Abschnitte für Effort, Qualität, Karte und spätere Tests."],
       environment: ["Umweltkorrektur", "Barometer, Höhenmodell, Kursrichtung, Windvektor, Temperatur und Feuchte.", "Höhen-Fusion; Gegenwind = Windgeschwindigkeit × cos(Winkeldifferenz)", "Korrigierte Steigung, Gegenwindanteil und thermischer Kontext je Segment."],
-      effort: ["Effort-Modell", "Segmentpace, Steigung, Windkomponente, Temperatur, Herzfrequenz und Datenqualität.", "Baseline + Steigung + Wind + Wärme + Tempo + Interaktion", "Effort je Segment mit Intervall und Beiträgen. Beiträge sind Modellanteile, keine direkt gemessenen Ursachen."],
+      effort: ["Effort-Modell", "Segmentpace, Steigung, Windkomponente, Temperatur, Herzfrequenz und Datenqualität.", "Vergleichsläufe + Steigung + Wind + Wärme + Tempo + Wechselwirkung", "Effort je Segment mit Intervall und Beiträgen. Beiträge sind Modellanteile, keine direkt gemessenen Ursachen."],
       compare: ["Normalisierte Vergleichsskala", "Effort-Features mehrerer Läufe und persönliche Referenzbereiche.", "Robuste persönliche Normierung unter Datenqualitäts-Gewichtung", "Beantwortet, welcher unterschiedliche Lauf härter war und welche Faktoren den Unterschied erklären."],
       physiology: ["Physiologische Modelle", "Geeignete harte Belastungen verschiedener Dauer und lange Läufe.", "Critical-Speed/D′-Fit + Durability gegen kumulierte Arbeit", "Parameter mit Intervallen. Fehlende Dauerbereiche werden konkret als Datenlücke benannt."],
       personal: ["Persönliche Modelle", "Historie, Umwelt, Trainingstypen, Folgetage und subjektive Rückmeldung.", "Bayes-Update + Change-point-Erkennung + N-of-1 nur bei geeigneten Experimenten", "Persönliche Parameter und Wirkungsverzug. Beobachtung bleibt als Zusammenhang beschriftet."],
       intent: ["Session Intent", "Nutzerwahl oder bestätigter deterministischer Vorschlag.", "Zielklasse legt zulässige Bewertungsregeln fest", "Verhindert, dass ein Fartlek wie ein misslungener lockerer Lauf bewertet wird."],
       hypotheses: ["Hypothesen bilden", "Qualitätsgeprüfte Features, Intent, Historie und Nutzer-Constraints.", "Versionierte Wenn-dann-Regeln und Modellschwellen", "Kandidaten mit erwarteter Wirkung, Datenbasis, Konfidenz und möglicher Handlung."],
-      eligibility: ["Ausspiel-Gate", "Hypothesenkandidat, mögliche Aktion und messbarer Endpunkt.", "Harte Regel: ohne konkrete Aktion und unveränderliche Prüfbedingung keine UI-Ausgabe", "Nur testbare Insights gelangen in die Standardansicht."],
-      ranking: ["Priorisieren", "Alle zulässigen Kandidaten plus aktives Arbeitsthema.", "Rangfunktion aus erwartetem Effekt, Konfidenz, Machbarkeit und Neuheit", "Genau ein aktives Thema. „Nichts ändern“ kann gewinnen, wenn kein Eingriff genug Nutzen hat."],
-      prescription: ["Nächste Einheit", "Gewählte Hypothese, Zeitbudget, Trainingstage, Ziel und aktueller Zustand.", "Deterministische Session-Vorlage + Pre-run-Neubewertung", "Startbare Einheit mit Zielband, Fokus, Prüfkriterium und leichterer Ausweichoption."],
-      evaluation: ["Ausführung und Wirkung prüfen", "Tatsächlicher Lauf, Adherence, Ausschlussgründe und vorab fixiertes Kriterium.", "Vergleich nur geeigneter, tatsächlich ausgeführter Versuche", "Hilfreich, nicht hilfreich oder inconclusive. Nichtausführung widerlegt die Hypothese nicht."],
-      summary: ["Drei Aussagen", "Engine-Ergebnisobjekte nach dem Lauf.", "Feste UI-Struktur: gut → verbessern → nächste Handlung", "Passt auf einen Bildschirm. Alle weiteren Befunde liegen unter Details."],
+      eligibility: ["Ausspiel-Gate", "Vermutung, mögliche Empfehlung und messbarer Endpunkt.", "Harte Regel: ohne konkrete Empfehlung und unveränderliche Prüfregel keine UI-Ausgabe", "Nur prüfbare Empfehlungen gelangen in die Standardansicht."],
+      ranking: ["Priorisieren", "Alle zulässigen Kandidaten plus aktive Empfehlung und Fokus-Art.", "Versionierte Relevanzmatrix mit festen Gewichten, Datenqualität, Machbarkeit und Sperren", "Genau eine aktive Empfehlung. „Beibehalten“ kann gewinnen, wenn kein Eingriff genug Nutzen hat."],
+      prescription: ["Nächste Einheit", "Gewählte Vermutung, Zeitbudget, Trainingstage, Ziel, Fokus und aktueller Zustand.", "Deterministische Session-Vorlage + Prüfung vor dem Start", "Startbare Einheit mit Ziel, Empfehlung und leichterer Ausweichoption."],
+      evaluation: ["Umsetzung und Wirkung prüfen", "Tatsächlicher Lauf, Umsetzung, Ausschlussgründe und vorab fixierte Regel.", "Vergleich nur geeigneter, tatsächlich ausgeführter Versuche", "Hilfreich, nicht hilfreich oder noch nicht klar. Nichtausführung widerlegt die Vermutung nicht."],
+      summary: ["Drei Aussagen", "Engine-Ergebnisobjekte nach dem Lauf.", "Feste UI-Struktur: gut → verbessern → Empfehlung", "Passt auf einen Bildschirm. Alle weiteren Befunde liegen unter Details."],
       metrics: ["Messwerte mit Datenbasis", "Wert, Intervall, Datenqualität, Stichprobe und Modellversion.", "Gemeinsamer Output-Vertrag für alle numerischen Modelle", "Keine nackten Punktschätzungen. Die UI zeigt, worauf eine Zahl beruht."],
       overlays: ["Karte und Verlauf", "Segmentaggregate für Pace, GAP, Steigung, HR, Kadenz, Effort und Qualität.", "Viewport-Downsampling + qualitätsabhängige Overlays", "Flüssige Darstellung auch bei langen Läufen. Keine Rohsamples in JavaScript."],
-      verdict: ["Späteres Urteil", "Mehrere geeignete Versuche und das unveränderte Prüfkriterium.", "Vorher/nachher oder kontrollierter persönlicher Vergleich mit Intervall", "Hilfreich, nicht hilfreich oder unklar. Ein widerlegtes Ergebnis senkt das Hypothesengewicht."],
-      scorecard: ["Engine-Scorecard", "Historische Vorhersageintervalle und später beobachtete Ergebnisse.", "Out-of-sample-Abdeckung gegen einfachen Baseline-Prädiktor", "Schlecht kalibrierte Modelle dürfen keine hohe Konfidenz ausgeben."],
+      verdict: ["Späteres Urteil", "Mehrere geeignete Versuche und die unveränderte Prüfregel.", "Vorher/nachher oder kontrollierter persönlicher Vergleich mit Unsicherheit", "Hilfreich, nicht hilfreich oder noch nicht klar. Ein negatives Ergebnis ist kein Urteil über den Fokus."],
+      scorecard: ["Engine-Scorecard", "Historische Vorhersageintervalle und später beobachtete Ergebnisse.", "Out-of-sample-Abdeckung gegen einfachen Referenz-Prädiktor", "Schlecht kalibrierte Modelle dürfen keine hohe Sicherheit ausgeben."],
       race: ["Live- und Race-System", "Streckenprofil, Wetter, persönliches Modell, Fuel-Grenzen und Live-Segmente.", "Segmentweiser Effort-Plan + Restprofil-Neuverteilung + Cue-Budget", "Pacing-Bereich, Fuel-Plan und wenige messbare Cues. Prognosen bleiben Intervalle."],
       summaryFallback: ["Systemschritt", "Qualitätsgeprüfte Eingaben.", "Deterministische Verarbeitung", "Versioniertes Ergebnis mit sichtbarer Datenbasis."]
     };

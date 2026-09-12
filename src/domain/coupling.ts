@@ -105,12 +105,14 @@ function validFreshness(value: number | null): value is number {
   return value !== null && Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
-function purposeFor(input: CouplingInput): Extract<RunPurpose, 'easy' | 'long'> | null {
+function purposeFor(
+  input: CouplingInput,
+): Extract<RunPurpose, 'easy' | 'long'> | null {
   if (input.purpose) {
     return input.purpose;
   }
-  const first = input.runs.find(entry =>
-    entry.run.purpose === 'easy' || entry.run.purpose === 'long',
+  const first = input.runs.find(
+    entry => entry.run.purpose === 'easy' || entry.run.purpose === 'long',
   );
   return first?.run.purpose === 'easy' || first?.run.purpose === 'long'
     ? first.run.purpose
@@ -201,7 +203,10 @@ function comparableRuns(
         ? (item.entry.run.context?.temperatureC as number)
         : null,
     }))
-    .sort((a, b) => a.run.startTime - b.run.startTime || a.run.id.localeCompare(b.run.id));
+    .sort(
+      (a, b) =>
+        a.run.startTime - b.run.startTime || a.run.id.localeCompare(b.run.id),
+    );
 }
 
 function insufficient(
@@ -225,20 +230,28 @@ function insufficient(
   };
 }
 
-function solveLinearSystem(matrix: number[][], values: number[]): number[] | null {
+function solveLinearSystem(
+  matrix: number[][],
+  values: number[],
+): number[] | null {
   const size = values.length;
   const augmented = matrix.map((row, index) => [...row, values[index]]);
   for (let column = 0; column < size; column += 1) {
     let pivot = column;
     for (let row = column + 1; row < size; row += 1) {
-      if (Math.abs(augmented[row][column]) > Math.abs(augmented[pivot][column])) {
+      if (
+        Math.abs(augmented[row][column]) > Math.abs(augmented[pivot][column])
+      ) {
         pivot = row;
       }
     }
     if (Math.abs(augmented[pivot][column]) < 1e-10) {
       return null;
     }
-    [augmented[column], augmented[pivot]] = [augmented[pivot], augmented[column]];
+    [augmented[column], augmented[pivot]] = [
+      augmented[pivot],
+      augmented[column],
+    ];
     const divisor = augmented[column][column];
     for (let j = column; j <= size; j += 1) {
       augmented[column][j] /= divisor;
@@ -271,7 +284,8 @@ function regressionFor(
 ): { regression: CouplingRegression; adjustedFadePercent: number } | null {
   const withTemperature = rows.every(row => row.temperatureC !== null);
   const temperatureReferenceC = withTemperature
-    ? rows.reduce((sum, row) => sum + (row.temperatureC as number), 0) / rows.length
+    ? rows.reduce((sum, row) => sum + (row.temperatureC as number), 0) /
+      rows.length
     : undefined;
   const design = rows.map(row => {
     const predictors = [1, 100 - row.legFreshness];
@@ -539,7 +553,9 @@ export interface MonthlyPlanSearchResult {
 }
 
 function validWeekday(value: number | undefined): value is number {
-  return value !== undefined && Number.isInteger(value) && value >= 0 && value <= 6;
+  return (
+    value !== undefined && Number.isInteger(value) && value >= 0 && value <= 6
+  );
 }
 
 function insufficientPlan(
@@ -637,7 +653,9 @@ export function searchMonthlyPlan(
         });
       }
     }
-    const ordered = [...planned].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+    const ordered = [...planned].sort(
+      (a, b) => a.at - b.at || a.id.localeCompare(b.id),
+    );
     for (let index = 1; index < ordered.length; index += 1) {
       if (ordered[index].at - ordered[index - 1].at < MIN_PLAN_SPACING_MS) {
         return;
@@ -645,7 +663,10 @@ export function searchMonthlyPlan(
     }
     const simulated = simulatePlannedFreshness(planned, lookup);
     const importantValues = simulated
-      .filter(item => planned.find(session => session.id === item.sessionId)?.important)
+      .filter(
+        item =>
+          planned.find(session => session.id === item.sessionId)?.important,
+      )
       .map(item => item.minimumFreshness);
     if (
       importantValues.length === 0 ||
@@ -664,7 +685,9 @@ export function searchMonthlyPlan(
         : 0;
       return sum + Math.abs(assignmentById.get(session.id)! - existing);
     }, 0);
-    const key = assignments.map(assignment => `${assignment.sessionId}:${assignment.weekday}`).join('|');
+    const key = assignments
+      .map(assignment => `${assignment.sessionId}:${assignment.weekday}`)
+      .join('|');
     const bestKey = best
       ? best.assignments
           .map(assignment => `${assignment.sessionId}:${assignment.weekday}`)
@@ -673,9 +696,11 @@ export function searchMonthlyPlan(
     if (
       !best ||
       minimumImportantFreshness > best.minimumImportantFreshness + 1e-9 ||
-      (Math.abs(minimumImportantFreshness - best.minimumImportantFreshness) <= 1e-9 &&
+      (Math.abs(minimumImportantFreshness - best.minimumImportantFreshness) <=
+        1e-9 &&
         (deviationFromExistingPlan < best.deviationFromExistingPlan ||
-          (deviationFromExistingPlan === best.deviationFromExistingPlan && key < bestKey)))
+          (deviationFromExistingPlan === best.deviationFromExistingPlan &&
+            key < bestKey)))
     ) {
       best = {
         assignments: assignments.map(assignment => ({ ...assignment })),
@@ -729,10 +754,10 @@ export function searchMonthlyPlan(
     suggestion: changed
       ? {
           reason:
-            'Die vollständige Suche schützt die minimale vorhergesagte Frische wichtiger Einheiten und weicht bei Gleichstand möglichst wenig vom bestehenden Plan ab.',
+            'Diese Verteilung hält die geschätzte Muskel-Frische vor wichtigen Einheiten möglichst hoch. Bei gleich guten Möglichkeiten bleibt möglichst viel am Plan gleich.',
           targetRange: { assignments: best.assignments },
           expectedEffort: {
-            text: 'Planänderung als kleiner, einzelner Versuch; Trainingszweck und Umfang bleiben erhalten.',
+            text: 'Probiere die empfohlene Verteilung der Einheiten aus; Trainingszweck und Umfang bleiben erhalten.',
           },
           checkCriterion: {
             method: 'monthly-freshness-v1',
@@ -743,8 +768,8 @@ export function searchMonthlyPlan(
         }
       : null,
     reason: changed
-      ? 'Beobachtung mit prüfbarer einzelner Planänderung; kein Ursachennachweis.'
-      : 'Beobachtung: Der bestehende Plan ist nach der vollständigen Suche bereits der passende Plan.',
+      ? 'Die Empfehlung lässt sich überprüfen. Ob sie eine Verbesserung verursacht, ist noch offen.'
+      : 'Behalte deinen Plan bei. Keine der geprüften Verteilungen passt nach den aktuellen Schätzungen besser.',
     causalClaim: NO_CAUSAL_CLAIM,
   };
 }

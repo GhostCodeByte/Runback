@@ -35,7 +35,7 @@ export function acceptRecommendation(
     existing &&
     (existing.status === 'active' || existing.status === 'paused')
   ) {
-    throw new Error('Zuerst das bestehende Arbeitsthema beenden.');
+    throw new Error('Zuerst die bestehende Empfehlung beenden.');
   }
   const snapshot = JSON.parse(JSON.stringify(recommendation)) as Recommendation;
   return immutable({
@@ -47,7 +47,7 @@ export function acceptRecommendation(
       {
         at: now,
         status: 'active',
-        reason: 'Handlung und Prüfbedingungen angenommen.',
+        reason: 'Empfehlung und Regeln für die Prüfung angenommen.',
       },
     ],
   } as Experiment);
@@ -68,7 +68,7 @@ export function transitionExperiment(
     throw new Error('Zeitpunkt liegt vor der letzten Änderung.');
   }
   if (experiment.status === 'completed' || experiment.status === 'aborted') {
-    throw new Error('Beendete Versuche bleiben unverändert.');
+    throw new Error('Beendete Empfehlungen bleiben unverändert.');
   }
   if (status === experiment.status) {
     return experiment;
@@ -127,7 +127,7 @@ export function evaluateExperiment(
     return {
       ...result,
       summary:
-        'Der gespeicherte Modellstand ist hier nicht verfügbar. Ursprüngliche Prüfbedingungen bleiben erhalten.',
+        'Der gespeicherte Modellstand ist hier nicht verfügbar. Die vor dem Start festgelegten Regeln bleiben erhalten.',
     };
   }
   const outcomes: { run: RunSummary; fade: number }[] = [];
@@ -143,7 +143,7 @@ export function evaluateExperiment(
     const exclude = (reason: string) =>
       result.excluded.push({ runId: run.id, reason });
     if (!activeAt(experiment, run.startTime)) {
-      exclude('Versuch war bei Laufbeginn nicht aktiv.');
+      exclude('Empfehlung war bei Laufbeginn nicht aktiv.');
       continue;
     }
     if (run.startTime > experiment.acceptedAt + c.maxDays * DAY) {
@@ -165,7 +165,7 @@ export function evaluateExperiment(
     }
     const pacing = pacingFor(run);
     if (!pacing || !flatPacingContext(run, pacing)) {
-      exclude('Geeignete flache Pacing-Abschnitte fehlen.');
+      exclude('Vergleichbare flache Laufabschnitte fehlen.');
       continue;
     }
     const base = c.baselineContext;
@@ -216,7 +216,7 @@ export function evaluateExperiment(
       ...result,
       verdict: 'not_implemented',
       summary:
-        'Der ruhigere Start wurde in den geeigneten Läufen nicht umgesetzt. Das widerlegt die Handlung nicht.',
+        'Du hast den ruhigeren Start bisher nicht probiert. Ob er hilft, bleibt noch offen.',
     };
   }
   if (outcomes.length === 0) {
@@ -269,7 +269,7 @@ export function evaluateExperiment(
   }
   return {
     ...result,
-    summary: `Kein einheitlicher relevanter Unterschied. Die einfache Einzellauf-Baseline erlaubt keinen ausreichend präzisen Nachweis „kein relevanter Effekt“.${causal}`,
+    summary: `Noch nicht klar. Der Vergleich zeigt keinen eindeutigen Unterschied; ein einzelner Vergleichslauf reicht nicht, um eine Wirkung auszuschließen.${causal}`,
   };
 }
 

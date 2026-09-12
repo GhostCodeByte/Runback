@@ -321,11 +321,11 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
       ...result,
       focus:
         active.status === 'paused'
-          ? 'Dein Arbeitsthema ist pausiert.'
-          : 'Dein Arbeitsthema bleibt: ruhiger beginnen.',
+          ? 'Deine Empfehlung ist pausiert.'
+          : 'Deine Empfehlung bleibt bestehen.',
       nextAction:
         active.status === 'paused'
-          ? 'Setze den Versuch fort, wenn er wieder in deinen Alltag passt.'
+          ? 'Setze die Empfehlung fort, wenn sie wieder in deinen Alltag passt.'
           : active.recommendation.action,
       state: 'active',
     };
@@ -348,7 +348,7 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
       ...result,
       focus: 'Temposchwankungen können zu diesem Laufzweck gehören.',
       nextAction:
-        'Für diesen Zweck ist noch keine geprüfte Handlungsklasse freigeschaltet.',
+        'Für diesen Laufzweck gibt es noch keine ausreichend geprüfte Empfehlung.',
     };
   }
   if (!pacing) {
@@ -367,7 +367,7 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
     return {
       ...result,
       focus:
-        'Steigungen sind unbekannt oder zu unterschiedlich für eine Pacing-Empfehlung.',
+        'Für eine Empfehlung zur Starteinteilung fehlen vergleichbar flache Abschnitte.',
       nextAction:
         'Tempoverteilung als Beobachtung nutzen. Für die Prüfung fehlen vergleichbar flache Abschnitte.',
     };
@@ -376,8 +376,7 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
     return {
       ...result,
       state: 'maintain',
-      focus:
-        'Kein deutlicher später Tempoabfall nach der einfachen Pacing-Regel.',
+      focus: 'Du hast zum Ende nicht deutlich an Tempo verloren.',
       nextAction:
         'Die bisherige Einteilung für diesen Laufzweck beibehalten. Andere Trainingsaspekte bleiben offen.',
     };
@@ -394,7 +393,7 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
       opening,
     )} min/km). Behalte Zweck und geplanten Umfang bei.`,
     reason:
-      'Die spätere Hälfte war mindestens 8 % langsamer. Ein ruhigerer Start ist ein prüfbarer Versuch; Gelände, Wetter und Tagesform können mitwirken.',
+      'Die spätere Hälfte war mindestens 8 % langsamer. Probiere einen ruhigeren Start aus; Gelände, Wetter und Tagesform können mitwirken.',
     purpose: run.purpose,
     goal: 'Weniger später Tempoabfall bei erhaltenem Zweck und Umfang.',
     criteria: {
@@ -422,10 +421,10 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
         'Bekannt deutlich abweichendes Wetter',
       ],
       stopConditions: [
-        'Beschwerden: Versuch aussetzen, keine Diagnose',
+        'Bei Beschwerden die Empfehlung pausieren; das ist keine Diagnose',
         'Geändertes Trainingsziel',
-        'Modellfehler oder gelöschte Baseline',
-        'Nach 56 Tagen ohne ausreichende Evidenz neu entscheiden',
+        'Modellfehler oder gelöschte Vergleichsläufe',
+        'Nach 56 Tagen mit zu wenig vergleichbaren Läufen neu entscheiden',
       ],
     },
   };

@@ -1,8 +1,4 @@
-import {
-  epley1RM,
-  type LoggedSet,
-  type StrengthSession,
-} from './strength';
+import { epley1RM, type LoggedSet, type StrengthSession } from './strength';
 
 export const PROGRESSION_MODEL_VERSION = 'strength-progression-v1';
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -118,9 +114,7 @@ export function rankConfidenceInterval(
   observations: number,
   confidenceLevel = 0.95,
 ): RankConfidenceInterval | null {
-  const finiteSlopes = slopes
-    .filter(finite)
-    .sort((a, b) => a - b);
+  const finiteSlopes = slopes.filter(finite).sort((a, b) => a - b);
   if (!finiteSlopes.length || observations < 2) {
     return null;
   }
@@ -204,7 +198,9 @@ export function theilSenSlope(
     return null;
   }
   const slopePerWeek = median(slopes);
-  const intercept = median(points.map(point => point.e1rm - slopePerWeek * x(point.at)));
+  const intercept = median(
+    points.map(point => point.e1rm - slopePerWeek * x(point.at)),
+  );
   return {
     slopePerWeek,
     intercept,
@@ -260,13 +256,19 @@ export function detectCusumChangePoints(
       changePoints: [],
       threshold: options.threshold ?? 0,
       allowance: options.allowance ?? 0,
-      minimumConsecutive: Math.max(2, Math.floor(options.minimumConsecutive ?? 2)),
+      minimumConsecutive: Math.max(
+        2,
+        Math.floor(options.minimumConsecutive ?? 2),
+      ),
     };
   }
   const absoluteDeviation = residuals.map(item => Math.abs(item.residual));
   const center = median(absoluteDeviation);
   const mad = median(absoluteDeviation.map(value => Math.abs(value - center)));
-  const baseline = Math.max(0.5, median(points.map(point => point.e1rm)) * 0.005);
+  const baseline = Math.max(
+    0.5,
+    median(points.map(point => point.e1rm)) * 0.005,
+  );
   const scale = Math.max(baseline, 1.4826 * mad);
   const allowance = Math.max(
     0.1,
@@ -432,7 +434,10 @@ function makeSuggestion(
 ): ProgressionSuggestion {
   const targetReps = Math.min(
     30,
-    Math.max(1, Math.round(finite(options.targetReps) ? options.targetReps : 5)),
+    Math.max(
+      1,
+      Math.round(finite(options.targetReps) ? options.targetReps : 5),
+    ),
   );
   const targetRir = Math.min(
     5,
@@ -443,8 +448,7 @@ function makeSuggestion(
       ? options.nextSessionAt
       : trend.lastAt;
   const estimatedE1RM = Math.max(0.01, trend.predictAt(nextAt));
-  const targetPercentOfE1RM =
-    1 / (1 + (targetReps + targetRir) / 30);
+  const targetPercentOfE1RM = 1 / (1 + (targetReps + targetRir) / 30);
   const freshness = finite(options.regionFreshness)
     ? Math.min(100, Math.max(0, options.regionFreshness as number))
     : null;
@@ -463,10 +467,7 @@ function makeSuggestion(
       : verdict === 'reduce'
       ? Math.min(previous, rawTarget)
       : rawTarget;
-  const targetKg = Math.min(
-    upperCap,
-    Math.max(lowerCap, directionalTarget),
-  );
+  const targetKg = Math.min(upperCap, Math.max(lowerCap, directionalTarget));
   const stepCapApplied = Math.abs(targetKg - rawTarget) > 0.000001;
   const minKg =
     verdict === 'increase'
@@ -474,12 +475,18 @@ function makeSuggestion(
       : Math.min(targetKg, Math.max(lowerCap, targetKg * 0.975));
   const maxKg =
     verdict === 'reduce'
-      ? Math.min(previous, Math.max(targetKg, Math.min(upperCap, targetKg * 1.025)))
+      ? Math.min(
+          previous,
+          Math.max(targetKg, Math.min(upperCap, targetKg * 1.025)),
+        )
       : Math.max(targetKg, Math.min(upperCap, targetKg * 1.025));
   const freshnessText =
     freshness === null
       ? 'Die Frische ist unbekannt; deshalb wird keine Frischemodulation behauptet.'
-      : `Die Frischemodulation bleibt mit ${(freshnessFactor * 100 - 100).toFixed(1)} % unter der 8-%-Grenze.`;
+      : `Die Frischemodulation bleibt mit ${(
+          freshnessFactor * 100 -
+          100
+        ).toFixed(1)} % unter der 8-%-Grenze.`;
   return {
     kind: 'strength_load',
     verdict,
@@ -510,7 +517,7 @@ function makeSuggestion(
   };
 }
 
-/** Eine Entscheidung für genau ein Arbeitsthema: die Last dieser Übung. */
+/** Eine Entscheidung für genau eine Empfehlung: die Last dieser Übung. */
 export function assessExerciseProgression(
   sessions: StrengthSession[],
   exerciseId: string,
@@ -540,7 +547,7 @@ export function assessExerciseProgression(
       verdict: 'not_assessable',
       suggestion: null,
       reason:
-        'Noch nicht ausreichend beurteilbar: Für einen robusten Verlauf fehlen mindestens drei abgeschlossene Einheiten mit einem Arbeits-e1RM.',
+        'Noch nicht klar: Es fehlen mindestens drei abgeschlossene Einheiten mit geeigneten Arbeitssätzen.',
     };
   }
   const trend = theilSenSlope(series, options.confidenceLevel);
@@ -557,7 +564,7 @@ export function assessExerciseProgression(
       verdict: 'not_assessable',
       suggestion: null,
       reason:
-        'Noch nicht ausreichend beurteilbar: Die Zeitabstände ergeben keine belastbare Rangschätzung.',
+        'Noch nicht klar: Die Einheiten liegen zeitlich zu nah beieinander, um einen verlässlichen Verlauf zu erkennen.',
     };
   }
   const plateau = assessPlateau(series, trend);
@@ -572,12 +579,12 @@ export function assessExerciseProgression(
       : 'keep_going';
   const reason =
     verdict === 'increase'
-      ? 'Das rangbasierte Steigungsintervall liegt oberhalb von 0; eine kleine Steigerung ist als einzelner, prüfbarer Schritt begründet.'
+      ? 'Dein Leistungsverlauf spricht für eine kleine Steigerung. Probiere sie aus und prüfe, wie die nächsten Einheiten laufen.'
       : verdict === 'reduce'
-      ? 'Das rangbasierte Steigungsintervall liegt unterhalb von 0; die Last wird für den nächsten prüfbaren Schritt vorsichtig reduziert.'
+      ? 'Dein Leistungsverlauf fällt ab. Die Empfehlung ist, etwas weniger Gewicht auszuprobieren.'
       : verdict === 'plateau'
-      ? 'Das rangbasierte Steigungsintervall enthält 0 über mindestens vier Wochen. Das ist ein Plateau, nicht bloß eine Folge von drei unveränderten Einheiten.'
-      : 'Das Steigungsintervall enthält 0, ohne das Vier-Wochen-Kriterium für ein Plateau zu erfüllen. So weitermachen ist deshalb eine eigenständige Entscheidung.';
+      ? 'Seit mindestens vier Wochen ist keine klare Leistungsänderung erkennbar; einzelne gleichbleibende Einheiten reichen für diese Einschätzung nicht.'
+      : 'Noch ist keine klare Leistungsänderung erkennbar. Behalte dein Training vorerst bei.';
   return {
     model_version: PROGRESSION_MODEL_VERSION,
     inputSources,
@@ -601,12 +608,12 @@ export function suggestNextSession(
 ): ProgressionSuggestion {
   const reason =
     verdict === 'increase'
-      ? 'Die robuste Steigung spricht für eine kleine Steigerung.'
+      ? 'Dein Leistungsverlauf spricht dafür, etwas mehr Gewicht auszuprobieren.'
       : verdict === 'reduce'
-      ? 'Die robuste Steigung spricht für eine vorsichtige Reduktion.'
+      ? 'Dein Leistungsverlauf spricht dafür, etwas weniger Gewicht auszuprobieren.'
       : verdict === 'plateau'
-      ? 'Das Steigungsintervall enthält 0 über mindestens vier Wochen.'
-      : 'Die Unsicherheit trägt aktuell keine neue getestete Änderung; so weitermachen.';
+      ? 'Seit mindestens vier Wochen ist keine klare Leistungsänderung erkennbar.'
+      : 'Für eine neue Empfehlung ist der Verlauf noch zu unklar. Behalte dein Training vorerst bei.';
   return makeSuggestion(verdict, reason, series, trend, options);
 }
 

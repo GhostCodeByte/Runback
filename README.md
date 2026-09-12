@@ -1,10 +1,10 @@
 # Runback
 
-Produktdokumentation für eine Android-Lauf-App mit Wear-OS-Companion: lokale Laufdaten, eine begründete nächste Handlung und eine nachvollziehbare Prüfung ihrer Wirkung.
+Produktdokumentation für eine Android-Lauf-App mit Wear-OS-Companion: lokale Laufdaten, eine begründete Empfehlung und eine nachvollziehbare Prüfung ihrer Wirkung.
 
 Android-Telefon-App (React Native + Kotlin), eigenständige Wear-OS-App und gemeinsame lokale SQLite-Datenschicht. Dunkle Oberfläche mit hellen Texten und grünen Akzenten, ohne Konto oder Pflicht-Onboarding.
 
-**Testsoftware, keine vollständige V1-/V2-Abnahme.** Der implementierte Kern enthält Aufzeichnung, Historie, FIT/GPX/TCX/ZIP-Import, lokale Auswertung, ein angenommenes Arbeitsthema, RPE, Backups, Health Connect, BLE und Uhrenübertragung. Persönliche Prognosemodelle bleiben mangels Validierung gesperrt. Der genaue Stand und offene Abnahmekriterien stehen im [Testbericht](docs/testing.md).
+**Testsoftware, keine vollständige V1-/V2-Abnahme.** Der implementierte Kern enthält Aufzeichnung, Historie, FIT/GPX/TCX/ZIP-Import, lokale Auswertung, eine angenommene Empfehlung, RPE, Backups, Health Connect, BLE und Uhrenübertragung. Persönliche Prognosemodelle bleiben mangels Validierung gesperrt. Der genaue Stand und offene Abnahmekriterien stehen im [Testbericht](docs/testing.md).
 
 ## APKs und Entwicklung
 
@@ -15,17 +15,17 @@ Android-Telefon-App (React Native + Kotlin), eigenständige Wear-OS-App und geme
 
 ## Dokumentation
 
-- [Zielspezifikation V1 / V2](docs/zielspezifikation.md) — Ziele, Invarianten und Akzeptanzkriterien.
+- [Zielspezifikation V1 / V2](docs/zielspezifikation.md) — Ziele, Grundregeln und Akzeptanzkriterien.
 - [Zielspezifikation Training (Gym + Laufen)](docs/zielspezifikation-training.md) — Krafttraining, Trainingspläne, Muskelkarte und die Verzahnung beider Trainingsarten.
 - [Muskel- und Belastungsmodell](docs/muskelmodell.md) — Skala, Rechenvorschrift, Kalibrierung und Prüfverfahren der regionenbezogenen Frische.
 - [App-Importe](docs/vendor-import.md) — Fitbit, Google Fit, Strong, Mi Fitness, Apple Health, Samsung & Co. importieren (optional).
-- [Glossar](docs/glossar.md) — verständliche Bedeutungen neben englischen Fach- und Suchbegriffen.
+- [Glossar](docs/glossar.md) — kurze Übersetzungstabelle von Alltagssprache zu internen Codenamen.
 - [Änderungen zum ursprünglichen Entwurf](docs/aenderungen.md) — übernommene Klarstellungen und fachliche Verbesserungen.
 - [Design Language](docs/design-language.md) — verbindliche Token, Bausteine, Text- und Affordanzregeln für jede Oberfläche.
 - [Wochenplanung und Entwicklung](docs/planning.md) — Kalender, verfügbare Zeit, Änderungsvorschläge und belegbarer Fortschritt.
 - [Bedienung und spätere Auslieferung](docs/bedienung-und-auslieferung.md) — flexible Funktionswahl, klare UI und Anforderungen an spätere Test-APKs.
-- [Interaktive Systemkarte](docs/runback-system-map.html) — visueller Datenfluss von Sensorsamples bis zur Handlungsempfehlung.
+- [Interaktive Systemkarte](docs/runback-system-map.html) — visueller Datenfluss von Sensorsamples bis zur Empfehlung.
 
-Die Zielspezifikation ist fachlich maßgeblich. Das Glossar erklärt ihre Begriffe; ergänzende Dokumente konkretisieren Ziele, ohne die Invarianten abzuschwächen. Akzeptanzkriterien beschreiben gewünschtes Verhalten und sind keine Behauptung über bereits implementierte Funktionen.
+Die Zielspezifikation ist fachlich maßgeblich. Das Glossar erklärt ihre Begriffe; ergänzende Dokumente konkretisieren Ziele, ohne die Grundregeln abzuschwächen. Akzeptanzkriterien beschreiben gewünschtes Verhalten und sind keine Behauptung über bereits implementierte Funktionen.
 
 Das Repository ist mit Zustimmung des Projektinhabers öffentlich. Die Lizenzwahl bleibt offen; öffentliche Sichtbarkeit allein ersetzt keine Open-Source-Lizenz.
