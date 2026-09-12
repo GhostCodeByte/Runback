@@ -10,7 +10,7 @@ import type {
 } from './strength';
 
 /**
- * Trainingspläne nach docs/zielspezifikation-training.md T-5 und T-6.
+ * Trainingspläne.
  *
  * Ein Plan ist ein Nutzerartefakt. Er schlägt vor, er verpflichtet nicht.
  * Alle Funktionen hier sind rein und geben eine neue Vorlage zurück; ob und
@@ -22,7 +22,7 @@ import type {
  *   ausdrückliches `applyProposal` des Nutzers macht ihn wirksam (T-6).
  * - Eine Abweichung zwischen Plan und Durchführung wird festgehalten, aber
  *   nicht bewertet. Es gibt hier kein Gut, kein Schlecht und kein Versäumnis
- *   (T-5, Invariante 13: Umsetzung ist nicht Ergebnis).
+ *   (T-5, Grundregel 13: Umsetzung ist nicht Ergebnis).
  */
 
 export const PLAN_MODEL_VERSION = 'plans-v1';
@@ -355,7 +355,7 @@ export function templatesForDay(
  * Übernommen wird, was tatsächlich stattgefunden hat — bestätigte Sätze mit
  * ihren tatsächlichen Werten. Übersprungene und offene Sätze wandern nicht in
  * den Plan; sie sind Teil der Einheit, nicht der Absicht. Die Einheit selbst
- * bleibt unverändert (Invariante 1).
+ * bleibt unverändert (Grundregel 1).
  */
 export function templateFromSession(
   session: StrengthSession,
@@ -557,7 +557,7 @@ const compareSet = (
 /**
  * Stellt eine erfasste Einheit neben ihre Vorlage.
  *
- * Das Ergebnis ist eine Angabe zur Umsetzung nach T-5 und Invariante 13. Es
+ * Das Ergebnis ist eine Angabe zur Umsetzung nach T-5 und Grundregel 13. Es
  * enthält bewusst keine Bewertung, keine Quote und keinen Zielwert. Fehlt die
  * Vorlage, ist `hasPlan` falsch und alles Erfasste zählt als frei trainiert.
  */
@@ -728,7 +728,7 @@ export interface PlanProposal {
   slots: string;
   /** Erwartete Wirkung. */
   expectation: string;
-  /** Vorab festgelegtes Prüfkriterium, Invariante 3. */
+  /** Vorab festgelegtes Prüfkriterium, Grundregel 3. */
   check: string;
   changes: PlanChange[];
   createdAt: number;

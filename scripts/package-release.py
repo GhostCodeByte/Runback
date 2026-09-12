@@ -109,9 +109,9 @@ Enthält eine freiwillige Einrichtung mit Import, Statistik unter „Mehr“ und
 
 Der Workflow prüft TypeScript, JavaScript-Tests, native Core- und Chat-Unit-Tests, Android-Lint, beide Release-Builds sowie APK-Inhalte und Signaturen. {ci_line}
 
-[Installation und Testschlüssel]({source_url}/docs/release.md) · [Tatsächliche Gerätetests und bekannte Grenzen]({source_url}/docs/testing.md) · [V1/V2-Akzeptanzkriterien]({source_url}/docs/zielspezifikation.md)
+[Installation und Hinweise]({source_url}/README.md) · [Spec]({source_url}/docs/spec.md)
 
-Dieses Release ist keine vollständige V1-/V2-Abnahme. CI baut und prüft automatisch; reale GPS-/Sensorgenauigkeit, Akkuverbrauch, lange Hintergrundaufzeichnung und Geräteverbindungen benötigen die im Testbericht genannten Prüfungen.
+Dieses Release ist Testsoftware. CI baut und prüft automatisch; reale GPS-/Sensorgenauigkeit, Akkuverbrauch, lange Hintergrundaufzeichnung und Geräteverbindungen sind auf echten Geräten nicht vollständig nachgewiesen.
 """
     (output / "RELEASE-NOTES.md").write_text(notes, encoding="utf-8")
     print(f"Verified {len(metadata['apps'])} APKs at {commit}; release assets: {output}")

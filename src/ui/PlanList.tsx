@@ -5,7 +5,7 @@ import type { WorkoutTemplate } from '../domain/strength';
 import { Button, color, Copy } from './components';
 
 /**
- * Übersicht der Trainingspläne, docs/zielspezifikation-training.md T-5.
+ * Übersicht der Trainingspläne.
  *
  * Ein Plan ist ein Vorschlag. Deshalb steht neben jedem Plan „Starten“, aber
  * nirgends eine Quote, ein Rückstand oder eine Mahnung. Löschen fragt einmal

@@ -14,7 +14,7 @@ import { BodyMap, type BodyView } from './BodyMap';
 import { Button, color, radius, space, type } from './components';
 
 /**
- * Kurze Abfrage nach docs/zielspezifikation-training.md T-10.
+ * Kurze Muskelkater-Abfrage: in Sekunden gemeldet, sofort auf der Figur sichtbar.
  *
  * Ein Bildschirm, eine Aufgabe: antippen, Stärke wählen, speichern. Sprache ist
  * der schnelle Nebenweg, nicht der Notweg. Gespeichert wird erst nach einem
@@ -32,7 +32,7 @@ export interface TranscriptResult {
   /**
    * Optionale strukturierte Felder aus dem zuschaltbaren OpenRouter-Durchlauf.
    * Sie gehen durch dasselbe Lexikon wie die gesprochene Eingabe; was dort
-   * nicht steht, wird verworfen (Invariante 6).
+   * nicht steht, wird verworfen (Grundregel 6).
    */
   structured?: StructuredSorenessItem[];
 }

@@ -1,11 +1,12 @@
 /**
- * Sprache zu Struktur nach docs/muskelmodell.md §10.
+ * Sprache zu Struktur: gesprochene oder getippte Muskelkater-Meldungen
+ * werden deterministisch über ein festes Lexikon zugeordnet, nie geraten.
  *
  * Rein deterministisch: gleiche Eingabe, gleiches Ergebnis. Kein Netz, kein
  * React, kein Zufall. Das Lexikon ist festgeschrieben und versioniert — es wird
  * nicht bei jedem Aufruf neu erfunden.
  *
- * Der Kern ist Invariante 6: Ein Sprachmodell darf zuhören und Felder
+ * Der Kern ist Grundregel 6: Ein Sprachmodell darf zuhören und Felder
  * vorschlagen, entscheiden tut diese Datei. Eine Region, die hier nicht im
  * Lexikon steht, wird verworfen und nicht erfunden.
  */
@@ -29,8 +30,7 @@ export interface SorenessProposal {
 }
 
 /**
- * Etwas, das nicht eindeutig war. Wird gefragt, nicht geraten
- * (docs/zielspezifikation-training.md T-10).
+ * Etwas, das nicht eindeutig war. Wird gefragt, nicht geraten.
  */
 export interface SorenessQuestion {
   kind: 'region' | 'side' | 'intensity' | 'unknown';
@@ -184,7 +184,7 @@ const SIDE_WORDS: Record<string, Side | 'both'> = {
   bds: 'both',
 };
 
-/** Stärkewörter nach docs/muskelmodell.md §10.2. Festgeschrieben. */
+/** Stärkewörter. Festgeschrieben, Teil der Lexikon-Version. */
 const INTENSITY_WORDS: Record<string, number> = {
   leicht: 3,
   mittel: 5,
@@ -693,7 +693,7 @@ export function parseSoreness(transcript: string): SorenessParse {
 }
 
 // ---------------------------------------------------------------------------
-// Prüfung fremder Felder (Invariante 6)
+// Prüfung fremder Felder (Grundregel 6)
 // ---------------------------------------------------------------------------
 
 const VALID_IDS = new Set(allRegionIds());

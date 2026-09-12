@@ -21,7 +21,7 @@ const equipmentLabel: Record<Exercise['equipment'], string> = {
   band: 'Band',
 };
 
-/** Übungsauswahl aus dem Katalog, docs/zielspezifikation-training.md T-3. */
+/** Übungsauswahl aus dem Katalog. */
 export function ExercisePicker({
   visible,
   onSelect,

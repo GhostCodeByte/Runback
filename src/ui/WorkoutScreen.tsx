@@ -25,7 +25,7 @@ import {
 import { color, Copy } from './components';
 
 /**
- * Aktive Trainingsansicht nach docs/zielspezifikation-training.md T-4.
+ * Aktive Trainingsansicht: Sätze in Sekunden bestätigen, Abweichungen ohne Wertung erfassen.
  *
  * Aufbau: erledigte Übungen als schmale Zeilen oben, die aktuelle Übung als
  * ausgeklappte Karte in der Mitte, kommende Übungen als schmale Zeilen unten.

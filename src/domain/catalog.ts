@@ -2,11 +2,11 @@ import type { Exercise } from './strength';
 import { CATALOG_VERSION } from './strength';
 
 /**
- * Startkatalog nach docs/zielspezifikation-training.md T-3, Version `catalog-v1`.
+ * Startkatalog der Übungen, Version `catalog-v1`.
  *
  * `shares` verteilt die Beanspruchung über Basisregionen aus `regions-v1` und
- * summiert sich auf 1. `eccentric` ist der Exzentrik- und Dehnungsfaktor aus
- * docs/muskelmodell.md §3.
+ * summiert sich auf 1. `eccentric` ist der Exzentrik- und Dehnungsfaktor
+ * des Muskelmodells (siehe freshness.ts).
  *
  * Alle Werte sind begründete Ausgangsannahmen aus der Bewegungslehre, keine
  * Messungen. Das Muskelmodell lernt sie später je Nutzer nach; bis dahin sind

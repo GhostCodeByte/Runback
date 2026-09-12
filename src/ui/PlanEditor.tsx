@@ -35,7 +35,7 @@ import { color, Copy } from './components';
 import { ExercisePicker } from './ExercisePicker';
 
 /**
- * Plan anlegen und bearbeiten, docs/zielspezifikation-training.md T-5 und T-6.
+ * Plan anlegen und bearbeiten.
  *
  * Der Plan ist ein Nutzerartefakt: Jede Änderung hier kommt vom Nutzer, nichts
  * verstellt sich von selbst. Offene Punkte stehen als ruhiger Hinweis neben

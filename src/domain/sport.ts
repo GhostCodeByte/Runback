@@ -6,8 +6,6 @@
  * Datensätze ohne Feld bleiben Läufe und werden weder migriert noch anders
  * ausgewertet. Auswertungen, die nur für Läufe gelten (Tempo, Fokus,
  * Wochenkilometer), erscheinen bei anderen Sportarten gar nicht statt falsch.
- *
- * Siehe docs/zielspezifikation-training.md T-1.
  */
 import type { Sport } from './types';
 

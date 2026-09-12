@@ -11,7 +11,7 @@ import { Button, Copy, Row, Section, Title, space } from './components';
 /**
  * App-Importe: erst die Quelle wählen, dann die Schritte genau dieser Quelle.
  * Vorher standen die Anleitungen aller Anbieter gleichzeitig auf der Seite.
- * Siehe docs/design-language.md § 9.
+ * Siehe docs/design-language.md, Abschnitt „Text“ (erst die Wahl, dann die Schritte).
  */
 export function VendorImport({
   onImport,

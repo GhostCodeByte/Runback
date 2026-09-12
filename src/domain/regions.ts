@@ -1,5 +1,5 @@
 /**
- * Muskelregionen nach docs/muskelmodell.md §2, Version `regions-v1`.
+ * Muskelregionen des Muskelmodells, Version `regions-v1`.
  *
  * Kennungen sind stabil. Eine Region wird nie umbenannt, nur ergänzt oder als
  * veraltet markiert. Übungen tragen ihre Anteile auf den Basisnamen; die

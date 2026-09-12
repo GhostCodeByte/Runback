@@ -2,7 +2,7 @@ import type { MuscleShares } from './regions';
 import { sharesAreValid } from './regions';
 
 /**
- * Krafttraining nach docs/zielspezifikation-training.md T-1, T-3, T-4 und T-5.
+ * Krafttraining: Übungen, Sätze, Einheiten und Vorlagen.
  *
  * Reine Funktionen ohne Zustand. Alles, was den Verlauf einer Einheit verändert,
  * gibt eine neue Einheit zurück; die Aufrufer entscheiden über Speichern.
@@ -29,7 +29,7 @@ export interface Exercise {
   equipment: Equipment;
   /** Trainiert eine Seite zur Zeit; Belastung geht dann nur auf diese Seite. */
   unilateral: boolean;
-  /** Exzentrik- und Dehnungsfaktor, docs/muskelmodell.md §3. */
+  /** Exzentrik- und Dehnungsfaktor für den Belastungsreiz (freshness.ts). */
   eccentric: number;
   shares: MuscleShares;
   /** `catalog` oder `user`. Eigene Übungen tragen keine Katalogherkunft. */
@@ -483,7 +483,7 @@ export function formatWeight(value: number): string {
 }
 
 /**
- * Geschätztes Einwiederholungsmaximum nach Epley, docs/muskelmodell.md §3.
+ * Geschätztes Einwiederholungsmaximum nach Epley.
  * Schätzung, keine Messung. Nur für Arbeitssätze mit Last und Wiederholungen.
  */
 export function epley1RM(weightKg: number, reps: number): number | null {

@@ -10,7 +10,7 @@
  * 2. den Trainingszweck, sobald er festgelegt ist,
  * 3. die Tageszeit des Starts.
  *
- * Siehe docs/design-language.md § 13.
+ * Siehe docs/design-language.md, Abschnitt „Zahlen“.
  */
 import type { RunPurpose, Sport } from './types';
 import { sportWords, type SportWords } from './sport';

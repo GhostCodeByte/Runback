@@ -24,7 +24,7 @@ import {
 import { color, radius, space, type } from './components';
 
 /**
- * Körperfigur nach docs/zielspezifikation-training.md T-9.
+ * Körperfigur: zeigt den Zustand je Region, kein Urteil.
  *
  * Die Figur zeigt einen Zustand, kein Urteil. Sie sagt nichts über Gesundheit,
  * Belastbarkeit oder Verletzungen — nur, was gemeldet wurde beziehungsweise was

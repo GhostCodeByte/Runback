@@ -1,50 +1,49 @@
-# Runback-Glossar
+# Glossar
 
-Das Glossar ist eine kleine Übersetzungstabelle, kein Wörterbuch. Links steht
-das Wort, das Menschen lesen. In der Mitte steht der interne Codename, der in
-Code, Datenbank oder Modell vorkommen darf. Rechts steht, wozu das Ding dient.
-Nur Begriffe, die in der Spezifikation oder im Produkt tatsächlich gebraucht
-werden, gehören hierher.
+Übersetzungstabelle: links das Wort für Menschen, in der Mitte der Codename,
+rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 
-| Alltagswort | Codename | Wozu dient es? |
+| Alltagswort | Codename | Wozu |
 | --- | --- | --- |
-| Ziel | `goal` | Ein freiwilliges Vorhaben mit Datum, an dem Aufbau und Tapering ausgerichtet werden können. |
-| Zieldatum | `target_date` | Der Kalendertag, an dem ein Ziel endet. Ohne Zieldatum gibt es keine Phasenrechnung. |
-| Fokus-Art | `focus_type` | Eine kurze, versionierte Auswahl, mit der Runback Empfehlungen priorisiert. |
-| Eigene Bezeichnung | `focus_label` | Freier Text des Nutzers, der im UI erscheint, aber nicht ausgewertet wird. |
-| Fokus | `active_focus` | Das dauerhafte allgemeine Thema, an dem gerade gearbeitet wird; höchstens einer ist aktiv. |
-| Empfehlung | `recommendation` | Eine konkrete Sache, die jetzt ausprobiert oder bewusst beibehalten werden kann. Höchstens eine wird gleichzeitig geprüft. |
-| Vorschlag | `proposed` | Eine Empfehlung, die Runback zeigt, aber der Nutzer noch nicht angenommen hat. |
-| Angenommen | `accepted` | Eine Empfehlung, deren Bedingungen der Nutzer festgeschrieben hat. |
-| Aktiv / pausiert / abgeschlossen / abgebrochen | `active` / `paused` / `completed` / `aborted` | Sichtbare Zustände einer angenommenen Empfehlung. Sie sagen, wo sie im Ablauf steht. |
-| Vergleichsläufe | `baseline_runs` | Frühere passende Läufe, mit denen spätere Läufe verglichen werden. |
-| Woran erkennen wir, dass es geholfen hat? | `evaluation_criterion` | Die vorab festgelegte Regel, an der das Ergebnis einer Empfehlung geprüft wird. |
-| Umsetzung | `adherence` | Ob und wie eine Empfehlung tatsächlich befolgt wurde. |
-| Ergebnis | `outcome` | Was sich in passenden Folgeläufen beobachtet hat, unabhängig von der Ursache. |
-| Ursache | `causal_effect` | Die vorsichtige Frage, ob die Empfehlung das Ergebnis verursacht hat. Bei einem Nutzer bleibt das meist offen. |
-| Noch nicht klar | `inconclusive` | Ehrliches Urteil, wenn Daten weder für Hilfe noch für das Gegenteil reichen. |
-| Datenqualität | `data_quality` | Wie vollständig und passend die Daten für genau diese Aussage sind. |
-| Effort | `effort` | Modellierte äußere Anforderung. Kein Messwert für Fitness, Gesundheit oder Ermüdung. |
-| Relevanzmatrix | `relevance_matrix` | Versionierte Tabelle mit festen Gewichten je Fokus-Art und Handlungsklasse. |
-| Grundregel | `invariant` | Eine Regel, die für alle betroffenen Funktionen gilt und nicht gegen eine UI-Abkürzung getauscht werden darf. |
+| Bereich | `Sport` / `strength` | Laufen oder Krafttraining. Jeder Bereich hat eigenes Ziel, eigenen Fokus, eigene Empfehlung. |
+| Ziel | `goal`, `targetDate` | Freiwilliges Vorhaben je Bereich, ggf. mit Datum. Darf enden. |
+| Fokus-Art | `FocusKind` | Kurze, versionierte Auswahl (Ausdauer, schneller, verletzungsfrei, Gewohnheit, Fitness), die Empfehlungen priorisiert. |
+| Eigene Bezeichnung | `TrainingFocus.label` | Freitext des Nutzers zum Fokus. Wird angezeigt, nicht ausgewertet. |
+| Fokus | `TrainingFocus` | Dauerhaftes Thema ohne Enddatum, höchstens einer je Bereich, wird nie bewertet. |
+| Empfehlung | `Recommendation` → `Experiment` | Die eine konkrete Sache je Bereich, die gerade ausprobiert oder bewusst beibehalten wird. |
+| Danach vorgesehen | — | Nächste Empfehlung, die wartet, weil die aktive noch läuft oder die Kopplungssperre greift. |
+| Kopplungssperre | `coupling.ts` | Verhindert eine zweite Empfehlung, die die Prüfung der ersten verfälschen könnte. |
+| Vorschlag / Angenommen | `proposed` / `accepted` | Empfehlung vor bzw. nach der Zustimmung des Nutzers. |
+| Aktiv / Pausiert / Abgeschlossen / Abgebrochen | `ExperimentStatus` | Sichtbare Zustände einer angenommenen Empfehlung. |
+| Vergleichsläufe | `baselineRunIds` | Frühere passende Läufe, mit denen spätere verglichen werden. |
+| Woran erkennen wir, dass es geholfen hat? | `ExperimentCriteria` | Vor dem Start festgelegte Prüfregel einer Empfehlung. |
+| Umsetzung | `Adherence` | Ob die Empfehlung tatsächlich befolgt wurde. |
+| Ergebnis | `ExperimentEvaluation` | Was sich in Folgeläufen beobachtet hat, unabhängig von der Ursache. |
+| Ursache | — | Die vorsichtige Frage, ob die Empfehlung das Ergebnis verursacht hat. Meist offen. |
+| Noch nicht klar | `inconclusive` | Ehrliches Urteil, wenn die Daten weder dafür noch dagegen reichen. |
+| Datenqualität | `QualityReport` | Wie vollständig und passend die Daten für genau diese Aussage sind. |
+| Zweck | `RunPurpose` | Wofür eine Einheit gedacht war: locker, lang, Intervalle, Wettkampf, frei, unbekannt. |
+| Sportart | `Sport` | `running`, `cycling`; fehlt das Feld, gilt Laufen. |
+| Effort | `EffortEstimate` | Modellierte äußere Anforderung eines Laufs. Kein Fitness- oder Ermüdungswert. |
+| Tempoindex | `EffortEstimate` | Einfaches Tempomaß relativ zu 3 m/s. Keine Leistung, kein Score. |
+| Relevanzmatrix | `prioritization.ts` | Versionierte Gewichte je Fokus-Art und Handlungsklasse. |
+| Handlungsklasse | `ActionClass` | Art einer Empfehlung, z. B. Startdisziplin, Umfang steigern, Tapering. |
+| Einheit | `StrengthSession` / `RunSummary` | Trainingseinheit beliebiger Art mit Zeit, Zweck und Herkunft. |
+| Satz | `PlannedSet` / `LoggedSet` | Kleinste Krafteinheit: Übung, Wiederholungen/Dauer, Last, Pause. |
+| Plan | `WorkoutTemplate` | Vorlage aus Einheiten-Slots. Vorschlag, keine Verpflichtung. |
+| Durchgeführt | `LoggedSet`, Status `finished` | Was tatsächlich erfasst wurde; bei Abweichung vom Plan immer maßgeblich. |
+| Muskelregion | `regionId` | Eintrag aus der versionierten Regionenliste. |
+| Muskelanteil | `share` | Anteil, mit dem eine Übung eine Region beansprucht. Katalogwert, persönlich anpassbar. |
+| Frische | `freshness` | Modellierte Skala 0–100 je Region. Kein Gesundheits- oder Bereitschaftsmaß. |
+| Gemeldeter Muskelkater | `SorenessReport` | Nutzerangabe je Region und Zeitpunkt. Eingabe, keine Messung. |
+| Zusammenfassungs-Lauf | `summaryOnly` | Importierter Lauf ohne Spur; nur Zeit und Distanz bekannt. |
+| Grundregel | — | Regel, die für alles gilt und nicht gegen eine UI-Abkürzung getauscht wird. |
 
-## Die drei Ebenen in einem Satz
+**Nicht mehr verwendet:** Arbeitsthema, nächste Handlung, Intervention,
+Laufempfehlung, Änderung (→ Empfehlung) · Prüfbedingung, Erfolgskriterium
+(→ „Woran erkennen wir, dass es geholfen hat?“) · Baseline (→ Vergleichsläufe)
+· inconclusive (→ noch nicht klar) · Invariante (→ Grundregel).
 
-Ein **Ziel** kann einen **Fokus** nahelegen; der Fokus hilft, eine **Empfehlung**
-auszuwählen. Nur die Empfehlung wird auf Umsetzung, Ergebnis und mögliche
-Ursache geprüft.
-
-## Beispiel
-
-„Starte die ersten 2 km rund 20 s/km langsamer“ ist die Empfehlung. Geeignete
-frühere Läufe sind die Vergleichsläufe. „Woran erkennen wir, dass es geholfen
-hat?“ steht vor dem Start fest. Wenn die Daten danach kein klares Urteil
-erlauben, heißt das „Noch nicht klar“.
-
-## Feststehende Fachwörter
-
-**Effort** bleibt bewusst als Fachwort erhalten. Es bezeichnet nur die
-modellierte äußere Anforderung. Intensität, Gesamtbelastung und subjektive
-Anstrengung (RPE) sind davon getrennt. Die Skala, ihre Referenz und ihre
-Unsicherheit müssen vor der ersten Ausspielung dokumentiert sein.
-
+**In einem Satz:** Ein Ziel kann einen Fokus nahelegen; der Fokus hilft, eine
+Empfehlung auszuwählen. Nur die Empfehlung wird auf Umsetzung, Ergebnis und
+Ursache geprüft — je Bereich höchstens eine.

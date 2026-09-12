@@ -587,7 +587,7 @@ export function RunbackApp() {
       .finally(() => setLoading(false));
   }, [refresh]);
   // Krafttraining wird getrennt geladen. Fehlt die native Unterstützung, bleibt
-  // der Zustand leer und der Rest der App unberührt (Invariante 7).
+  // der Zustand leer und der Rest der App unberührt (Grundregel 7).
   useEffect(() => {
     void native
       .strength()
