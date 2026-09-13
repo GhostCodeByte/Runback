@@ -20,6 +20,10 @@ class ImportArchive(
     private val process: (File, String, String) -> Unit,
     private val onError: (String, Exception) -> Unit,
     private val onSkipped: () -> Unit,
+    /** Optional path-aware filter for large provider archives. */
+    private val supportedEntry: ((String, String) -> Boolean)? = null,
+    /** Ignored entries still need draining, but need not consume the useful-data budget. */
+    private val drainIgnored: ((InputStream) -> Unit)? = null,
 ) {
     private data class Pending(val name: String, val path: String, val file: File)
 
@@ -62,8 +66,9 @@ class ImportArchive(
                 }
                 val path = if (parentPath.isEmpty()) entry.name else "$parentPath/${entry.name}"
                 val name = entry.name.substringAfterLast('/').substringAfterLast('\\')
-                if (!supported(name) && !isNestedArchive(name)) {
-                    drainBounded(zip)
+                val keep = supportedEntry?.invoke(name, path) ?: supported(name)
+                if (!keep && !isNestedArchive(name)) {
+                    (drainIgnored ?: drainBounded).invoke(zip)
                     onSkipped()
                     zip.closeEntry()
                     continue

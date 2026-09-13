@@ -45,8 +45,13 @@ export function hasNamedPurpose(purpose: RunPurpose | undefined): boolean {
 
 const GENERIC_NAMES = new Set([
   'lauf',
+  'laufen',
+  'laufband',
   'run',
   'running',
+  'afternoon run',
+  'evening run',
+  'night run',
   'activity',
   'aktivitat',
   'workout',
@@ -60,7 +65,18 @@ const GENERIC_NAMES = new Set([
   'garmin lauf',
   'google fit lauf',
   'mi fitness lauf',
+  'google health lauf',
+  'outdoor run',
+  'treadmill run',
+  'outdoor lauf',
+  'treadmill laufen',
   'runback activity',
+  'lauf am morgen',
+  'lauf am vormittag',
+  'lauf am mittag',
+  'lauf am nachmittag',
+  'lauf am abend',
+  'lauf in der nacht',
 ]);
 
 const normalize = (value: string) =>

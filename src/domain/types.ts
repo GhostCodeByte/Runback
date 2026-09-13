@@ -43,6 +43,13 @@ export interface RunSummary {
   status: string;
   avgHeartRate?: number;
   avgCadence?: number;
+  calories?: number;
+  steps?: number;
+  elevationGainMeters?: number;
+  sourceActivityId?: string;
+  sourceActivityType?: string;
+  importVersion?: string;
+  importDetails?: Record<string, unknown> | string;
   segments?: SegmentAggregate[];
   /** Count only. Raw samples stay in native storage. */
   samples?: number;

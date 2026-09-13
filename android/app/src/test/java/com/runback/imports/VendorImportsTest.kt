@@ -151,4 +151,69 @@ class VendorImportsTest {
         assertEquals(0, parsed.runs.size)
         assertEquals(1, parsed.skipped)
     }
+
+    @Test fun stravaGermanCsvUsesTheActivityDateAndRichSummaryColumns() {
+        val csv = "Aktivitäts-ID,Aktivitätsdatum,Name der Aktivität,Aktivitätsart," +
+            "Verstrichene Zeit,Distanz,Max. Herzfrequenz," +
+            "Verstrichene Zeit,Distanz,Höhenzunahme,Durchschnittliche Herzfrequenz,Kalorien\n" +
+            "19404735112,\"21.07.2026, 15:09:27\",Lauf am Nachmittag,Lauf," +
+            "1390,\"2,81\",190,1390,\"2,81\",0.0,148,299\n"
+        val parsed = VendorImports.parseActivitiesCsv(csv, "strava")
+        assertEquals(1, parsed.runs.size)
+        val run = parsed.runs.first()
+        assertEquals("Lauf am Nachmittag", run.name)
+        assertEquals(2810.0, run.distanceMeters, 0.1)
+        assertEquals(1390.0, run.durationSeconds, 0.1)
+        assertEquals(148.0, run.avgHeartRate!!, 0.1)
+        assertEquals(299.0, run.calories!!, 0.1)
+        assertEquals("19404735112", run.sourceActivityId)
+    }
+    @Test fun stravaHeaderIsRecognizedEvenWithoutArchiveName() {
+        assertTrue(VendorImports.isStravaActivitiesHeader(listOf(
+            "Aktivitäts-ID", "Aktivitätsdatum", "Name der Aktivität", "Aktivitätsart")))
+        assertFalse(VendorImports.isStravaActivitiesHeader(listOf("Date", "Name", "Type")))
+    }
+
+    @Test fun googleHealthExerciseJsonKeepsRichRunMetrics() {
+        val json = """[
+            {"logId":12345,"activityName":"Laufen","averageHeartRate":154,
+             "calories":512,"distance":5.4,"distanceUnit":"Kilometer","duration":1800000,
+             "elevationGain":38,"steps":6012,"startTime":"08/27/25 06:03:35",
+             "pace":333,"speed":10.8,"activeZoneMinutes":{"totalMinutes":31}}
+        ]""".trimIndent()
+        val parsed = VendorImports.parseFitbitExerciseJson(json)
+        assertEquals(1, parsed.runs.size)
+        val run = parsed.runs.first()
+        assertEquals(5400.0, run.distanceMeters, 0.1)
+        assertEquals(1800.0, run.durationSeconds, 0.1)
+        assertEquals(6012.0, run.steps!!, 0.1)
+        assertEquals(38.0, run.elevationGainMeters!!, 0.1)
+        assertEquals("12345", run.sourceActivityId)
+        assertTrue(run.details!!.contains("activeZoneMinutes"))
+    }
+
+    @Test fun googleHealthExerciseCsvUsesExplicitMillimeterFields() {
+        val csv = "exercise_id,exercise_start,exercise_end,activity_name,tracker_total_distance_mm," +
+            "tracker_total_calories,tracker_total_steps,tracker_total_altitude_mm,tracker_avg_heart_rate\n" +
+            "abc,2026-05-30 06:00:00+0000,2026-05-30 06:30:00+0000,Outdoor Run,5000000,300,4200,12000,149\n"
+        val parsed = VendorImports.parseFitbitExerciseCsv(csv)
+        assertEquals(1, parsed.runs.size)
+        val run = parsed.runs.first()
+        assertEquals(5000.0, run.distanceMeters, 0.1)
+        assertEquals(1800.0, run.durationSeconds, 0.1)
+        assertEquals(4200.0, run.steps!!, 0.1)
+        assertEquals(12.0, run.elevationGainMeters!!, 0.1)
+        assertEquals("abc", run.sourceActivityId)
+    }
+
+    @Test fun googleHealthAndStrongMeasurementFilesAreRecognized() {
+        assertEquals(VendorImports.Vendor.FITBIT,
+            VendorImports.detectVendor("exercise-0.json", "Takeout/Google Health/Global Export Data"))
+        assertEquals("vo2max", VendorImports.fitbitFileKind("demographic_vo2_max-2025-08-23.json"))
+        assertEquals("fitness_data", VendorImports.miFitnessFileKind("20260909_MiFitness_hlth_center_aggregated_fitness_data.csv"))
+        assertEquals(VendorImports.Vendor.STRONG, VendorImports.detectVendor("weight.csv"))
+        assertEquals("weight", VendorImports.strongMeasurementKind("weight.csv"))
+        assertEquals("body_fat", VendorImports.strongMeasurementKind("body_fat_percentage.csv"))
+        assertEquals("%", VendorImports.strongMeasurementUnit("body_fat"))
+    }
 }

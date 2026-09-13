@@ -16,6 +16,9 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
@@ -38,6 +41,7 @@ import com.garmin.fit.SubSport
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPInputStream
+import java.util.zip.ZipException
 
 /** SAF streams are copied to bounded private temporary files, never bridged through JavaScript. */
 class ActivityImporter(private val context: Context, private val store: RunStore) {
@@ -105,12 +109,32 @@ class ActivityImporter(private val context: Context, private val store: RunStore
             process = ::processFile,
             onError = ::recordError,
             onSkipped = { increment("skipped") },
+            supportedEntry = ::supportedEntry,
+            drainIgnored = ::drainIgnored,
         ).import(file)
     }
 
     private fun supported(name: String) = name.lowercase(Locale.ROOT).removeSuffix(".gz").let {
         it.endsWith(".gpx") || it.endsWith(".tcx") || it.endsWith(".fit") ||
             it.endsWith(".csv") || it.endsWith(".json") || it.endsWith(".xml")
+    }
+
+    /**
+     * Google Health Takeout contains more than 500 MB of unrelated exports.
+     * Keep the files that carry workouts or bounded context and drain the rest
+     * without charging them against the useful-data budget.
+     */
+    private fun supportedEntry(name: String, entryPath: String): Boolean {
+        if (!supported(name)) return false
+        val path = entryPath.lowercase(Locale.ROOT)
+        if (!path.contains("google health")) return true
+        val kind = VendorImports.fitbitFileKind(name, entryPath)
+        if (kind in setOf("exercise", "exercise_csv", "sleep", "sleep_csv", "sleep_score_csv",
+                "sleep_stage_csv", "resting_hr", "weight", "heart_rate", "hrv", "vo2max", "vo2max_csv",
+                "steps", "calories", "active_minutes", "active_energy")) return true
+        // Keep the compact daily HRV CSVs even when their filename is localized.
+        if (path.contains("heart rate variability") && (path.endsWith(".csv") || path.endsWith(".json"))) return true
+        return false
     }
 
     private fun processFile(original: File, name: String, entryPath: String = "") {
@@ -169,12 +193,20 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     private fun importVendorFile(file: File, name: String, entryPath: String) {
         val vendor = VendorImports.detectVendor(name, entryPath)
         val lower = name.lowercase(Locale.ROOT).removeSuffix(".gz")
+        val fitbitKind = VendorImports.fitbitFileKind(name, entryPath)
+        val strongMeasurement = VendorImports.strongMeasurementKind(name)
         var handled = false
         when {
             lower.endsWith(".xml") || name.equals("export.xml", ignoreCase = true) ->
                 handled = importAppleExportXml(file, name)
             lower.endsWith(".csv") && isStrongCsv(file) ->
                 handled = importStrongCsv(file, name)
+            lower.endsWith(".csv") && strongMeasurement != null && isStrongMeasurementCsv(file, name) ->
+                handled = importStrongMeasurementCsv(file, name, strongMeasurement)
+            lower.endsWith(".csv") && fitbitKind == "exercise_csv" ->
+                handled = importFitbitExerciseCsv(file, name)
+            lower.endsWith(".csv") && fitbitKind in FITBIT_CONTEXT_CSV_KINDS ->
+                handled = importFitbitContextCsv(file, name, entryPath, fitbitKind)
             lower.endsWith(".csv") && VendorImports.samsungFileKind(name) != "other" ->
                 handled = importSamsungCsv(file, name)
             lower.endsWith(".csv") && VendorImports.miFitnessFileKind(name) != "other" ->
@@ -210,14 +242,12 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     }
 
     private fun isStrongCsv(file: File): Boolean = try {
-        file.inputStream().bufferedReader().use { reader ->
-            val header = VendorImports.splitCsvLine(VendorImports.stripBom(reader.readLine() ?: return false))
-            VendorImports.isStrongHeader(header)
-        }
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(readText(file).lineSequence().firstOrNull() ?: return false))
+        VendorImports.isStrongHeader(header)
     } catch (_: Exception) { false }
 
     private fun importStrongCsv(file: File, name: String): Boolean {
-        val text = file.bufferedReader().use { it.readText() }
+        val text = readText(file)
         val parsed = VendorImports.parseStrongCsv(text, "strong")
         var strength = 0
         for (workout in parsed.workouts) {
@@ -229,15 +259,230 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         return true
     }
 
+    private fun isStrongMeasurementCsv(file: File, name: String): Boolean = try {
+        val kind = VendorImports.strongMeasurementKind(name) ?: return false
+        val header = VendorImports.splitCsvLine(
+            VendorImports.stripBom(readText(file).lineSequence().firstOrNull() ?: return false), ';')
+        VendorImports.findHeaderIndex(header, "date") >= 0 && header.size >= 2 && kind.isNotBlank()
+    } catch (_: Exception) { false }
+
+    private fun importStrongMeasurementCsv(file: File, name: String, kind: String): Boolean {
+        val text = readText(file)
+        val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
+        if (lines.size < 2) return false
+        val delimiter = VendorImports.csvDelimiter(lines.first())
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first()), delimiter)
+        val cDate = VendorImports.findHeaderIndex(header, "date", "datum")
+        val cValue = (1 until header.size).firstOrNull { i ->
+            VendorImports.normalizeHeader(header[i]) !in setOf("date", "datum")
+        } ?: return false
+        val unit = VendorImports.strongMeasurementUnit(kind)
+        val rows = ArrayList<com.runback.core.WellnessRow>()
+        for (raw in lines.drop(1)) {
+            if (raw.isBlank()) continue
+            checkCancelled()
+            val cells = VendorImports.splitCsvLine(raw, delimiter)
+            fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
+            val time = VendorImports.parseTimeFlexible(get(cDate)) ?: continue
+            val value = VendorImports.parseDoubleFlexible(get(cValue)) ?: continue
+            if (!value.isFinite()) continue
+            val valid = when (kind) {
+                "weight" -> value in 1.0..500.0
+                "body_fat" -> value in 0.0..80.0
+                "calories_intake" -> value in 0.0..100000.0
+                else -> value in 0.0..500.0
+            }
+            if (!valid) continue
+            rows.add(com.runback.core.WellnessRow(
+                VendorImports.wellnessId(kind, time, "strong", value), kind, time, 0L, value,
+                unit, "strong", JSONObject().put("file", name.take(120)).toString()))
+        }
+        if (rows.isEmpty()) return false
+        noteVendor("strong", 0, 0, store.addWellnessBatch(rows), 0)
+        return true
+    }
+
+    private fun importFitbitExerciseCsv(file: File, name: String): Boolean {
+        val parsed = VendorImports.parseFitbitExerciseCsv(readText(file), "fitbit")
+        for (draft in parsed.runs) {
+            checkCancelled()
+            if (!acceptDraft(draft, draft.sourceActivityType)) continue
+            recordImported(store.addSummaryRun(summaryFromDraft(draft),
+                "vendor:fitbit:${sha256(file)}:${draft.sourceActivityId ?: draft.startTime}"), "fitbit")
+        }
+        if (parsed.runs.isEmpty()) increment("skipped")
+        return true
+    }
+
+    private fun importFitbitContextCsv(file: File, name: String, entryPath: String, kind: String): Boolean {
+        val lines = readText(file).lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
+        if (lines.size < 2) return false
+        val delimiter = VendorImports.csvDelimiter(lines.first())
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first()), delimiter)
+        val rows = ArrayList<com.runback.core.WellnessRow>()
+        fun get(cells: List<String>, index: Int): String = if (index >= 0 && index < cells.size) cells[index] else ""
+        fun add(kindName: String, time: Long, end: Long, value: Double, unit: String, extra: JSONObject = JSONObject()) {
+            if (!value.isFinite() || rows.size >= VendorImports.MAX_JSON_WELLNESS) return
+            rows.add(com.runback.core.WellnessRow(
+                VendorImports.wellnessId(kindName, time, "fitbit", value), kindName, time, end, value, unit,
+                "fitbit", extra.toString()))
+        }
+        when (kind) {
+            "sleep_csv" -> {
+                val cStart = VendorImports.findHeaderIndex(header, "sleep start", "start")
+                val cEnd = VendorImports.findHeaderIndex(header, "sleep end", "end")
+                val cAsleep = VendorImports.findHeaderIndex(header, "minutes asleep", "asleep")
+                val cAwake = VendorImports.findHeaderIndex(header, "minutes awake", "awake")
+                val cBed = VendorImports.findHeaderIndex(header, "minutes in sleep period", "time in bed")
+                if (cStart < 0) return false
+                for (raw in lines.drop(1)) {
+                    if (raw.isBlank()) continue
+                    checkCancelled()
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
+                    val start = VendorImports.parseTimeFlexible(get(cells, cStart)) ?: continue
+                    val end = VendorImports.parseTimeFlexible(get(cells, cEnd)) ?: start
+                    val asleep = VendorImports.parseDoubleFlexible(get(cells, cAsleep))
+                        ?: VendorImports.parseDoubleFlexible(get(cells, cBed)) ?: continue
+                    if (asleep !in 0.0..1440.0) continue
+                    add("sleep_session", start, end, asleep, "min", JSONObject()
+                        .put("minutesAwake", VendorImports.parseDoubleFlexible(get(cells, cAwake)) ?: JSONObject.NULL)
+                        .put("timeInBed", VendorImports.parseDoubleFlexible(get(cells, cBed)) ?: JSONObject.NULL))
+                }
+            }
+            "sleep_score_csv" -> {
+                val cTime = VendorImports.findHeaderIndex(header, "score time", "sleep score time")
+                val cScore = VendorImports.findHeaderIndex(header, "overall score")
+                val cDeep = VendorImports.findHeaderIndex(header, "deep sleep minutes")
+                val cRem = VendorImports.findHeaderIndex(header, "rem sleep percent")
+                val cResting = VendorImports.findHeaderIndex(header, "resting heart rate")
+                if (cTime < 0) return false
+                for (raw in lines.drop(1)) {
+                    if (raw.isBlank()) continue
+                    checkCancelled()
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
+                    val time = VendorImports.parseTimeFlexible(get(cells, cTime)) ?: continue
+                    val score = VendorImports.parseDoubleFlexible(get(cells, cScore))
+                    if (score != null && score in 0.0..100.0) add("sleep_score", time, 0L, score, "score",
+                        JSONObject().put("deepMinutes", VendorImports.parseDoubleFlexible(get(cells, cDeep)) ?: JSONObject.NULL)
+                            .put("remPercent", VendorImports.parseDoubleFlexible(get(cells, cRem)) ?: JSONObject.NULL))
+                    val resting = VendorImports.parseDoubleFlexible(get(cells, cResting))
+                    if (resting != null && resting in 30.0..120.0) add("resting_hr", time, 0L, resting, "bpm")
+                }
+            }
+            "sleep_stage_csv" -> {
+                val cStart = VendorImports.findHeaderIndex(header, "sleep stage start", "stage start", "start")
+                val cEnd = VendorImports.findHeaderIndex(header, "sleep stage end", "stage end", "end")
+                val cStage = VendorImports.findHeaderIndex(header, "sleep stage type", "stage", "type")
+                if (cStart < 0 || cStage < 0) return false
+                for (raw in lines.drop(1)) {
+                    if (raw.isBlank()) continue
+                    checkCancelled()
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
+                    val start = VendorImports.parseTimeFlexible(get(cells, cStart)) ?: continue
+                    val end = VendorImports.parseTimeFlexible(get(cells, cEnd)) ?: start
+                    val minutes = ((end - start) / 60000.0).takeIf { it > 0.0 && it <= 1440.0 } ?: continue
+                    add("sleep_stage", start, end, minutes, "min",
+                        JSONObject().put("stage", get(cells, cStage).take(20)))
+                }
+            }
+            "hrv" -> {
+                val cTime = VendorImports.findHeaderIndex(header, "timestamp", "time")
+                val cRmssd = VendorImports.findHeaderIndex(header, "rmssd")
+                val cNrem = VendorImports.findHeaderIndex(header, "nremhr", "nrem hr")
+                val cEntropy = VendorImports.findHeaderIndex(header, "entropy")
+                if (cTime < 0) return false
+                for (raw in lines.drop(1)) {
+                    if (raw.isBlank()) continue
+                    checkCancelled()
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
+                    val time = VendorImports.parseTimeFlexible(get(cells, cTime)) ?: continue
+                    val rmssd = VendorImports.parseDoubleFlexible(get(cells, cRmssd))
+                    if (rmssd != null && rmssd in 1.0..500.0) add("hrv_rmssd", time, 0L, rmssd, "ms")
+                    val nrem = VendorImports.parseDoubleFlexible(get(cells, cNrem))
+                    if (nrem != null && nrem in 30.0..240.0) add("sleep_hr", time, 0L, nrem, "bpm")
+                    val entropy = VendorImports.parseDoubleFlexible(get(cells, cEntropy))
+                    if (entropy != null && entropy >= 0.0) add("hrv_entropy", time, 0L, entropy, "score")
+                }
+            }
+            "vo2max", "vo2max_csv" -> {
+                val cTime = VendorImports.findHeaderIndex(header, "timestamp", "time")
+                val cValue = VendorImports.findHeaderIndex(header, "run vo2 max", "demographic vo2max",
+                    "demographic vo2 max", "vo2 max value", "daily vo2 max value", "vo2 max")
+                if (cTime < 0 || cValue < 0) return false
+                for (raw in lines.drop(1)) {
+                    if (raw.isBlank()) continue
+                    checkCancelled()
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
+                    val time = VendorImports.parseTimeFlexible(get(cells, cTime)) ?: continue
+                    val value = VendorImports.parseDoubleFlexible(get(cells, cValue)) ?: continue
+                    if (value in 10.0..100.0) add("vo2max", time, 0L, value, "ml/kg/min")
+                }
+            }
+            "steps", "calories", "active_minutes", "active_energy" -> {
+                val cTime = VendorImports.findHeaderIndex(header, "timestamp", "time")
+                if (cTime < 0) return false
+                val valueColumns = when (kind) {
+                    "steps" -> listOf(VendorImports.findHeaderIndex(header, "steps"))
+                    "calories" -> listOf(VendorImports.findHeaderIndex(header, "calories"))
+                    "active_energy" -> listOf(VendorImports.findHeaderIndex(header, "kilocalories", "kcal", "calories"))
+                    else -> listOf(
+                        VendorImports.findHeaderIndex(header, "light"),
+                        VendorImports.findHeaderIndex(header, "moderate"),
+                        VendorImports.findHeaderIndex(header, "very"),
+                    )
+                }.filter { it >= 0 }
+                if (valueColumns.isEmpty()) return false
+                data class Bucket(
+                    var first: Long = Long.MAX_VALUE,
+                    var last: Long = 0L,
+                    var sum: Double = 0.0,
+                    var min: Double = Double.POSITIVE_INFINITY,
+                    var max: Double = Double.NEGATIVE_INFINITY,
+                    var count: Int = 0,
+                )
+                val buckets = linkedMapOf<Long, Bucket>()
+                for (raw in lines.drop(1)) {
+                    if (raw.isBlank()) continue
+                    checkCancelled()
+                    val cells = VendorImports.splitCsvLine(raw, delimiter)
+                    val time = VendorImports.parseTimeFlexible(get(cells, cTime)) ?: continue
+                    val values = valueColumns.mapNotNull { VendorImports.parseDoubleFlexible(get(cells, it)) }
+                    if (values.isEmpty()) continue
+                    val value = values.sum()
+                    if (!value.isFinite() || value < 0.0) continue
+                    val bucket = buckets.getOrPut(fitbitDayStart(get(cells, cTime), time)) { Bucket() }
+                    bucket.first = minOf(bucket.first, time); bucket.last = maxOf(bucket.last, time)
+                    bucket.sum += value; bucket.min = minOf(bucket.min, value); bucket.max = maxOf(bucket.max, value)
+                    bucket.count++
+                }
+                buckets.toSortedMap().forEach { (day, bucket) ->
+                    val unit = when (kind) {
+                        "steps" -> "count"
+                        "active_minutes" -> "min"
+                        else -> "kcal"
+                    }
+                    add(kind, day, bucket.last, bucket.sum, unit,
+                        JSONObject().put("aggregate", "sum").put("count", bucket.count)
+                            .put("min", bucket.min).put("max", bucket.max))
+                }
+            }
+            else -> return false
+        }
+        if (rows.isEmpty()) return false
+        noteVendor("fitbit", 0, 0, store.addWellnessBatch(rows), 0)
+        return true
+    }
+
     private fun importActivitiesCsv(file: File, name: String, vendor: String): Boolean {
-        val text = file.bufferedReader().use { it.readText() }
+        val text = readText(file)
         val header = VendorImports.splitCsvLine(VendorImports.stripBom(text.lineSequence().firstOrNull() ?: return false))
         if (!VendorImports.isGenericActivitiesHeader(header)) return false
-        val parsed = VendorImports.parseActivitiesCsv(text, vendor)
+        val source = if (VendorImports.isStravaActivitiesHeader(header)) "strava" else vendor
+        val parsed = VendorImports.parseActivitiesCsv(text, source)
         for (draft in parsed.runs) {
             checkCancelled()
             val summary = summaryFromDraft(draft)
-            recordImported(store.addSummaryRun(summary, "vendor:$vendor:${sha256(file)}:${draft.startTime}"), vendor)
+            recordImported(store.addSummaryRun(summary, "vendor:$source:${sha256(file)}:${draft.startTime}"), source)
         }
         if (parsed.runs.isEmpty()) increment("skipped")
         return true
@@ -254,11 +499,25 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         JSONObject().put("name", draft.name).put("startTime", draft.startTime).put("endTime", draft.endTime)
             .put("durationSeconds", draft.durationSeconds).put("distanceMeters", draft.distanceMeters)
             .put("purpose", "unknown").put("source", draft.source).put("status", "completed")
-            .put("avgHeartRate", draft.avgHeartRate ?: JSONObject.NULL)
+            .put("importVersion", VendorImports.IMPORT_VERSION)
+            .put("avgHeartRate", draft.avgHeartRate ?: JSONObject.NULL).also { summary ->
+                draft.calories?.let { summary.put("calories", it) }
+                draft.steps?.let { summary.put("steps", it) }
+                draft.elevationGainMeters?.let { summary.put("elevationGainMeters", it) }
+                draft.sourceActivityId?.let { summary.put("sourceActivityId", it) }
+                draft.sourceActivityType?.let { summary.put("sourceActivityType", it) }
+                draft.details?.let { details ->
+                    try { summary.put("importDetails", JSONObject(details)) }
+                    catch (_: Exception) { summary.put("importDetails", details.take(2000)) }
+                }
+            }
 
     private fun importMiFitnessCsv(file: File, name: String): Boolean {
         val kind = VendorImports.miFitnessFileKind(name)
-        val text = file.bufferedReader().use { it.readText() }
+        val text = readText(file)
+        if (kind == "sport") return importMiFitnessSportRecord(text, name)
+        if (kind == "fitness_data") return importMiFitnessFitnessData(text, name)
+        if (kind == "sport_track") return false
         val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
         if (lines.size < 2) return false
         val delimiter = VendorImports.csvDelimiter(lines.first())
@@ -322,10 +581,273 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         }
     }
 
+    /** Mi Fitness DSGVO sport_record.csv: the metrics are JSON in the Value column. */
+    private fun importMiFitnessSportRecord(text: String, name: String): Boolean {
+        val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
+        if (lines.size < 2) return false
+        val delimiter = VendorImports.csvDelimiter(lines.first())
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first()), delimiter)
+        val cKey = VendorImports.findHeaderIndex(header, "key")
+        val cTime = VendorImports.findHeaderIndex(header, "time")
+        val cCategory = VendorImports.findHeaderIndex(header, "category")
+        val cValue = VendorImports.findHeaderIndex(header, "value")
+        if (cValue < 0) return false
+        var found = false
+        for (raw in lines.drop(1)) {
+            if (raw.isBlank()) continue
+            checkCancelled()
+            val cells = VendorImports.splitCsvLine(raw, delimiter)
+            fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
+            val metrics = try { JSONObject(get(cValue)) } catch (_: Exception) { continue }
+            val type = get(cKey).ifBlank { get(cCategory) }
+            val start = listOf("start_time", "time").firstNotNullOfOrNull {
+                metrics.optLong(it, Long.MIN_VALUE).takeIf { value -> value > 0 }?.let { value -> value * 1000L }
+            } ?: VendorImports.parseTimeFlexible(get(cTime)) ?: continue
+            val rawEnd = metrics.optLong("end_time", Long.MIN_VALUE)
+            val endFromFile = rawEnd.takeIf { it > 0 }?.let { it * 1000L }
+            val duration = metrics.optDouble("duration", Double.NaN).takeIf { it.isFinite() && it >= 0 }
+                ?: if (endFromFile != null && endFromFile > start) (endFromFile - start) / 1000.0 else 0.0
+            val end = endFromFile?.takeIf { it >= start }
+                ?: (start + (duration * 1000.0).toLong().coerceAtMost(24 * 3600 * 1000L))
+            val distance = metrics.optDouble("distance", 0.0).takeIf { it.isFinite() && it >= 0 } ?: 0.0
+            val cal = metrics.optDouble("total_cal", Double.NaN).takeIf { it.isFinite() }
+                ?: metrics.optDouble("calories", Double.NaN).takeIf { it.isFinite() }
+            val hr = metrics.optDouble("avg_hrm", Double.NaN).takeIf { it in 30.0..240.0 }
+            val details = JSONObject().put("miKey", type.take(80))
+            listOf("sport_type", "max_hrm", "max_speed", "min_pace", "max_pace",
+                "valid_duration", "anaerobic_train_effect").forEach { key ->
+                if (metrics.has(key)) details.put(key, metrics.opt(key))
+            }
+            val draft = VendorImports.RunDraft(
+                startTime = start,
+                endTime = if (end > start) end else start,
+                durationSeconds = duration,
+                distanceMeters = distance,
+                name = if (VendorImports.isRunningActivityType(type) == true) "Lauf" else type.ifBlank { "Mi Fitness Aktivität" }.take(120),
+                source = "mi_fitness",
+                avgHeartRate = hr,
+                calories = cal?.takeIf { it in 0.0..20000.0 },
+                sourceActivityId = "${type.take(60)}:${start / 1000}",
+                sourceActivityType = type.takeIf { it.isNotBlank() }?.take(80),
+                details = details.toString(),
+            )
+            if (!acceptDraft(draft, type)) continue
+            found = true
+            recordImported(store.addSummaryRun(summaryFromDraft(draft),
+                "vendor:mi_fitness:$name:${draft.sourceActivityId}"), "mi_fitness")
+        }
+        return found
+    }
+
+    /** Mi Fitness center_fitness_data.csv: daily JSON metrics become context rows. */
+    private fun importMiFitnessFitnessData(text: String, name: String): Boolean {
+        val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
+        if (lines.size < 2) return false
+        val delimiter = VendorImports.csvDelimiter(lines.first())
+        val header = VendorImports.splitCsvLine(VendorImports.stripBom(lines.first()), delimiter)
+        val cKey = VendorImports.findHeaderIndex(header, "key")
+        val cTime = VendorImports.findHeaderIndex(header, "time")
+        val cValue = VendorImports.findHeaderIndex(header, "value")
+        if (cKey < 0 || cTime < 0 || cValue < 0) return false
+        val rows = ArrayList<com.runback.core.WellnessRow>()
+        data class AggregateBucket(
+            val kind: String,
+            val unit: String,
+            val day: Long,
+            var last: Long = 0L,
+            var sum: Double = 0.0,
+            var min: Double = Double.POSITIVE_INFINITY,
+            var max: Double = Double.NEGATIVE_INFINITY,
+            var count: Int = 0,
+            val extras: MutableMap<String, Double> = linkedMapOf(),
+        )
+        val aggregates = linkedMapOf<String, AggregateBucket>()
+        val averageKinds = setOf("heart_rate", "resting_hr", "stress", "spo2")
+        fun add(kind: String, time: Long, end: Long = 0L, value: Double, unit: String, extra: JSONObject = JSONObject()) {
+            if (!value.isFinite() || rows.size >= VendorImports.MAX_JSON_WELLNESS) return
+            rows.add(com.runback.core.WellnessRow(
+                VendorImports.wellnessId(kind, time, "mi_fitness", value), kind, time, end, value, unit,
+                "mi_fitness", extra.toString()))
+        }
+        fun aggregate(kind: String, time: Long, value: Double, unit: String, extras: Map<String, Double> = emptyMap()) {
+            if (!value.isFinite()) return
+            val day = Math.floorDiv(time, DAY_MILLIS) * DAY_MILLIS
+            val bucket = aggregates.getOrPut("$kind:$day") { AggregateBucket(kind, unit, day) }
+            bucket.last = maxOf(bucket.last, time); bucket.sum += value
+            bucket.min = minOf(bucket.min, value); bucket.max = maxOf(bucket.max, value); bucket.count++
+            extras.forEach { (keyName, extraValue) ->
+                if (extraValue.isFinite()) bucket.extras[keyName] = (bucket.extras[keyName] ?: 0.0) + extraValue
+            }
+        }
+        fun putFinite(target: JSONObject, keyName: String, value: Double) {
+            if (value.isFinite()) target.put(keyName, value)
+        }
+        for (raw in lines.drop(1)) {
+            if (raw.isBlank()) continue
+            checkCancelled()
+            val cells = VendorImports.splitCsvLine(raw, delimiter)
+            fun get(i: Int): String = if (i >= 0 && i < cells.size) cells[i] else ""
+            val time = VendorImports.parseTimeFlexible(get(cTime)) ?: continue
+            val key = get(cKey).lowercase(Locale.ROOT)
+            val value = try { JSONObject(get(cValue)) } catch (_: Exception) { continue }
+            when (key) {
+                "steps" -> {
+                    val steps = value.optDouble("steps", Double.NaN)
+                    if (steps.isFinite() && steps in 0.0..200000.0) {
+                        val extras = linkedMapOf<String, Double>()
+                        value.optDouble("distance", Double.NaN).takeIf { it.isFinite() }?.let { extras["distanceM"] = it }
+                        value.optDouble("calories", Double.NaN).takeIf { it.isFinite() }?.let { extras["calories"] = it }
+                        aggregate("steps", time, steps, "count", extras)
+                    }
+                }
+                "calories" -> {
+                    val calories = value.optDouble("calories", Double.NaN)
+                    if (calories.isFinite() && calories in 0.0..100000.0) aggregate("calories", time, calories, "kcal")
+                }
+                "heart_rate" -> {
+                    val avg = value.optDouble("avg_hr", Double.NaN).takeIf { it in 30.0..240.0 }
+                        ?: value.optDouble("bpm", Double.NaN).takeIf { it in 30.0..240.0 }
+                    if (avg != null) aggregate("heart_rate", time, avg, "bpm")
+                    val resting = value.optDouble("avg_rhr", Double.NaN)
+                    if (resting in 30.0..120.0) aggregate("resting_hr", time, resting, "bpm")
+                }
+                "resting_heart_rate" -> {
+                    val resting = value.optDouble("bpm", Double.NaN)
+                    if (resting in 30.0..120.0) aggregate("resting_hr", time, resting, "bpm")
+                }
+                "sleep" -> {
+                    // Mi Fitness uses `duration` (minutes) and stores the real
+                    // session boundaries plus stage segments as epoch seconds.
+                    // Do not anchor the night at the export row timestamp.
+                    fun extra(source: JSONObject): JSONObject = JSONObject().apply {
+                        putFinite(this, "sleepScore", source.optDouble("sleep_score", Double.NaN))
+                        putFinite(this, "avgHeartRate", source.optDouble("avg_hr", Double.NaN))
+                        putFinite(this, "minHeartRate", source.optDouble("min_hr", Double.NaN))
+                        putFinite(this, "maxHeartRate", source.optDouble("max_hr", Double.NaN))
+                        putFinite(this, "avgSpo2", source.optDouble("avg_spo2", Double.NaN))
+                        putFinite(this, "minSpo2", source.optDouble("min_spo2", Double.NaN))
+                        putFinite(this, "maxSpo2", source.optDouble("max_spo2", Double.NaN))
+                        put("awakeCount", source.optInt("awake_count", 0))
+                        putFinite(this, "deepMinutes", source.optDouble("sleep_deep_duration", Double.NaN))
+                        putFinite(this, "lightMinutes", source.optDouble("sleep_light_duration", Double.NaN))
+                        putFinite(this, "remMinutes", source.optDouble("sleep_rem_duration", Double.NaN))
+                        putFinite(this, "awakeMinutes", source.optDouble("sleep_awake_duration", Double.NaN))
+                    }
+                    val details = value.optJSONArray("segment_details")
+                    if (details != null && details.length() > 0) {
+                        // Aggregated Mi exports contain one summary object per
+                        // sleep segment rather than the raw `items` timeline.
+                        for (i in 0 until minOf(details.length(), MAX_SLEEP_STAGE_ROWS)) {
+                            val segment = details.optJSONObject(i) ?: continue
+                            val segmentStart = segment.optLong("bedtime", Long.MIN_VALUE)
+                                .takeIf { it > 0 }?.times(1000L) ?: continue
+                            val segmentMinutes = listOf("duration", "total_duration")
+                                .firstNotNullOfOrNull { keyName ->
+                                    segment.optDouble(keyName, Double.NaN).takeIf { it.isFinite() }
+                                } ?: Double.NaN
+                            if (segmentMinutes !in 0.0..1440.0) continue
+                            val segmentEnd = segment.optLong("wake_up_time", Long.MIN_VALUE)
+                                .takeIf { it > segmentStart / 1000L }?.times(1000L)
+                                ?: (segmentStart + (segmentMinutes * 60000.0).toLong())
+                            add("sleep_session", segmentStart, segmentEnd, segmentMinutes, "min", extra(segment))
+                        }
+                    } else {
+                        val minutes = listOf("total_duration", "duration")
+                            .firstNotNullOfOrNull { keyName ->
+                                value.optDouble(keyName, Double.NaN).takeIf { it.isFinite() }
+                            } ?: Double.NaN
+                        if (minutes !in 0.0..1440.0) continue
+                        val sessionStart = value.optLong("bedtime", Long.MIN_VALUE)
+                            .takeIf { it > 0 }?.times(1000L) ?: time
+                        val sessionEnd = value.optLong("wake_up_time", Long.MIN_VALUE)
+                            .takeIf { it > sessionStart / 1000L }?.times(1000L)
+                            ?: (sessionStart + (minutes * 60000.0).toLong())
+                        add("sleep_session", sessionStart, sessionEnd, minutes, "min", extra(value))
+                        val segments = value.optJSONArray("items")
+                        if (segments != null) {
+                            for (i in 0 until minOf(segments.length(), MAX_SLEEP_STAGE_ROWS)) {
+                                val segment = segments.optJSONObject(i) ?: continue
+                                val stageStart = segment.optLong("start_time", Long.MIN_VALUE)
+                                    .takeIf { it > 0 }?.times(1000L) ?: continue
+                                val stageEnd = segment.optLong("end_time", Long.MIN_VALUE)
+                                    .takeIf { it > stageStart / 1000L }?.times(1000L) ?: continue
+                                if (stageStart < sessionStart || stageEnd > sessionEnd || stageEnd - stageStart > 24 * 3600 * 1000L) continue
+                                val stage = when (segment.optInt("state", -1)) {
+                                    1, 5 -> "awake"
+                                    2 -> "deep"
+                                    3 -> "light"
+                                    4 -> "rem"
+                                    else -> continue
+                                }
+                                val stageMinutes = (stageEnd - stageStart) / 60000.0
+                                if (stageMinutes > 0.0)
+                                    add("sleep_stage", stageStart, stageEnd, stageMinutes, "min",
+                                        JSONObject().put("stage", stage))
+                            }
+                        }
+                    }
+                }
+                "min_heart_rate", "max_heart_rate" -> {
+                    val bpm = value.optDouble("bpm", Double.NaN)
+                    if (bpm in 30.0..240.0) {
+                        val kindName = if (key == "min_heart_rate") "heart_rate_min" else "heart_rate_max"
+                        add(kindName, time, value = bpm, unit = "bpm")
+                    }
+                }
+                "stress" -> {
+                    val stress = value.optDouble("avg_stress", value.optDouble("stress", Double.NaN))
+                    if (stress.isFinite() && stress in 0.0..100.0) aggregate("stress", time, stress, "score")
+                }
+                "spo2", "single_spo2" -> {
+                    val spo2 = value.optDouble("avg_spo2", value.optDouble("spo2", Double.NaN))
+                    if (spo2.isFinite() && spo2 in 50.0..100.0) aggregate("spo2", time, spo2, "%")
+                }
+                "intensity" -> {
+                    val minutes = value.optDouble("duration", Double.NaN)
+                    if (minutes.isFinite() && minutes in 0.0..1440.0) aggregate("active_minutes", time, minutes, "min")
+                }
+                "valid_stand" -> {
+                    val count = value.optDouble("count", Double.NaN)
+                    if (count.isFinite() && count in 0.0..100.0) {
+                        aggregate("stand_count", time, count, "count")
+                    } else {
+                        // A raw valid_stand row is one observed standing interval;
+                        // counting the row is explicit and does not invent minutes.
+                        aggregate("stand_count", time, 1.0, "count")
+                    }
+                }
+                "weight" -> {
+                    val weight = value.optDouble("weight", Double.NaN)
+                    if (weight.isFinite() && weight in 1.0..500.0) add("weight", time, value = weight, unit = "kg")
+                }
+            }
+        }
+        aggregates.values
+            .sortedWith(compareBy<AggregateBucket> { it.day }.thenBy { it.kind })
+            .forEach { bucket ->
+                val aggregateValue = if (bucket.kind in averageKinds) {
+                    bucket.sum / bucket.count.coerceAtLeast(1)
+                } else {
+                    bucket.sum
+                }
+                val extra = JSONObject().apply {
+                    put("aggregate", "daily")
+                    put("count", bucket.count)
+                    putFinite(this, "min", bucket.min)
+                    putFinite(this, "max", bucket.max)
+                    bucket.extras.forEach { (keyName, extraValue) -> putFinite(this, keyName, extraValue) }
+                }
+                add(bucket.kind, bucket.day, value = aggregateValue, unit = bucket.unit, extra = extra)
+            }
+        if (rows.isEmpty()) return false
+        noteVendor("mi_fitness", 0, 0, store.addWellnessBatch(rows), 0)
+        return true
+    }
+
     private fun importSamsungCsv(file: File, name: String): Boolean {
         val kind = VendorImports.samsungFileKind(name)
         if (kind == "other" || kind == "weather") return false
-        val text = file.bufferedReader().use { it.readText() }
+        val text = readText(file)
         val lines = text.lineSequence().take(VendorImports.MAX_CSV_ROWS + 1).toList()
         if (lines.size < 2) return false
         // Samsung files carry namespaced headers (com.samsung.health....); match by suffix.
@@ -416,11 +938,11 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     private fun importVendorJson(file: File, name: String, entryPath: String, vendor: VendorImports.Vendor?): Boolean {
         val lower = name.lowercase(Locale.ROOT)
         // Large Takeout archives can be tens of MB of JSON; stream via text with caps.
-        val text = file.bufferedReader().use { it.readText() }
+        val text = readText(file)
         if (text.length > MAX_FILE_BYTES) return false
         return when {
-            vendor == VendorImports.Vendor.FITBIT || VendorImports.fitbitFileKind(name) != "other" ->
-                importFitbitJson(text, name)
+            vendor == VendorImports.Vendor.FITBIT || VendorImports.fitbitFileKind(name, entryPath) != "other" ->
+                importFitbitJson(text, name, entryPath)
             entryPath.lowercase(Locale.ROOT).contains("takeout") && entryPath.lowercase(Locale.ROOT).contains("fit") ->
                 importGoogleFitJson(text, name)
             lower.contains("summarizedactivities") || entryPath.lowercase(Locale.ROOT).contains("di_connect") ->
@@ -430,8 +952,12 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         }
     }
 
-    private fun importFitbitJson(text: String, name: String): Boolean {
-        val kind = VendorImports.fitbitFileKind(name)
+    private fun importFitbitJson(text: String, name: String, entryPath: String): Boolean {
+        val kind = VendorImports.fitbitFileKind(name, entryPath)
+        if (kind == "exercise") return importFitbitExerciseJson(text)
+        if (kind in setOf("heart_rate", "steps", "calories")) {
+            return importFitbitTimeSeries(text, kind)
+        }
         val rows = ArrayList<com.runback.core.WellnessRow>()
         try {
             val trimmed = text.trim()
@@ -440,7 +966,8 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 for (i in 0 until minOf(array.length(), VendorImports.MAX_JSON_WELLNESS)) {
                     checkCancelled()
                     val obj = array.optJSONObject(i) ?: continue
-                    fitbitRow(obj, kind)?.let { rows.add(it) }
+                    if (kind == "sleep") rows.addAll(fitbitSleepRows(obj))
+                    else fitbitRow(obj, kind)?.let { rows.add(it) }
                 }
             } else {
                 val obj = org.json.JSONObject(trimmed)
@@ -451,13 +978,17 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                         if (nested is org.json.JSONArray) {
                             for (i in 0 until minOf(nested.length(), VendorImports.MAX_JSON_WELLNESS)) {
                                 val item = nested.optJSONObject(i) ?: continue
-                                fitbitRow(item, kind)?.let { rows.add(it) }
+                                if (kind == "sleep") rows.addAll(fitbitSleepRows(item))
+                                else fitbitRow(item, kind)?.let { rows.add(it) }
                             }
                         }
                     }
                 }
                 // Flat daily summary objects (steps/distance/calories/resting HR).
-                if (rows.isEmpty()) fitbitRow(obj, kind)?.let { rows.add(it) }
+                if (rows.isEmpty()) {
+                    if (kind == "sleep") rows.addAll(fitbitSleepRows(obj))
+                    else fitbitRow(obj, kind)?.let { rows.add(it) }
+                }
                 // Intraday heart-rate series: {"dateTime":"...","value":{"bpm":..}}
                 if (obj.has("value") && kind == "heart_rate") fitbitRow(obj, kind)?.let { rows.add(it) }
             }
@@ -467,8 +998,123 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         return true
     }
 
+    private fun importFitbitExerciseJson(text: String): Boolean {
+        val parsed = VendorImports.parseFitbitExerciseJson(text, "fitbit")
+        for (draft in parsed.runs) {
+            checkCancelled()
+            recordImported(store.addSummaryRun(summaryFromDraft(draft),
+                "vendor:fitbit:exercise:${draft.sourceActivityId ?: draft.startTime}"), "fitbit")
+        }
+        if (parsed.runs.isEmpty()) increment("skipped")
+        return true
+    }
+
+    /** Store bounded daily aggregates instead of tens of thousands of intraday rows. */
+    private fun importFitbitTimeSeries(text: String, kind: String): Boolean {
+        data class Bucket(
+            var first: Long = Long.MAX_VALUE,
+            var last: Long = 0L,
+            var sum: Double = 0.0,
+            var min: Double = Double.POSITIVE_INFINITY,
+            var max: Double = Double.NEGATIVE_INFINITY,
+            var count: Int = 0,
+        )
+        val buckets = linkedMapOf<Long, Bucket>()
+        try {
+            val trimmed = text.trim()
+            val array = if (trimmed.startsWith("[")) JSONArray(trimmed) else return false
+            for (i in 0 until minOf(array.length(), MAX_TIMESERIES_VALUES)) {
+                checkCancelled()
+                val obj = array.optJSONObject(i) ?: continue
+                val time = VendorImports.parseTimeFlexible(obj.optString("dateTime", obj.optString("time", "")))
+                    ?: continue
+                val nested = obj.optJSONObject("value")
+                val rawValue = when {
+                    kind == "heart_rate" -> nested?.opt("bpm") ?: obj.opt("bpm") ?: obj.opt("value")
+                    else -> obj.opt("value") ?: nested?.opt("value")
+                }
+                val value = when (rawValue) {
+                    is Number -> rawValue.toDouble()
+                    else -> VendorImports.parseDoubleFlexible(rawValue?.toString())
+                } ?: continue
+                val valid = when (kind) {
+                    "heart_rate" -> value in 30.0..240.0
+                    "steps" -> value in 0.0..200000.0
+                    "calories" -> value in 0.0..100000.0
+                    else -> false
+                }
+                if (!valid) continue
+                val rawTime = obj.optString("dateTime", obj.optString("time", ""))
+                val bucket = buckets.getOrPut(fitbitDayStart(rawTime, time)) { Bucket() }
+                bucket.first = minOf(bucket.first, time); bucket.last = maxOf(bucket.last, time)
+                bucket.sum += value; bucket.min = minOf(bucket.min, value); bucket.max = maxOf(bucket.max, value)
+                bucket.count++
+            }
+        } catch (_: Exception) { return false }
+        if (buckets.isEmpty()) return false
+        val rows = buckets.toSortedMap().mapNotNull { (day, bucket) ->
+            if (bucket.count == 0 || bucket.first == Long.MAX_VALUE) return@mapNotNull null
+            val aggregate = if (kind == "heart_rate") bucket.sum / bucket.count else bucket.sum
+            val extra = JSONObject().put("aggregate", if (kind == "heart_rate") "average" else "sum")
+                .put("count", bucket.count).put("min", bucket.min).put("max", bucket.max)
+            com.runback.core.WellnessRow(
+                VendorImports.wellnessId(kind, day, "fitbit", aggregate), kind, day, bucket.last,
+                aggregate, if (kind == "heart_rate") "bpm" else if (kind == "steps") "count" else "kcal",
+                "fitbit", extra.toString())
+        }.take(VendorImports.MAX_JSON_WELLNESS)
+        if (rows.isEmpty()) return false
+        noteVendor("fitbit", 0, 0, store.addWellnessBatch(rows), 0)
+        return true
+    }
+
+    private fun fitbitDayStart(rawTime: String, epochMillis: Long): Long {
+        val datePart = rawTime.trim().substringBefore('T').substringBefore(' ')
+        if (datePart.any { it == '-' || it == '/' || it == '.' }) {
+            VendorImports.parseTimeFlexible(datePart)?.let { return it }
+        }
+        return Math.floorDiv(epochMillis, DAY_MILLIS) * DAY_MILLIS
+    }
+
+    private fun fitbitSleepRows(obj: JSONObject): List<com.runback.core.WellnessRow> {
+        val start = listOf("startTime", "start_time", "dateOfSleep", "date")
+            .firstNotNullOfOrNull { VendorImports.parseTimeFlexible(obj.optString(it, "")) } ?: return emptyList()
+        val end = VendorImports.parseTimeFlexible(obj.optString("endTime", obj.optString("end_time", "")))
+            ?: start
+        val minutes = obj.optDouble("minutesAsleep", Double.NaN).takeIf { it.isFinite() }
+            ?: obj.optDouble("timeInBed", Double.NaN).takeIf { it.isFinite() }
+            ?: ((end - start) / 60000.0).takeIf { it in 0.0..1440.0 }
+            ?: return emptyList()
+        val rows = ArrayList<com.runback.core.WellnessRow>()
+        val summary = JSONObject()
+        listOf("logId", "minutesAwake", "minutesToFallAsleep", "minutesAfterWakeup",
+            "timeInBed", "efficiency", "type", "mainSleep").forEach { key ->
+            if (obj.has(key)) summary.put(key, obj.opt(key))
+        }
+        rows.add(com.runback.core.WellnessRow(
+            VendorImports.wellnessId("sleep_session", start, "fitbit", minutes),
+            "sleep_session", start, end, minutes, "min", "fitbit", summary.toString()))
+        val levels = obj.optJSONObject("levels")?.optJSONArray("data") ?: return rows
+        for (i in 0 until minOf(levels.length(), MAX_SLEEP_STAGE_ROWS)) {
+            val stage = levels.optJSONObject(i) ?: continue
+            val stageStart = VendorImports.parseTimeFlexible(stage.optString("dateTime", "")) ?: continue
+            val seconds = stage.optDouble("seconds", Double.NaN)
+            if (!seconds.isFinite() || seconds <= 0.0 || seconds > 24 * 3600.0) continue
+            val stageEnd = stageStart + (seconds * 1000.0).toLong()
+            rows.add(com.runback.core.WellnessRow(
+                VendorImports.wellnessId("sleep_stage", stageStart, "fitbit", seconds),
+                "sleep_stage", stageStart, stageEnd, seconds / 60.0, "min", "fitbit",
+                JSONObject().put("stage", stage.optString("level", "unknown").take(20)).toString()))
+        }
+        return rows
+    }
+
     private fun fitbitRow(obj: org.json.JSONObject, kind: String): com.runback.core.WellnessRow? {
         fun time(): Long? {
+            val date = obj.optString("date", "")
+            val clock = obj.optString("time", "")
+            if (date.isNotBlank() && clock.contains(':')) {
+                VendorImports.parseTimeFlexible("$date $clock")?.let { return it }
+            }
             for (key in listOf("dateTime", "datetime", "time", "startTime", "start_time", "date")) {
                 VendorImports.parseTimeFlexible(obj.optString(key, ""))?.let { return it }
             }
@@ -485,26 +1131,40 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 return com.runback.core.WellnessRow(VendorImports.wellnessId("heart_rate", t, "fitbit", bpm),
                     "heart_rate", t, 0L, bpm, "bpm", "fitbit", "{}")
             }
-            "sleep" -> {
-                val end = VendorImports.parseTimeFlexible(obj.optString("endTime", obj.optString("end_time", ""))) ?: t
-                val minutes = obj.optDouble("minutesAsleep", Double.NaN).takeIf { it.isFinite() }
-                    ?: obj.optDouble("duration", Double.NaN).takeIf { it.isFinite() }
-                    ?: ((end - t) / 60000.0).takeIf { it in 0.0..1440.0 } ?: return null
-                val stage = obj.optString("level", obj.optString("stage", "asleep"))
-                return com.runback.core.WellnessRow(VendorImports.wellnessId("sleep_stage", t, "fitbit", minutes),
-                    "sleep_stage", t, end, minutes, "min", "fitbit", JSONObject().put("stage", stage.take(20)).toString())
-            }
             "hrv" -> {
-                val rmssd = obj.optDouble("rmssd", obj.optDouble("dailyRmssd", Double.NaN))
+                val nested = obj.optJSONObject("value")
+                val rmssd = obj.optDouble("rmssd", obj.optDouble("dailyRmssd",
+                    nested?.optDouble("rmssd", Double.NaN) ?: Double.NaN))
                 if (!rmssd.isFinite()) return null
                 return com.runback.core.WellnessRow(VendorImports.wellnessId("hrv_rmssd", t, "fitbit", rmssd),
                     "hrv_rmssd", t, 0L, rmssd, "ms", "fitbit", "{}")
             }
             "weight" -> {
-                val kg = VendorImports.toKilograms(obj.optDouble("weight", Double.NaN), obj.optString("unit", "kg"))
+                // Google Health's Fitbit weight export is pounds when no unit field is emitted.
+                val unit = obj.optString("unit", "lb").ifBlank { "lb" }
+                val kg = VendorImports.toKilograms(obj.optDouble("weight", Double.NaN), unit)
                     ?: return null
                 return com.runback.core.WellnessRow(VendorImports.wellnessId("weight", t, "fitbit", kg),
-                    "weight", t, 0L, kg, "kg", "fitbit", "{}")
+                    "weight", t, 0L, kg, "kg", "fitbit", JSONObject().put("sourceUnit", unit).toString())
+            }
+            "resting_hr" -> {
+                val nested = obj.optJSONObject("value")
+                val resting = nested?.optDouble("value", Double.NaN)?.takeIf { it.isFinite() }
+                    ?: obj.optDouble("restingHeartRate", Double.NaN)
+                if (resting !in 30.0..120.0) return null
+                return com.runback.core.WellnessRow(VendorImports.wellnessId("resting_hr", t, "fitbit", resting),
+                    "resting_hr", t, 0L, resting, "bpm", "fitbit", "{}")
+            }
+            "vo2max", "vo2max_csv" -> {
+                val nested = obj.optJSONObject("value")
+                val vo2 = nested?.optDouble("filteredRunVO2Max", Double.NaN)?.takeIf { it.isFinite() }
+                    ?: nested?.optDouble("runVO2Max", Double.NaN)?.takeIf { it.isFinite() }
+                    ?: nested?.optDouble("filteredDemographicVO2Max", Double.NaN)?.takeIf { it.isFinite() }
+                    ?: nested?.optDouble("demographicVO2Max", Double.NaN)?.takeIf { it.isFinite() }
+                    ?: obj.optDouble("vo2Max", Double.NaN).takeIf { it.isFinite() }
+                val value = vo2?.takeIf { it in 10.0..100.0 } ?: return null
+                return com.runback.core.WellnessRow(VendorImports.wellnessId("vo2max", t, "fitbit", value),
+                    "vo2max", t, 0L, value, "ml/kg/min", "fitbit", "{}")
             }
             else -> {
                 // Daily activity summary: steps / distance / calories / resting HR.
@@ -512,6 +1172,11 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 if (steps.isFinite() && steps in 0.0..200000.0) {
                     return com.runback.core.WellnessRow(VendorImports.wellnessId("steps", t, "fitbit", steps),
                         "steps", t, 0L, steps, "count", "fitbit", "{}")
+                }
+                val calories = obj.optDouble("calories", Double.NaN)
+                if (calories.isFinite() && calories in 0.0..100000.0) {
+                    return com.runback.core.WellnessRow(VendorImports.wellnessId("calories", t, "fitbit", calories),
+                        "calories", t, 0L, calories, "kcal", "fitbit", "{}")
                 }
                 val resting = obj.optDouble("restingHeartRate", obj.optDouble("resting_hr", Double.NaN))
                 if (resting.isFinite() && resting in 30.0..120.0) {
@@ -742,8 +1407,14 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     private fun recordError(name: String, error: Exception) = update {
         it.put("failed", it.optInt("failed") + 1)
         val errors = it.getJSONArray("errors")
-        if (errors.length() < 50) errors.put(JSONObject().put("file", name.take(200))
-            .put("message", (error.message ?: "Datei konnte nicht importiert werden").take(300)))
+        if (errors.length() < 50) {
+            val message = if (error is ZipException) {
+                "Passwortgeschütztes oder beschädigtes ZIP. Entpacke es zuerst mit dem Passwort."
+            } else {
+                error.message ?: "Datei konnte nicht importiert werden"
+            }
+            errors.put(JSONObject().put("file", name.take(200)).put("message", message.take(300)))
+        }
     }
 
     private fun copyBounded(input: InputStream, file: File, limit: Long, account: Boolean) {
@@ -764,6 +1435,23 @@ class ActivityImporter(private val context: Context, private val store: RunStore
     private fun drainBounded(input: InputStream) {
         val buffer = ByteArray(32 * 1024)
         while (true) { checkCancelled(); val n = input.read(buffer); if (n < 0) break; accountBytes(n) }
+    }
+    private fun drainIgnored(input: InputStream) {
+        val buffer = ByteArray(32 * 1024)
+        while (true) { checkCancelled(); if (input.read(buffer) < 0) break }
+    }
+    /** Strava's German bulk CSV is Windows-1252; UTF-8 is still the default. */
+    private fun readText(file: File): String {
+        val bytes = file.readBytes()
+        val utf8 = try {
+            StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes)).toString()
+        } catch (_: Exception) {
+            Charset.forName("windows-1252").decode(ByteBuffer.wrap(bytes)).toString()
+        }
+        return utf8.removePrefix("\uFEFF")
     }
     private fun accountBytes(n: Int) {
         expandedBytes += n
@@ -956,6 +1644,8 @@ class ActivityImporter(private val context: Context, private val store: RunStore
         private var end = 0L
         private var distance = 0.0
         private var previous: Triple<Long, Double, Double>? = null
+        private var previousAltitude: Double? = null
+        private var elevationGain = 0.0
         private var hrTotal = 0.0
         private var hrCount = 0
         private var cadenceTotal = 0.0
@@ -970,6 +1660,12 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 add(time, "gps", values)
                 previous?.let { p -> if (time > p.first) distance += RunMath.distanceMeters(p.second, p.third, lat, lon) }
                 previous = Triple(time, lat, lon)
+            }
+            altitude?.takeIf { it.isFinite() }?.let { currentAltitude ->
+                previousAltitude?.let { previousValue ->
+                    if (currentAltitude > previousValue) elevationGain += currentAltitude - previousValue
+                }
+                previousAltitude = currentAltitude
             }
             hr?.takeIf { it.isFinite() && it in 1.0..255.0 }?.let {
                 add(time, "heartRate", JSONObject().put("bpm", it)); hrTotal += it; hrCount++
@@ -992,16 +1688,25 @@ class ActivityImporter(private val context: Context, private val store: RunStore
                 .put("durationSeconds", reportedDuration?.takeIf { it.isFinite() && it >= 0 } ?: ((end - start) / 1000.0))
                 .put("distanceMeters", if (reportedDistance.isFinite() && reportedDistance > 0) reportedDistance else distance)
                 .put("purpose", "unknown").put("source", "import")
+                .put("importVersion", VendorImports.IMPORT_VERSION)
                 .put("avgHeartRate", if (hrCount > 0) hrTotal / hrCount else JSONObject.NULL)
                 .put("avgCadence", if (cadenceCount > 0) cadenceTotal / cadenceCount else JSONObject.NULL)
+                .put("elevationGainMeters", if (elevationGain > 0) elevationGain else JSONObject.NULL)
         }
     }
 
     companion object {
         private const val MAX_FILE_BYTES = 64L * 1024 * 1024
         private const val MAX_ARCHIVE_BYTES = 512L * 1024 * 1024
-        private const val MAX_ENTRIES = 2000
+        private const val MAX_ENTRIES = 10000
         private const val MAX_SAMPLES = 150000
+        private const val MAX_TIMESERIES_VALUES = 100000
+        private const val MAX_SLEEP_STAGE_ROWS = 5000
+        private const val DAY_MILLIS = 24L * 60 * 60 * 1000
+        private val FITBIT_CONTEXT_CSV_KINDS = setOf(
+            "sleep_csv", "sleep_score_csv", "sleep_stage_csv", "hrv", "vo2max", "vo2max_csv",
+            "steps", "calories", "active_minutes", "active_energy",
+        )
         internal fun parseTime(value: String?): Long? = value?.let {
             try { Instant.parse(it).toEpochMilli() }
             catch (_: Exception) { try { OffsetDateTime.parse(it).toInstant().toEpochMilli() } catch (_: Exception) { null } }

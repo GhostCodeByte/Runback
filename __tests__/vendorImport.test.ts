@@ -38,6 +38,9 @@ describe('vendor imports', () => {
     expect(detectVendorForFile('export.xml')).toBe('apple_health');
     expect(detectVendorForFile('com.samsung.shealth.exercise.20240101.csv')).toBe('samsung');
     expect(detectVendorForFile('heart_rate-2024-03-15.json')).toBe('fitbit');
+    expect(detectVendorForFile('Takeout/Google Health/Global Export Data/exercise-0.json')).toBe('fitbit');
+    expect(detectVendorForFile('Health Fitness Data_GoogleData/UserExercises_2025-08-24.csv')).toBe('fitbit');
+    expect(detectVendorForFile('Heart Rate Variability/Daily Heart Rate Variability Summary.csv')).toBe('fitbit');
     expect(detectVendorForFile('Takeout/Fitbit/activities.json')).toBe('fitbit');
     expect(detectVendorForFile('strong.csv')).toBe('strong');
     expect(detectVendorForFile('SPORT_20240101.csv')).toBe('mi_fitness');
