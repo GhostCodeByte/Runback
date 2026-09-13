@@ -11,10 +11,31 @@ import {
   SegmentAggregate,
 } from './types';
 
-export const MODEL_VERSION = 'runback-rules-1.0.0';
+import { finite, median } from './inference';
+
+/**
+ * v2: Vergleichsbasis ist der Median mehrerer vergleichbarer Läufe statt
+ * eines einzelnen auffälligen Laufs (Regression zur Mitte), Prüfung per
+ * Vorzeichentest, Kadenz-Lock auch bei Schritten pro Fuß, Flachheit über
+ * Auf- und Abstieg statt Nettohöhe, Belastung als RPE × Minuten.
+ */
+export const MODEL_VERSION = 'runback-rules-2.0.0';
+export const PACING_METHOD = 'pacing-fade-v2';
 export const MAX_SEGMENTS = 500;
-const finite = (n: unknown): n is number =>
-  typeof n === 'number' && Number.isFinite(n);
+/** Ab diesem Median des späten Tempoabfalls wird ein ruhigerer Start vorgeschlagen (Setzung). */
+export const FADE_TRIGGER_PERCENT = 8;
+/** Vergleichsbasis: mindestens drei, höchstens fünf vergleichbare Läufe. */
+export const MINIMUM_BASELINE_RUNS = 3;
+export const MAXIMUM_BASELINE_RUNS = 5;
+const BASELINE_WINDOW_DAYS = 90;
+const DURATION_TOLERANCE_PERCENT = 20;
+const DISTANCE_TOLERANCE_PERCENT = 15;
+/** Prozentpunkte, unterhalb derer eine Änderung des Tempoabfalls als Bindung zählt (Setzung). */
+export const MINIMUM_RELEVANT_CHANGE_PERCENT_POINTS = 3;
+export const SIGN_TEST_ALPHA = 0.05;
+/** Auf- plus Abstieg je Strecke, bis zu dem ein Abschnitt als flach gilt. */
+export const FLAT_GRADE_PERCENT = 2;
+const DAY = 86400000;
 export const segmentId = (s: SegmentAggregate, i: number): string =>
   s.id ?? `split-${i + 1}`;
 export const provenance = (
@@ -29,6 +50,24 @@ export const provenance = (
   })),
   segmentIds,
 });
+/**
+ * Optische Pulssensoren rasten auf die Schrittfrequenz ein. BLE meldet
+ * Schritte pro Minute (~170), FIT/TCX oft Schritte pro Fuß (~85); deshalb
+ * wird gegen beide Einheiten geprüft.
+ */
+export function cadenceLocked(
+  heartRate: number | undefined,
+  cadence: number | undefined,
+): boolean {
+  if (!finite(heartRate) || !finite(cadence)) {
+    return false;
+  }
+  const perMinute = cadence < 120 ? cadence * 2 : cadence;
+  return (
+    Math.abs(heartRate - cadence) <= 3 || Math.abs(heartRate - perMinute) <= 3
+  );
+}
+
 export function assessQuality(run: RunSummary): QualityReport {
   const issues: QualityIssue[] = [];
   const issue = (
@@ -74,11 +113,7 @@ export function assessQuality(run: RunSummary): QualityReport {
     (run.segments?.length ?? 0) <= MAX_SEGMENTS ? run.segments ?? [] : [];
   let lockCount = 0;
   for (const s of segments) {
-    if (
-      finite(s.avgHeartRate) &&
-      finite(s.avgCadence) &&
-      Math.abs(s.avgHeartRate - s.avgCadence) <= 3
-    ) {
+    if (cadenceLocked(s.avgHeartRate, s.avgCadence)) {
       lockCount++;
     }
   }
@@ -145,11 +180,7 @@ export function assessQuality(run: RunSummary): QualityReport {
         id,
       );
     }
-    const segmentLock =
-      possibleLock &&
-      finite(s.avgHeartRate) &&
-      finite(s.avgCadence) &&
-      Math.abs(s.avgHeartRate - s.avgCadence) <= 3;
+    const segmentLock = possibleLock && cadenceLocked(s.avgHeartRate, s.avgCadence);
     if (segmentLock) {
       issue(
         'heartRate',
@@ -219,21 +250,31 @@ export function estimateEffort(
   const speedIndex = quality.paceUsable
     ? (run.distanceMeters / run.durationSeconds / 3) * 100
     : undefined;
+  const minutes =
+    finite(run.durationSeconds) && run.durationSeconds > 0
+      ? run.durationSeconds / 60
+      : undefined;
+  const rpe = (value: number | undefined) =>
+    minutes !== undefined && finite(value) && value >= 1 && value <= 10
+      ? value * minutes
+      : undefined;
+  const legs = rpe(run.rpe?.legs);
+  const breathing = rpe(run.rpe?.breathing);
   return {
     ...provenance([run], quality.usablePaceSegmentIds),
     kind: 'estimate',
     speedIndex,
-    accumulatedIndexMinutes:
-      speedIndex === undefined
+    sessionLoad:
+      legs === undefined && breathing === undefined
         ? undefined
-        : (speedIndex * run.durationSeconds) / 60,
+        : { legs, breathing },
     unit: 'index (100 = 3 m/s)',
     uncertainty:
       'Keine validierte Unsicherheitsspanne. Der Tempoindex erfasst weder persönliche Leistungsfähigkeit noch Umweltbelastung.',
     assumptions: [
-      'Version 1: 100 Indexpunkte entsprechen 3 m/s; linearer Tempoindex.',
+      'Version 2: 100 Indexpunkte entsprechen 3 m/s; linearer Tempoindex.',
       'Nur gleichmäßige Laufbewegung mit plausibler Zeit und Distanz; keine physiologische Gesamtbewertung.',
-      'Gesamtumfang: Tempoindex × Bewegungsminuten; nicht mit RPE oder mechanischer Arbeit gleichsetzen.',
+      'Belastung: RPE × Bewegungsminuten je Skala (Beine, Atmung), angelehnt an Session-RPE; kein Gesamtwert aus beiden.',
     ],
     factors: {
       tempo:
@@ -289,6 +330,24 @@ export function pacingFor(
   };
 }
 
+/**
+ * Flach heißt: Auf- plus Abstieg ≤ 2 % der Strecke. Die Nettohöhe allein
+ * würde „hoch und wieder runter“ als flach zählen. Ohne Auf-/Abstieg
+ * (Altdaten, Importe) zählt die Nettosteigung; ohne beides ist es unbekannt.
+ */
+export function segmentIsFlat(s: SegmentAggregate): boolean {
+  if (!finite(s.distanceMeters) || s.distanceMeters <= 0) {
+    return false;
+  }
+  if (finite(s.ascentMeters) && finite(s.descentMeters)) {
+    return (
+      ((s.ascentMeters + s.descentMeters) / s.distanceMeters) * 100 <=
+      FLAT_GRADE_PERCENT
+    );
+  }
+  return finite(s.gradePercent) && Math.abs(s.gradePercent) <= FLAT_GRADE_PERCENT;
+}
+
 export function flatPacingContext(
   run: RunSummary,
   pacing: PacingAnalysis,
@@ -296,10 +355,72 @@ export function flatPacingContext(
   const ids = new Set(pacing.segmentIds);
   return (run.segments ?? [])
     .filter((s, i) => ids.has(segmentId(s, i)))
-    .every(s => finite(s.gradePercent) && Math.abs(s.gradePercent) <= 2);
+    .every(segmentIsFlat);
 }
 
-export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
+export interface BaselineRun {
+  run: RunSummary;
+  pacing: PacingAnalysis;
+}
+
+/**
+ * Vergleichsläufe für die Basis: gleicher Zweck, flach, ähnlicher Umfang,
+ * innerhalb von 90 Tagen davor. Der auslösende Lauf steht vorn, die
+ * jüngsten Vorläufe folgen; höchstens fünf insgesamt.
+ */
+export function comparableBaseline(
+  run: RunSummary,
+  pacing: PacingAnalysis,
+  history: RunSummary[],
+): BaselineRun[] {
+  const seen = new Set<string>([run.canonicalId ?? run.id, run.id]);
+  const previous: BaselineRun[] = [];
+  const ordered = [...history].sort(
+    (a, b) => b.startTime - a.startTime || a.id.localeCompare(b.id),
+  );
+  for (const candidate of ordered) {
+    const canonical = candidate.canonicalId ?? candidate.id;
+    if (seen.has(canonical) || seen.has(candidate.id)) {
+      continue;
+    }
+    if (
+      candidate.startTime >= run.startTime ||
+      run.startTime - candidate.startTime > BASELINE_WINDOW_DAYS * DAY ||
+      candidate.purpose !== run.purpose ||
+      (candidate.sport ?? 'running') !== (run.sport ?? 'running')
+    ) {
+      continue;
+    }
+    if (
+      Math.abs(candidate.durationSeconds / run.durationSeconds - 1) * 100 >
+        DURATION_TOLERANCE_PERCENT ||
+      Math.abs(candidate.distanceMeters / run.distanceMeters - 1) * 100 >
+        DISTANCE_TOLERANCE_PERCENT
+    ) {
+      continue;
+    }
+    const candidatePacing = pacingFor(candidate);
+    if (!candidatePacing || !flatPacingContext(candidate, candidatePacing)) {
+      continue;
+    }
+    seen.add(canonical);
+    previous.push({ run: candidate, pacing: candidatePacing });
+    if (previous.length >= MAXIMUM_BASELINE_RUNS - 1) {
+      break;
+    }
+  }
+  return [{ run, pacing }, ...previous];
+}
+
+/**
+ * `history` sind alle bekannten Läufe; daraus wird die Vergleichsbasis
+ * gebildet. Ohne Historie kann es keine Empfehlung geben, nur Beobachtung.
+ */
+export function analyzeRun(
+  run: RunSummary,
+  active?: Experiment,
+  history: RunSummary[] = [],
+): RunAnalysis {
   const quality = assessQuality(run);
   const pacing = pacingFor(run, quality);
   const effort = estimateEffort(run, quality);
@@ -372,18 +493,44 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
         'Tempoverteilung als Beobachtung nutzen. Für die Prüfung fehlen vergleichbar flache Abschnitte.',
     };
   }
-  if (pacing.fadePercent < 8) {
+  const baseline = comparableBaseline(run, pacing, history);
+  const fades = baseline.map(item => item.pacing.fadePercent);
+  const medianFade = median(fades);
+  if (baseline.length < MINIMUM_BASELINE_RUNS) {
+    if (pacing.fadePercent < FADE_TRIGGER_PERCENT) {
+      return {
+        ...result,
+        state: 'maintain',
+        focus: 'Du hast zum Ende nicht deutlich an Tempo verloren.',
+        nextAction:
+          'Die bisherige Einteilung für diesen Laufzweck beibehalten. Andere Trainingsaspekte bleiben offen.',
+      };
+    }
+    return {
+      ...result,
+      focus: `Heute hat die zweite Hälfte deutlich nachgelassen. Ein einzelner Lauf trägt keine Empfehlung; es fehlen vergleichbare Läufe (${baseline.length} von ${MINIMUM_BASELINE_RUNS}).`,
+      nextAction:
+        'Zweck und Umfang beibehalten. Entschieden wird über den Median mehrerer vergleichbarer flacher Läufe, nicht über einen Ausreißer.',
+    };
+  }
+  if (medianFade < FADE_TRIGGER_PERCENT) {
     return {
       ...result,
       state: 'maintain',
-      focus: 'Du hast zum Ende nicht deutlich an Tempo verloren.',
+      focus: `Im Median deiner letzten ${baseline.length} vergleichbaren Läufe war die zweite Hälfte ${medianFade.toFixed(
+        1,
+      )} % langsamer. Das ist kein Muster, das eine Änderung trägt.`,
       nextAction:
         'Die bisherige Einteilung für diesen Laufzweck beibehalten. Andere Trainingsaspekte bleiben offen.',
     };
   }
-  const opening = pacing.firstPaceSecondsPerKm * 1.05;
+  const opening =
+    median(baseline.map(item => item.pacing.firstPaceSecondsPerKm)) * 1.05;
   const recommendation: Recommendation = {
-    ...provenance([run], pacing.segmentIds),
+    ...provenance(
+      baseline.map(item => item.run),
+      pacing.segmentIds,
+    ),
     id: `calmer-start:${run.id}:${MODEL_VERSION}`,
     kind: 'calmer_start',
     title: 'Ruhiger beginnen',
@@ -392,23 +539,29 @@ export function analyzeRun(run: RunSummary, active?: Experiment): RunAnalysis {
     } Lauf in der ersten Hälfte etwa 5 % ruhiger (${formatPace(
       opening,
     )} min/km). Behalte Zweck und geplanten Umfang bei.`,
-    reason:
-      'Die spätere Hälfte war mindestens 8 % langsamer. Probiere einen ruhigeren Start aus; Gelände, Wetter und Tagesform können mitwirken.',
+    reason: `In ${baseline.length} vergleichbaren Läufen war die zweite Hälfte im Median ${medianFade.toFixed(
+      1,
+    )} % langsamer. Probiere einen ruhigeren Start aus; Gelände, Wetter und Tagesform können mitwirken.`,
     purpose: run.purpose,
-    goal: 'Weniger später Tempoabfall bei erhaltenem Zweck und Umfang.',
+    goal: 'Gleichmäßigere Einteilung: weniger später Tempoabfall bei erhaltenem Zweck und Umfang. Das ist keine Aussage über Leistungsfähigkeit.',
     criteria: {
-      method: 'pacing-fade-v1',
-      baselineRunIds: [run.id],
-      baselineFadePercent: pacing.fadePercent,
-      baselineDurationSeconds: run.durationSeconds,
-      baselineDistanceMeters: run.distanceMeters,
+      method: PACING_METHOD,
+      baselineRunIds: baseline.map(item => item.run.id),
+      baselineFadePercent: medianFade,
+      signTestAlpha: SIGN_TEST_ALPHA,
+      baselineDurationSeconds: median(
+        baseline.map(item => item.run.durationSeconds),
+      ),
+      baselineDistanceMeters: median(
+        baseline.map(item => item.run.distanceMeters),
+      ),
       baselineContext: run.context ? { ...run.context } : undefined,
       openingPaceSecondsPerKm: opening,
       openingPaceTolerancePercent: 3,
       outcome: 'late_pace_fade_percent',
-      minimumRelevantChangePercentPoints: 3,
-      durationTolerancePercent: 20,
-      distanceTolerancePercent: 15,
+      minimumRelevantChangePercentPoints: MINIMUM_RELEVANT_CHANGE_PERCENT_POINTS,
+      durationTolerancePercent: DURATION_TOLERANCE_PERCENT,
+      distanceTolerancePercent: DISTANCE_TOLERANCE_PERCENT,
       minimumObservations: 6,
       minimumDays: 14,
       reviewAfterRuns: 3,

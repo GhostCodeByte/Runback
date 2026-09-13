@@ -15,17 +15,23 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Kopplungssperre | `couplingGate` | Verhindert eine zweite Empfehlung, die die Prüfung der ersten verfälschen könnte. |
 | Vorschlag / Angenommen | `proposed` / `accepted` | Empfehlung vor bzw. nach der Zustimmung des Nutzers. |
 | Aktiv / Pausiert / Abgeschlossen / Abgebrochen | `ExperimentStatus` | Sichtbare Zustände einer angenommenen Empfehlung. |
-| Vergleichsläufe | `baselineRunIds` | Frühere passende Läufe, mit denen spätere verglichen werden. |
+| Vergleichsläufe | `baselineRunIds` | Mehrere frühere passende Läufe; ihr Median ist die Basis, nie ein einzelner Ausreißer. |
+| Häufiger als zufällig | `signTest` | Vorab festgelegte Prüfung: mehr Läufe bzw. Einheiten besser als schlechter, als der Zufall erklärt. |
+| Gleichmäßiger | `late_pace_fade_percent` | Ergebnis der Starteinteilung: weniger später Tempoabfall. Keine Aussage über Tempo oder Fitness. |
 | Woran erkennen wir, dass es geholfen hat? | `ExperimentCriteria` | Vor dem Start festgelegte Prüfregel einer Empfehlung. |
 | Umsetzung | `Adherence` | Ob die Empfehlung tatsächlich befolgt wurde. |
 | Ergebnis | `ExperimentEvaluation` | Was sich in Folgeläufen beobachtet hat, unabhängig von der Ursache. |
 | Ursache | — | Die vorsichtige Frage, ob die Empfehlung das Ergebnis verursacht hat. Meist offen. |
 | Noch nicht klar | `inconclusive` | Ehrliches Urteil, wenn die Daten weder dafür noch dagegen reichen. |
+| Stabil | `PlateauStatus` `stable` | Kraftverlauf, der nachweislich eng um null liegt. „Noch nicht klar“ ist kein Plateau. |
+| Trainingstag | `collapseToDays` | Zwei Einheiten am selben Tag zählen im Kraftverlauf einmal. |
 | Datenqualität | `QualityReport` | Wie vollständig und passend die Daten für genau diese Aussage sind. |
 | Zweck | `RunPurpose` | Wofür eine Einheit gedacht war: locker, lang, Intervalle, Wettkampf, frei, unbekannt. |
 | Sportart | `Sport` | `running`, `cycling`; fehlt das Feld, gilt Laufen. |
 | Effort | `EffortEstimate` | Modellierte äußere Anforderung eines Laufs. Kein Fitness- oder Ermüdungswert. |
 | Tempoindex | `EffortEstimate` | Einfaches Tempomaß relativ zu 3 m/s. Keine Leistung, kein Score. |
+| Belastung | `sessionLoad` | RPE × Bewegungsminuten, je Skala (Beine, Atmung) getrennt. Kein Gesamtwert aus beiden. |
+| Wiederholungen im Tank | `actualRir` | Freiwillige Nutzerangabe je Satz. Fehlt sie, bleibt sie unbekannt und wird nicht geschätzt. |
 | Relevanzmatrix | `prioritization.ts` | Versionierte Gewichte je Fokus-Art und Handlungsklasse. |
 | Handlungsklasse | `ActionClass` | Art einer Empfehlung, z. B. Startdisziplin (`calmer_start`), Last einer Übung (`strength_load`). |
 | Einheit | `StrengthSession` / `RunSummary` | Trainingseinheit beliebiger Art mit Zeit, Zweck und Herkunft. |
@@ -34,7 +40,9 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Durchgeführt | `LoggedSet`, Status `finished` | Was tatsächlich erfasst wurde; bei Abweichung vom Plan immer maßgeblich. |
 | Muskelregion | `regionId` | Eintrag aus der versionierten Regionenliste. |
 | Muskelanteil | `share` | Anteil, mit dem eine Übung eine Region beansprucht. Katalogwert, persönlich anpassbar. |
-| Frische | `freshness` | Modellierte Skala 0–100 je Region. Kein Gesundheits- oder Bereitschaftsmaß. |
+| Frische | `freshness` | Modellierte Skala 0–100 je Region. Kein Gesundheits- oder Bereitschaftsmaß. Gesperrt bis zur bestandenen Prüfung. |
+| Grobe Spanne | `roughSpreadPoints` | Feste Zuschläge zur Frische. Keine Standardabweichung, kein Vorhersageintervall. |
+| Flach | `segmentIsFlat` | Auf- plus Abstieg höchstens 2 % der Strecke. Nettohöhe allein reicht nicht. |
 | Gemeldeter Muskelkater | `SorenessReport` | Nutzerangabe je Region und Zeitpunkt. Eingabe, keine Messung. |
 | Zusammenfassungs-Lauf | `summaryOnly` | Importierter Lauf ohne Spur; nur Zeit und Distanz bekannt. |
 | Grundregel | — | Regel, die für alles gilt und nicht gegen eine UI-Abkürzung getauscht wird. |
@@ -42,7 +50,10 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 **Nicht mehr verwendet:** Arbeitsthema, nächste Handlung, Intervention,
 Laufempfehlung, Änderung (→ Empfehlung) · Prüfbedingung, Erfolgskriterium
 (→ „Woran erkennen wir, dass es geholfen hat?“) · Baseline (→ Vergleichsläufe)
-· inconclusive (→ noch nicht klar) · Invariante (→ Grundregel).
+· inconclusive (→ noch nicht klar) · Invariante (→ Grundregel) ·
+Gesamtumfang (→ Belastung; war nur Distanz in anderer Einheit) · Plateau als
+„kein Nachweis“ (→ stabil nur mit Nachweis) · Standardabweichung der Frische
+(→ grobe Spanne).
 
 **In einem Satz:** Ein Ziel kann einen Fokus nahelegen; der Fokus hilft, eine
 Empfehlung auszuwählen. Nur die Empfehlung wird auf Umsetzung, Ergebnis und

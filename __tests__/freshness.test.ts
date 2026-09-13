@@ -30,6 +30,8 @@ const set = (id: string, completedAt: number, overrides: Partial<LoggedSet> = {}
   },
   actualReps: 5,
   actualWeightKg: 100,
+  // Gemeldete Reserve: ohne sie oder eine frühere Einheit bleibt der Reiz unbekannt.
+  actualRir: 2,
   completedAt,
   ...overrides,
 });
@@ -56,13 +58,21 @@ describe('Reiz- und Frischemodell', () => {
     expect(effectiveRepetitionsFromSeconds(24)).toBe(2);
     const exercise = catalogExercise('leg_extension');
     expect(exercise).toBeDefined();
-    const result = calculateSetStimulus(set('set-1', sessionAt), exercise!, {
-      e1rmEstimate: 125,
-    });
+    const result = calculateSetStimulus(
+      set('set-1', sessionAt, { actualRir: undefined }),
+      exercise!,
+      { e1rmEstimate: 125 },
+    );
     expect(result.valid).toBe(true);
     expect(result.relativeLoad).toBeCloseTo(0.8, 8);
     expect(result.rir).toBeCloseTo(2.5, 8);
+    expect(result.rirSource).toBe('estimated');
     expect(result.stimulus).toBeGreaterThan(0);
+    const reported = calculateSetStimulus(set('set-1', sessionAt), exercise!);
+    expect(reported.rirSource).toBe('reported');
+    expect(reported.rir).toBe(2);
+    // Inverse Epley mit Wdh. + RIR: 100 × (1 + 7/30).
+    expect(reported.e1rmEstimate).toBeCloseTo(100 * (1 + 7 / 30), 8);
     const timed = calculateSetStimulus({
       ...set('timed', sessionAt),
       planned: {
@@ -77,6 +87,99 @@ describe('Reiz- und Frischemodell', () => {
       actualWeightKg: 30,
     }, exercise!);
     expect(timed.effectiveReps).toBe(3);
+  });
+
+  it('macht aus einem Satz ohne Anstrengungsangabe keinen Satz bis zum Versagen', () => {
+    const exercise = catalogExercise('barbell_back_squat')!;
+    // 80 kg × 10 ohne RIR und ohne frühere Einheit: die Reserve bleibt unbekannt.
+    const alone = calculateSetStimulus(
+      set('set-1', sessionAt, {
+        actualRir: undefined,
+        actualWeightKg: 80,
+        actualReps: 10,
+      }),
+      exercise,
+      { recentSessions: [strengthSession()], sessionId: 'session-1' },
+    );
+    expect(alone.rir).toBeNull();
+    expect(alone.rirSource).toBeNull();
+    expect(alone.valid).toBe(false);
+    expect(alone.uncertainty.reasons.join(' ')).toMatch(/RIR/);
+    expect(alone.uncertainty.calibrated).toBe(false);
+    // Eine frühere Einheit ist eine unabhängige Referenz.
+    const earlier: StrengthSession = {
+      ...strengthSession(),
+      id: 'session-0',
+      exercises: [
+        {
+          exerciseId: 'barbell_back_squat',
+          name: 'Kniebeuge',
+          sets: [
+            set('old', sessionAt - 7 * 24 * hour, {
+              actualWeightKg: 100,
+              actualReps: 5,
+              actualRir: undefined,
+            }),
+          ],
+        },
+      ],
+    };
+    const referenced = calculateSetStimulus(
+      set('set-1', sessionAt, {
+        actualRir: undefined,
+        actualWeightKg: 80,
+        actualReps: 10,
+      }),
+      exercise,
+      { recentSessions: [earlier, strengthSession()], sessionId: 'session-1' },
+    );
+    expect(referenced.rirSource).toBe('estimated');
+    expect(referenced.rir).toBeGreaterThan(0);
+    expect(referenced.valid).toBe(true);
+  });
+
+  it('nimmt Planwerte nicht als Ist und kein Ersatz-Körpergewicht', () => {
+    const exercise = catalogExercise('barbell_back_squat')!;
+    const planned = calculateSetStimulus(
+      set('set-1', sessionAt, {
+        actualReps: undefined,
+        actualWeightKg: undefined,
+      }),
+      exercise,
+    );
+    expect(planned.valid).toBe(false);
+    expect(planned.e1rmEstimate).toBeNull();
+    const pushUp = catalogExercise('push_up')!;
+    const bodyweight = calculateSetStimulus(
+      set('set-2', sessionAt, {
+        planned: {
+          kind: 'normal',
+          loadKind: 'bodyweight',
+          reps: 10,
+          restSeconds: 60,
+        },
+        actualReps: 10,
+        actualWeightKg: undefined,
+      }),
+      pushUp,
+    );
+    expect(bodyweight.valid).toBe(false);
+    expect(bodyweight.uncertainty.reasons.join(' ')).toMatch(/Körpergewicht fehlt/);
+    const withBodyweight = calculateSetStimulus(
+      set('set-2', sessionAt, {
+        planned: {
+          kind: 'normal',
+          loadKind: 'bodyweight',
+          reps: 10,
+          restSeconds: 60,
+        },
+        actualReps: 10,
+        actualWeightKg: undefined,
+      }),
+      pushUp,
+      { bodyweightKg: 80 },
+    );
+    expect(withBodyweight.valid).toBe(true);
   });
 
   it('verteilt bilaterale und einseitige Übungen korrekt', () => {
@@ -111,6 +214,15 @@ describe('Reiz- und Frischemodell', () => {
       durationSeconds: 3600,
       gradePercent: 0,
     });
+    const unknownGrade = runSegmentStimulus({
+      id: 'no-grade',
+      distanceMeters: 3 * 3600,
+      durationSeconds: 3600,
+    });
+    expect(unknownGrade.gradeKnown).toBe(false);
+    expect(unknownGrade.uncertainty.reasons.join(' ')).toMatch(
+      /nicht berechnet/,
+    );
     const downhill = runSegmentStimulus({
       id: 'downhill',
       distanceMeters: 3 * 3600,

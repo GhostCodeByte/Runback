@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runback – Analyse der beiden Modellbefunde</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #5f6368; --line: #e3e5e8;
+    --card: #f7f8fa; --accent: #1f5fbf; --good: #1e7f4f; --warn: #b26a00; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131416; --fg: #e8e9eb; --muted: #9aa0a6; --line: #2c2f33; --card: #1c1e21; --accent: #7fb0ff; --good: #5fcf8f; --warn: #ffb74d; --bad: #ff6f66; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2.5rem 1.25rem 4rem; font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.35rem; margin: 2.5rem 0 .75rem; padding-bottom: .35rem; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 1.6rem 0 .5rem; }
+  p.sub { color: var(--muted); margin: 0 0 1.5rem; }
+  table { width: 100%; border-collapse: collapse; margin: .75rem 0 1.25rem; font-size: .92rem; }
+  th, td { text-align: left; vertical-align: top; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+  th { background: var(--card); font-weight: 600; }
+  td.num, th.num { text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  code { font: .88em/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--card); padding: .05em .35em; border-radius: 3px; }
+  pre { background: var(--card); padding: .75rem 1rem; border-radius: 6px; overflow-x: auto; font-size: .85rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .score { display: inline-block; min-width: 2.6em; text-align: center; padding: .1em .45em; border-radius: 4px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .s-hi { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .s-mid { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .s-lo { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .tag { display: inline-block; font-size: .75rem; padding: .1em .5em; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: .3em; white-space: nowrap; }
+  .tag.p1 { border-color: var(--bad); color: var(--bad); }
+  .tag.p2 { border-color: var(--warn); color: var(--warn); }
+  .tag.p3 { border-color: var(--accent); color: var(--accent); }
+  .tag.b1 { border-color: #7c4dff; color: #7c4dff; }
+  .tag.b2 { border-color: #00897b; color: #00897b; }
+  .tag.both { border-color: var(--fg); color: var(--fg); }
+  .problem { border-left: 4px solid var(--line); padding: .25rem 0 .25rem 1rem; margin: 1.5rem 0; }
+  .problem.p1 { border-left-color: var(--bad); }
+  .problem.p2 { border-left-color: var(--warn); }
+  .problem.p3 { border-left-color: var(--accent); }
+  .problem h3 { margin-top: .25rem; }
+  .label { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+  ul { padding-left: 1.3rem; } li { margin: .2rem 0; }
+  .toc { columns: 2; column-gap: 2rem; font-size: .9rem; } @media (max-width: 760px) { .toc { columns: 1; } }
+  .toc a { color: var(--accent); text-decoration: none; } .toc a:hover { text-decoration: underline; }
+  .note { font-size: .85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Runback – Analyse der beiden Modellbefunde</h1>
+<p class="sub">Stand 13.09.2026 · Branch <code>t3code/fix-training-calculation-findings</code> · Alle Codeverweise wurden am Stand vor der Umsetzung nachgeprüft.</p>
+<div class="card"><strong>Umsetzungsstand:</strong> Alle 21 Punkte (K-01 bis K-21) sind im Code umgesetzt: <code>strength-progression-v2</code>, <code>pacing-fade-v2</code> / <code>runback-rules-2.0.0</code>, <code>muscle-model-v2</code>, <code>runback-distance-2.0</code>. Typecheck, 352 Jest-Tests und 45 JUnit-Tests laufen grün. Zeilenangaben unten beziehen sich auf den alten Stand.</div>
+
+<div class="toc">
+  <a href="#kurz">1. Kurzfazit</a><br>
+  <a href="#bewertung">2. Bewertung der Befunde (1–10)</a><br>
+  <a href="#vergleich">3. Was jeder Befund besser macht</a><br>
+  <a href="#fehler">4. Nachgeprüfte Fehler und Ungenauigkeiten in den Befunden</a><br>
+  <a href="#matrix">5. Abdeckungsmatrix</a><br>
+  <a href="#konsolidiert">6. Konsolidierter Befund mit Lösungen</a><br>
+  <a href="#reihenfolge">7. Empfohlene Umsetzungsreihenfolge</a><br>
+  <a href="#literatur">8. Literatur</a>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="kurz">1. Kurzfazit</h2>
+<div class="card">
+  <p><strong>Beide Befunde sind fachlich weitgehend richtig und ergänzen sich fast perfekt.</strong> Sie überschneiden sich in vier Kernpunkten (Theil-Sen bei kleinem n, Regression zur Mitte bei der Laufempfehlung, „Gesamtumfang“ = Distanz, Laufheuristik unbelegt). Alles andere findet nur jeweils einer.</p>
+  <ul>
+    <li><strong>Befund 1</strong> ist der bessere <em>Ingenieurs-Befund</em>: mehr Signalverarbeitung (GPS, Höhe, Kadenz-Einheiten), konkrete Formeln (Minetti, Vorzeichentest, exakte Kendall-Verteilung), präzise Codezeilen. Schwäche: eine Zahl ist falsch (n = 5 → ≈ 92 %, nicht 98 %), und er übersieht drei gravierende Logikfehler.</li>
+    <li><strong>Befund 2</strong> ist der bessere <em>Methoden-Befund</em>: er findet den RIR-Zirkelschluss, die Plateau-Fehldefinition („Abwesenheit von Nachweis ≠ Nachweis von Stillstand“) und den Datenleck-Verdacht in der Validierung – alles Verstöße gegen die eigenen Grundregeln. Schwäche: Lösungen bleiben abstrakter, keine Signalverarbeitung, Zitate teils sehr neu (Preprint 2026) und damit weniger belastbar.</li>
+  </ul>
+  <p><strong>Gesamt: Befund 1 = 8,1 / 10 · Befund 2 = 7,7 / 10.</strong> Zusammengenommen ergeben sie 21 konsolidierte Probleme, davon 6 mit Priorität 1 (verletzen heute Grundregeln der Spec, nicht nur Genauigkeit).</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="bewertung">2. Bewertung der Befunde auf verschiedenen Ebenen</h2>
+<p>Skala 1–10. Alle Codebehauptungen wurden gegen den aktuellen Stand geprüft; die Bewertung „Richtigkeit“ beruht darauf, nicht auf Plausibilität.</p>
+
+<table>
+  <thead><tr><th>Ebene</th><th class="num">Befund 1</th><th class="num">Befund 2</th><th>Begründung</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Sachliche Richtigkeit</strong> (am Code verifiziert)</td>
+      <td class="num"><span class="score s-hi">8</span></td><td class="num"><span class="score s-hi">9</span></td>
+      <td>B1: 10 von 10 Codeverweisen stimmen, aber die Niveau-Tabelle hat bei n = 5 einen Rechenfehler (siehe §4). B2: alle 9 Punkte reproduzierbar; die Reproduktionen (99→100→101, 100→160→70→140→100, 80 kg × 10 → RIR 0) stimmen exakt.</td></tr>
+    <tr><td><strong>Vollständigkeit / Tiefe</strong></td>
+      <td class="num"><span class="score s-hi">8</span></td><td class="num"><span class="score s-hi">8</span></td>
+      <td>B1 deckt die Messkette ab (GPS, Höhe, Kadenz), B2 die Modelllogik (RIR, Plateau, Defaults, Validierungsleck). Jeder übersieht ca. 40 % dessen, was der andere findet.</td></tr>
+    <tr><td><strong>Statistische Strenge</strong></td>
+      <td class="num"><span class="score s-hi">8</span></td><td class="num"><span class="score s-hi">8</span></td>
+      <td>B1: exakte Kendall-Verteilung, Off-by-one im Rangindex, Doppel-MAD nachgerechnet, Vorzeichentest-p-Werte. B2: Äquivalenztest-Prinzip für Plateau, Zeitreihen-CV, Kovarianz-Kritik am Unsicherheitsmodell. Beide gleichwertig, verschiedene Schwerpunkte.</td></tr>
+    <tr><td><strong>Quellenqualität</strong></td>
+      <td class="num"><span class="score s-hi">9</span></td><td class="num"><span class="score s-mid">7</span></td>
+      <td>B1 zitiert etablierte, mehrfach replizierte Arbeiten (Minetti 2002, Foster 2001, Banister, Gilbert 1987, LeSuer 1997, Ranacher 2016). B2 hat gute Klassiker (Nosaka 2002, Lakens 2018, Hyndman) plus sehr junge Quellen (Pelland 2026, arXiv-Preprint 2026), die noch nicht repliziert sind – B2 markiert das aber selbst korrekt als Vorbehalt.</td></tr>
+    <tr><td><strong>Umsetzbarkeit der Lösungen</strong></td>
+      <td class="num"><span class="score s-hi">9</span></td><td class="num"><span class="score s-mid">6</span></td>
+      <td>B1 nennt Formeln, Schwellen, Mindest-n und Dateipfade („Median der letzten 3–5 Läufe“, „d &lt; (acc₁+acc₂)/2 verwerfen“, Minetti-Polynom). B2 sagt oft nur, <em>dass</em> etwas anders sein müsste („bessere Prüfung würde vorab festlegen …“).</td></tr>
+    <tr><td><strong>Priorisierung</strong></td>
+      <td class="num"><span class="score s-hi">8</span></td><td class="num"><span class="score s-mid">7</span></td>
+      <td>B1 trennt sauber „verletzt Grundregel“ von „nur Genauigkeit“. B2 priorisiert richtig nach UI-Aktivität, ordnet aber Punkt 4/5 (Frische-Konstanten) zu hoch ein für ein gesperrtes Modell.</td></tr>
+    <tr><td><strong>Verständlichkeit</strong></td>
+      <td class="num"><span class="score s-mid">7</span></td><td class="num"><span class="score s-hi">8</span></td>
+      <td>B1 ist dicht und setzt Statistikwissen voraus. B2 erklärt jeden Punkt in einem Satz und gibt Zahlenbeispiele, die man ohne Vorwissen versteht.</td></tr>
+    <tr><td><strong>Fairness gegenüber dem Bestehenden</strong></td>
+      <td class="num"><span class="score s-hi">8</span></td><td class="num"><span class="score s-hi">8</span></td>
+      <td>Beide benennen, was gut ist (Sperre des Frischemodells, naive Baselines, Trennung Umsetzung/Ergebnis). Keiner übertreibt.</td></tr>
+    <tr><td><strong>Gesamt (Mittel)</strong></td>
+      <td class="num"><span class="score s-hi">8,1</span></td><td class="num"><span class="score s-hi">7,7</span></td>
+      <td>Knapp für B1 wegen konkreterer Lösungen; B2 hat aber die <em>wichtigsten Einzelfunde</em> (RIR-Zirkel, Plateau).</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="vergleich">3. Was jeder Befund besser macht</h2>
+<div class="grid">
+  <div class="card">
+    <h3 style="margin-top:0">Stärken Befund 1</h3>
+    <ul>
+      <li>Einziger Befund zur <strong>Messkette</strong>: GPS-Zickzack-Überschätzung, GPS-Höhe zu ungenau für die ±2 %-Regel, Kadenz-Einheiten (170 vs. 85 rpm).</li>
+      <li>Findet den <strong>Off-by-one</strong> im Rangindex und die <strong>Doppel-MAD</strong> bei CUSUM – beides nachgerechnet und korrekt.</li>
+      <li>Epley-Grenze 30 Wdh. und 2 %-Schwelle im Rauschen: klar begründet mit Validierungsliteratur.</li>
+      <li>Alternativen-Tabelle ist direkt nutzbar (Minetti-Polynom, sRPE, Riegel + Vickers-Korrektur, RIR-Tabellen).</li>
+      <li>Klare Reihenfolge, gekoppelt an „braucht neue Modellversion + Tests“.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Stärken Befund 2</h3>
+    <ul>
+      <li><strong>RIR-Zirkelschluss</strong> (<code>freshness.ts:520–533</code>): ohne unabhängige e1RM-Schätzung wird RIR immer 0. Der wichtigste Einzelfund beider Befunde – B1 hat ihn nicht.</li>
+      <li><strong>Plateau = „Intervall enthält 0“</strong> verwechselt fehlenden Nachweis mit nachgewiesenem Stillstand; Gegenbeispiel mit Intervall −90…+70 kg/Woche ist vernichtend und korrekt.</li>
+      <li><strong>Defaults statt Unbekannt</strong> (75 kg, Steigung 0, Planwerte statt Ist) – direkter Verstoß gegen „Unbekannt bleibt unbekannt“.</li>
+      <li><strong>Validierung</strong>: Holdout-Default 3, beliebig kleiner Gewinn reicht, mögliches Zukunfts-Leck über extern übergebene Kalibrierung, Schätzer-Inkonsistenz zwischen LOO-CV und Kalman.</li>
+      <li>Erkennt, dass die <strong>Zielgröße der Laufempfehlung sich trivial verbessert</strong>, wenn man langsamer startet (5:00→5:30 = 10 %, 5:15→5:30 = 4,8 %).</li>
+      <li>Netto-Höhendifferenz: Auf + Ab = „flach“; HR nach Samples statt Zeit gemittelt.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="fehler">4. Nachgeprüfte Fehler und Ungenauigkeiten in den Befunden</h2>
+<table>
+  <thead><tr><th>Befund</th><th>Aussage</th><th>Prüfung</th><th class="num">Gewicht</th></tr></thead>
+  <tbody>
+    <tr><td>B1 §2</td><td>Tatsächliches Niveau bei n = 5 Einheiten „≈ 98 %“</td>
+      <td><strong>Falsch.</strong> Bei n = 5 gibt es 10 Steigungen; Halbweite = 1,96·√(5·4·15/18) ≈ 8,0 → <code>lowerRank = floor((10−8)/2) = 1</code>. „lower &gt; 0“ heißt: höchstens eine Steigung ≤ 0, also höchstens eine Inversion. Unter H₀: (1 + 4)/120 je Richtung → 10/120 ≈ 8,3 % Fehlerrate → <strong>≈ 92 %</strong>, nicht 98 %. Die Werte für n = 3 (67 %) und n = 4 (92 %) stimmen.</td>
+      <td class="num">mittel</td></tr>
+    <tr><td>B1 §10</td><td>„Ties in den Steigungen werden in der Varianzformel nicht korrigiert“</td>
+      <td>Richtig, aber die Tie-Korrektur gilt für Ties in den <em>Beobachtungen</em> (Kendall-S), nicht in den Steigungen. Praktisch dasselbe Ergebnis, Formulierung unsauber.</td>
+      <td class="num">gering</td></tr>
+    <tr><td>B2 §3</td><td>„80 kg × 10 Wdh. werden als RIR 0 behandelt“</td>
+      <td><strong>Richtig, mit Einschränkung:</strong> gilt nur, wenn weder <code>options.e1rmEstimate</code> noch <code>options.recentSessions</code> übergeben wird. Wird eine frühere Einheit als Referenz gefunden, ist der Zirkel durchbrochen. Der Fallback bleibt trotzdem falsch: er sollte <code>null</code> liefern, nicht 0.</td>
+      <td class="num">gering</td></tr>
+    <tr><td>B2 §7</td><td>Verbesserung der Zielgröße durch langsameren Start ist „Zirkel“</td>
+      <td>Teilweise. Gleichmäßiges Pacing <em>ist</em> das Ziel der Empfehlung; die Kennzahl misst also das Richtige. Berechtigt ist nur der Hinweis, daraus keine Leistungsaussage abzuleiten – B2 sagt das im letzten Satz selbst.</td>
+      <td class="num">gering</td></tr>
+    <tr><td>B2 Tabelle</td><td>Pelland et al. 2026 / arXiv 2603.17495</td>
+      <td>Sehr junge Quellen, nicht repliziert. B2 kennzeichnet das korrekt („verdient Zurückhaltung“). Kein Fehler, aber schwächere Beweiskraft als B1s Klassiker.</td>
+      <td class="num">gering</td></tr>
+    <tr><td>B1 §7 / B2 §8</td><td>Höhe/Steigung</td>
+      <td>Beide richtig, aber unvollständig: B1 kritisiert die Genauigkeit, B2 die Netto-Berechnung. Erst zusammen ergibt das das ganze Problem (siehe K-12).</td>
+      <td class="num">–</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="matrix">5. Abdeckungsmatrix</h2>
+<table>
+  <thead><tr><th>Problem</th><th class="num">B1</th><th class="num">B2</th><th>Anmerkung</th></tr></thead>
+  <tbody>
+    <tr><td>Theil-Sen-Intervall bei n = 3–4 kein 95 %-Intervall</td><td class="num">✔</td><td class="num">✔</td><td>B1 rechnet Niveaus, B2 reproduziert 99→100→101.</td></tr>
+    <tr><td>Regression zur Mitte (Baseline = Einzellauf)</td><td class="num">✔</td><td class="num">✔</td><td>B1 nennt die Lösung (Median), B2 nur das Problem.</td></tr>
+    <tr><td>„Gesamtumfang“ = Distanz</td><td class="num">✔</td><td class="num">✔</td><td>B2 exakter (× 5/9), B1 nennt Ersatz (sRPE).</td></tr>
+    <tr><td>Laufheuristik-Schwellen unbelegt</td><td class="num">✔</td><td class="num">✔</td><td>B1 schlägt Vorzeichentest vor.</td></tr>
+    <tr><td>Plateau = Abwesenheit von Nachweis</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>RIR-Zirkelschluss → RIR 0</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>Defaults statt Unbekannt (75 kg, Steigung 0, Planwerte)</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>Validierung: Holdout 3, ε-Gewinn, Datenleck, Schätzer-Inkonsistenz</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>Frische-Unsicherheit nicht kalibriert (+2/+8 Punkte)</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>Netto-Höhendifferenz (Auf + Ab = flach)</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>HR nach Samples statt Zeit gemittelt</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>Beine/Atmung-Mittel wechselt Bedeutung bei fehlender Angabe</td><td class="num">–</td><td class="num">✔</td><td></td></tr>
+    <tr><td>Off-by-one im unteren Rangindex</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>CUSUM Doppel-MAD → σ halbiert</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>Epley bis 30 Wdh.</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>2 %-Schwelle im Test-Retest-Rauschen</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>GPS-Distanz ohne Rauschfilter überschätzt</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>GPS-Höhe zu ungenau für ±2 %</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>Kadenz-Lock nur eine Einheit</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>RPE arithmetisch gemittelt / OLS ohne SE / Kalman-Form</td><td class="num">✔</td><td class="num">–</td><td></td></tr>
+    <tr><td>Frische-Konstanten unbelegt (λ = 4, 12 s, e^−Last/Kap.)</td><td class="num">(✔)</td><td class="num">✔</td><td>B1 als Einordnung, B2 als Befund.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="konsolidiert">6. Konsolidierter Befund mit Lösungen</h2>
+<p><span class="tag p1">P1</span> verletzt eine Grundregel der Spec oder erzeugt falsche Empfehlungen im UI · <span class="tag p2">P2</span> messbare Ungenauigkeit in aktivem Code · <span class="tag p3">P3</span> gesperrter oder rein informativer Code, oder kleine Korrektur · <span class="tag b1">B1</span>/<span class="tag b2">B2</span>/<span class="tag both">beide</span> = Quelle</p>
+
+<!-- ---------- P1 ---------- -->
+<div class="problem p1">
+  <h3>K-01 · Theil-Sen-„95 %“-Intervall ist bei n ≤ 5 kein 95 %-Intervall <span class="tag p1">P1</span><span class="tag both">beide</span></h3>
+  <p><span class="label">Wo</span> <code>src/domain/progression.ts:113–150</code> (<code>rankConfidenceInterval</code>), Verdict ab <code>:560</code>, festgeschrieben in <code>progression.test.ts:98</code>.</p>
+  <p><span class="label">Was</span> Normalapproximation der Kendall-Varianz wird ab n = 3 verwendet. Tatsächliche Niveaus: n = 3 → 67 %, n = 4 → 92 %, n = 5 → 92 %. Bei 99→100→101 erscheint „+1 bis +1 kg/Woche“ als 95 %-Intervall → Verdict „increase“. Zusätzlich sitzt <code>lowerRank</code> um eins zu hoch (Gilbert 1987: Rang M₁ = (N−C)/2, 1-indiziert → 0-Index M₁−1).</p>
+  <p><span class="label">Lösung</span></p>
+  <ul>
+    <li>Für n &lt; 10: exakte Verteilung von Kendalls S (rekursiv berechnet, Tabelle nach Hollander/Wolfe) statt Normalapproximation; Ranggrenzen daraus ableiten.</li>
+    <li><code>lowerRank = floor((N − C)/2) − 1</code>, mit Clamp ≥ 0.</li>
+    <li>Mindest-n = 5 für „increase“/„reduce“; bei 3–4 Einheiten Verdict „not_assessable“ mit Text „Noch nicht klar: erst ab fünf Einheiten ist eine Richtung belastbar“.</li>
+    <li>Test <code>progression.test.ts:98</code> auf n = 5 umstellen; neuer Test: 3 monotone Punkte → <em>nicht</em> „increase“.</li>
+    <li>Neue Modellversion <code>strength-progression-v2</code>.</li>
+  </ul>
+</div>
+
+<div class="problem p1">
+  <h3>K-02 · „Plateau“ heißt heute nur „Intervall enthält 0“ <span class="tag p1">P1</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>progression.ts:344–364</code> (<code>assessPlateau</code>).</p>
+  <p><span class="label">Was</span> 100→160→70→140→100 ergibt Intervall −90…+70 kg/Woche und trotzdem „Plateau“. Fehlender Nachweis einer Steigung wird als Nachweis von Stillstand ausgegeben.</p>
+  <p><span class="label">Lösung</span> Äquivalenztest-Logik (Lakens 2018): Plateau nur, wenn das Intervall <em>vollständig</em> innerhalb ±Δ liegt, mit Δ = kleinster relevanter Wochenzuwachs (z. B. 0,5 % e1RM/Woche). Drei Ausgänge: „steigt“, „stagniert (Intervall ⊂ ±Δ)“, „noch nicht klar (Intervall zu breit)“. Kriterium-Text in <code>assessPlateau</code> entsprechend ändern.</p>
+</div>
+
+<div class="problem p1">
+  <h3>K-03 · Wiederholungsreserve wird per Zirkelschluss zu 0 <span class="tag p1">P1</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>src/domain/freshness.ts:511–535</code> (<code>calculateSetStimulus</code>).</p>
+  <p><span class="label">Was</span> Fehlt <code>e1rmEstimate</code> und <code>recentSessions</code>, wird e1RM aus demselben Satz per Epley geschätzt und dann invertiert: <code>30·(1/relative − 1) − reps</code> mit <code>relative = 1</code> → RIR = 0. 80 kg × 10 ohne Anstrengungsangabe → wie Satz bis zum Versagen behandelt; fließt in „effektive Wiederholungen“ ein.</p>
+  <p><span class="label">Lösung</span> Ohne unabhängige Referenz (<code>e1rmEstimate</code> aus früherer Einheit oder explizit erfasste RIR/RPE) muss <code>reserve = null</code> sein; <code>effectiveRepetitions</code> dann nicht berechnen, sondern Satz mit <code>uncertaintyReasons.push('rir_unknown')</code> markieren und den Reiz nur über Wdh. × rel. Last schätzen. Besser: RIR/RPE pro Satz erfassen (Zourdos 2016) und nur diese Angabe verwenden. Betrifft gesperrtes Modell, aber die Kalibrierung lernt sonst auf erfundenen Daten.</p>
+</div>
+
+<div class="problem p1">
+  <h3>K-04 · Laufempfehlung: Vergleichsbasis ist ein Einzel-Ausreißer <span class="tag p1">P1</span><span class="tag both">beide</span></h3>
+  <p><span class="label">Wo</span> <code>src/domain/analysis.ts:412–413</code> (<code>baselineRunIds: [run.id]</code>), Auswertung <code>experiments.ts:236–262</code>.</p>
+  <p><span class="label">Was</span> Ausgelöst wird nur bei einem Lauf mit Fade ≥ 8 %; der nächste normale Lauf sieht automatisch besser aus (Regression zur Mitte, Barnett 2005). Die Prüfung meldet systematisch zu oft „improved“. Die Kraftseite macht es richtig (Median der letzten 3, <code>strengthRecommendation.ts:105</code>).</p>
+  <p><span class="label">Lösung</span> Baseline = Median des Fade der letzten 3–5 vergleichbaren Läufe gleichen Zwecks (gleiche Caliper wie in <code>exclusions</code>); Auslöser = dieser Median ≥ 8 %. <code>baselineRunIds</code> enthält dann alle Basis-Läufe. Erfolgskriterium vorab als Vorzeichentest festlegen (6/6 → p = 0,03, 5/6 → p = 0,22) statt „alle ≥ 3 pp“ – gleiche Strenge, aber begründbar und mit klarer Grenze. Text im UI: „gleichmäßiger“ statt „besser“, weil die Kennzahl definitionsgemäß durch langsameren Start sinkt (B2 §7).</p>
+</div>
+
+<div class="problem p1">
+  <h3>K-05 · Defaults statt „Unbekannt“ im Frischemodell <span class="tag p1">P1</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>freshness.ts:48</code> (<code>bodyweightCatalogKg: 75</code>), Steigung → 0, <code>set.actualReps ?? set.planned.reps</code> (<code>:507</code>).</p>
+  <p><span class="label">Was</span> Verstößt gegen die Spec-Regel „Unbekannt bleibt unbekannt“. Planwerte als Ist-Werte erzeugen Reiz für Sätze, die möglicherweise nie stattgefunden haben.</p>
+  <p><span class="label">Lösung</span> Fehlende Ist-Werte → Satz aus dem Reiz ausschließen und als „nicht protokolliert“ zählen. Fehlendes Körpergewicht → Körpergewichtsübungen liefern <code>null</code> mit Grund <code>bodyweight_unknown</code>, bis das Gewicht einmal erfasst ist. Fehlende Steigung → Lauf-Reiz mit erhöhter Unsicherheit statt Steigung 0.</p>
+</div>
+
+<div class="problem p1">
+  <h3>K-06 · Freischaltungsprüfung des Frischemodells ist zu leicht zu bestehen <span class="tag p1">P1</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>src/domain/modelValidation.ts:559, 590</code> (<code>minimumHoldouts ?? 3</code>), <code>:300</code> (<code>beatsAllBaselines</code> ohne Mindestabstand), <code>calibration.ts</code> (extern übergebene Kalibrierung).</p>
+  <p><span class="label">Was</span> Drei Holdouts aus demselben Erholungsverlauf, beliebig kleiner MAE-Gewinn, mögliches Zukunfts-Leck über vorab kalibrierte Koeffizienten, LOO-CV und Kalman nutzen unterschiedliche Schätzer, Kalibrierung nur auf Kraft, Vorhersage inkl. Laufen.</p>
+  <p><span class="label">Lösung</span></p>
+  <ul>
+    <li>Rolling-Origin-Validierung (Hyndman FPP3 §5.10): Kalibrierung nur mit Daten &lt; t, Vorhersage für t; Holdouts müssen aus ≥ 3 verschiedenen Belastungsblöcken stammen.</li>
+    <li>Mindest-Gewinn: MAE-Verbesserung gegenüber bester naiver Baseline ≥ 10 % <em>und</em> ≥ 1 Skalenpunkt; Anzahl Holdouts ≥ 8.</li>
+    <li>Die Freischaltung darf nur intern kalibrierte Koeffizienten verwenden (kein externer <code>calibration</code>-Parameter) oder muss deren Trainingsfenster prüfen.</li>
+    <li>Ein Schätzer für Zeitkonstanten-Wahl und Koeffizienten (entweder beides Huber-NNLS oder beides Kalman).</li>
+    <li>Läufe entweder mitkalibrieren oder aus der Vorhersage ausschließen, solange nicht kalibriert.</li>
+  </ul>
+</div>
+
+<!-- ---------- P2 ---------- -->
+<div class="problem p2">
+  <h3>K-07 · Epley bis 30 Wiederholungen und ungewichtete e1RM-Serie <span class="tag p2">P2</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>src/domain/strength.ts:489–493</code>.</p>
+  <p><span class="label">Was</span> Epley ist bis ~10 Wdh. validiert (LeSuer 1997, Reynolds 2006); ein 20er-Satz erzeugt einen Trendpunkt mit vielfach größerer Fehlervarianz, der ungewichtet in Theil-Sen einfließt.</p>
+  <p><span class="label">Lösung</span> <code>epley1RM</code> für reps &gt; 12 → <code>null</code>; <code>bestWorkingSet</code> wählt nur Sätze ≤ 12 Wdh. Optional: übungsspezifische Last-Wdh.-Kurven (Nuzzo 2024) als spätere Modellversion, erst nach eigener Prognoseprüfung.</p>
+</div>
+
+<div class="problem p2">
+  <h3>K-08 · Relevanzschwelle 2 % e1RM liegt im Test-Retest-Rauschen <span class="tag p2">P2</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>progression.ts:528</code> (<code>minimumRelevantChangePercent: 2</code>).</p>
+  <p><span class="label">Lösung</span> Pauschal 4 % oder Hopkins’ smallest worthwhile change (0,2 × SD zwischen Einheiten, sobald ≥ 6 Einheiten vorliegen). Denselben Wert als Δ in K-02 verwenden – eine Konstante, ein Ort.</p>
+</div>
+
+<div class="problem p2">
+  <h3>K-09 · GPS-Distanz ohne Rauschfilter überschätzt <span class="tag p2">P2</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>android/core/.../RunMath.kt</code> (<code>acceptedDistance</code>), <code>RunStore.kt:190</code>.</p>
+  <p><span class="label">Was</span> Jede Punkt-zu-Punkt-Distanz zählt, solange accuracy ≤ 50 m. Bei Stillstand/Ampel/schlechtem Empfang addiert Zickzack +1–10 % (Ranacher 2016).</p>
+  <p><span class="label">Lösung</span> Regelkonform als Ableitungsschritt (Rohdaten bleiben): Schritt verwerfen, wenn d &lt; (acc₁ + acc₂)/2; alternativ 1-D-Kalman auf Position mit accuracy als Messrauschen. <code>RunMath.MODEL_VERSION</code> erhöhen; Ableitungen neu berechnen.</p>
+</div>
+
+<div class="problem p2">
+  <h3>K-10 · Kadenz-Lock-Erkennung prüft nur eine Einheit <span class="tag p2">P2</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>analysis.ts:148–152</code> (<code>|HR − Kadenz| ≤ 3</code>).</p>
+  <p><span class="label">Was</span> BLE-RSC liefert Schritte/min (~170), FIT/TCX oft Schritte pro Fuß (~85). Bei importierten Läufen wird der optische HR-Lock nie erkannt.</p>
+  <p><span class="label">Lösung</span> Prüfen gegen Kadenz <em>und</em> 2 × Kadenz (bei Kadenz &lt; 120). Beim Import Einheit normalisieren und in <code>inputSources</code> vermerken.</p>
+</div>
+
+<div class="problem p2">
+  <h3>K-11 · „Gesamtumfang“ (Index × Minuten) ist nur Distanz × 5/9 <span class="tag p2">P2</span><span class="tag both">beide</span></h3>
+  <p><span class="label">Wo</span> <code>analysis.ts:209–220</code> (<code>estimateEffort</code>, <code>accumulatedIndexMinutes</code>).</p>
+  <p><span class="label">Lösung</span> Streichen. Ersatz: Session-RPE (Foster 2001) = RPE × Minuten – validiert, RPE wird bereits erfasst. Voraussetzung: eine RPE-Skala; wenn Beine/Atmung getrennt bleiben, nur eine davon (Atmung ≈ sRPE-nah) verwenden, nicht mitteln (siehe K-16).</p>
+</div>
+
+<div class="problem p2">
+  <h3>K-12 · Steigung: Netto-Höhendifferenz aus ungenauer GPS-Höhe <span class="tag p2">P2</span><span class="tag both">beide</span></h3>
+  <p><span class="label">Wo</span> <code>RunStore.kt:184, 193</code> (<code>segmentRise</code>), <code>analysis.ts:305</code> (<code>flatPacingContext</code>, ±2 %).</p>
+  <p><span class="label">Was</span> Zwei Fehler, die sich addieren: (a) Auf + Ab = 0 = „flach“ (B2); (b) GPS-Höhe ±10–20 m → ±1–2 % auf 1 km, genau die Regelgrenze (B1). Die Flachheit wird also oft zufällig oder falsch entschieden – und sie ist Voraussetzung für die Laufempfehlung.</p>
+  <p><span class="label">Lösung</span> Pro Abschnitt Auf- und Abstieg getrennt summieren (mit Hysterese ≥ 3 m gegen Rauschen); „flach“ nur wenn Aufstieg + Abstieg ≤ 2 % der Strecke. Höhe aus Barometer, falls vorhanden, sonst DEM (Spec erlaubt „Karten/Höhe“ extern); GPS-Höhe nur als Fallback mit <code>gradeUncertain: true</code>. Erst danach ist eine Minetti-GAP-Korrektur sinnvoll.</p>
+</div>
+
+<div class="problem p2">
+  <h3>K-13 · Puls nach Sample-Anzahl statt nach Zeit gemittelt <span class="tag p2">P2</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>RunStore.kt:206</code>.</p>
+  <p><span class="label">Lösung</span> Zeitgewichtetes Mittel (Trapezregel über Sample-Zeitstempel); bei Lücken &gt; 10 s Segment als „HR unvollständig“ markieren.</p>
+</div>
+
+<!-- ---------- P3 ---------- -->
+<div class="problem p3">
+  <h3>K-14 · CUSUM-Skala doppelt-MAD → σ etwa halbiert <span class="tag p3">P3</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>progression.ts:265–269</code>.</p>
+  <p><span class="label">Lösung</span> <code>scale = 1.4826 · median(|r − median(r)|)</code>; da Theil-Sen-Residuen Median ≈ 0 haben, reicht <code>1.4826 · median(|r|)</code>. Nur informativ, aber falsch; im selben Commit wie K-01 beheben.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-15 · Frische-Unsicherheit ist keine Standardabweichung <span class="tag p3">P3</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>freshness.ts:~1150</code> (pauschal +2 / +8 Punkte).</p>
+  <p><span class="label">Lösung</span> Felder umbenennen (<code>roughUncertainty</code> statt <code>standardDeviation</code>), bis ein empirisches Vorhersageintervall aus der Rolling-Origin-Validierung (K-06) vorliegt: z. B. Quantile der Holdout-Residuen. Kovarianz der Koeffizienten aus dem Kalman-P mitführen.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-16 · Beine/Atmung-Mittel wechselt seine Bedeutung <span class="tag p3">P3</span><span class="tag b2">B2</span></h3>
+  <p><span class="label">Wo</span> <code>statisticsView.ts:239–241</code> (<code>runEffort</code>), <code>statistics.ts</code> (RPE arithmetisch gemittelt, B1).</p>
+  <p><span class="label">Lösung</span> Nur mitteln, wenn beide vorliegen; sonst <code>null</code>. RPE über Läufe als Median, nicht Mittelwert (Ordinalskala). Die 1 %-„Rausch“-Grenze entweder aus Daten schätzen (SD der Differenzen vergleichbarer Läufe) oder als „Setzung“ beschriften.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-17 · Frische-Konstanten sind Setzungen <span class="tag p3">P3</span><span class="tag both">beide</span></h3>
+  <p><span class="label">Wo</span> <code>freshness.ts:28–60</code> (λ = 4, 12 s Isometrie, Muskelkoeffizienten, Laufexponenten, Downhill-Faktor 12).</p>
+  <p><span class="label">Was</span> Banister-Impulsantwort ist Standard; „effektive Wiederholungen“ ist Beardsleys Hypothese (Refalo 2023: nur moderater Effekt); Kalibrierung auf Muskelkater ergibt ein Muskelkater-, kein Erholungsmodell (Nosaka 2002).</p>
+  <p><span class="label">Lösung</span> Kein Handlungsbedarf, solange gesperrt. Im Code jede Konstante mit <code>// Setzung</code> oder Quelle kennzeichnen; λ = 4 zur kalibrierbaren Größe machen oder auf lineare Wdh.-Zählung zurückfallen, wenn LOO-CV keinen Gewinn zeigt. UI-Text „nicht bereit, nicht belastbar“ beibehalten.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-18 · Kopplung Lauf/Kraft: OLS ohne Standardfehler <span class="tag p3">P3</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>coupling.ts</code> (<code>adjustedFadePercent</code>).</p>
+  <p><span class="label">Lösung</span> Vor Anzeige: SE der Koeffizienten aus (XᵀX)⁻¹σ² mitführen und Intervall ausgeben; sonst nur die Caliper-Paare zeigen. Nicht im UI → keine Eile.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-19 · Kalman-Update in vereinfachter Form <span class="tag p3">P3</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Wo</span> <code>calibration.ts:333</code> (P − KHP statt Joseph-Form).</p>
+  <p><span class="label">Lösung</span> Joseph-Form <code>P = (I − KH) P (I − KH)ᵀ + K R Kᵀ</code>; entfernt den Bedarf für Symmetrisierung/Clamp. Zwei Zeilen.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-20 · Tie-Korrektur in der Kendall-Varianz <span class="tag p3">P3</span><span class="tag b1">B1</span></h3>
+  <p><span class="label">Lösung</span> Bei exakter Verteilung (K-01) obsolet für n &lt; 10; für n ≥ 10 Varianz mit Tie-Term nach Mann-Kendall (Gilbert 1987, Gl. 16.4) ergänzen.</p>
+</div>
+
+<div class="problem p3">
+  <h3>K-21 · Laufheuristik-Schwellen (8 %, 5 %, 3 pp, 6 Läufe) unbelegt <span class="tag p3">P3</span><span class="tag both">beide</span></h3>
+  <p><span class="label">Lösung</span> Nicht ändern, aber im Code und in <code>spec</code> als „Setzung, Version pacing-fade-v1“ kennzeichnen. Ein Vorzeichentest (K-04) macht die 6-Läufe-Grenze begründbar. Für Prognosen später Riegel + Vickers/Vertosick-Korrektur als „Beobachtung mit Spanne“, nie als Empfehlung.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="reihenfolge">7. Empfohlene Umsetzungsreihenfolge</h2>
+<table>
+  <thead><tr><th>Schritt</th><th>Probleme</th><th>Neue Version</th><th>Aufwand</th><th>Warum zuerst</th></tr></thead>
+  <tbody>
+    <tr><td><strong>1</strong></td><td>K-01, K-02, K-08, K-14, K-20</td><td><code>strength-progression-v2</code></td><td>1–2 Tage</td><td>Aktiv im WorkoutScreen; erzeugt heute Lastempfehlungen aus 3 Punkten. Ein Commit, ein Testsatz.</td></tr>
+    <tr><td><strong>2</strong></td><td>K-04, K-21</td><td><code>pacing-fade-v2</code></td><td>1 Tag</td><td>Aktiv; systematischer Bias Richtung „improved“.</td></tr>
+    <tr><td><strong>3</strong></td><td>K-07</td><td><code>strength-e1rm-v2</code></td><td>½ Tag</td><td>Klein, klar begründet, reduziert Rauschen für Schritt 1.</td></tr>
+    <tr><td><strong>4</strong></td><td>K-12, K-09, K-13, K-10</td><td><code>RunMath v2</code></td><td>2–3 Tage</td><td>Nativ; Flachheit ist Vorbedingung für Schritt 2. Rohdaten bleiben, Ableitungen neu.</td></tr>
+    <tr><td><strong>5</strong></td><td>K-11, K-16</td><td><code>effort-v2</code></td><td>½ Tag</td><td>Kosmetisch, aber sichtbar; sRPE statt Distanz-Duplikat.</td></tr>
+    <tr><td><strong>6</strong></td><td>K-03, K-05, K-06, K-15, K-17, K-19</td><td><code>freshness-v2</code></td><td>3–5 Tage</td><td>Gesperrt, kein UI-Schaden – aber vor jeder Freischaltung zwingend, sonst validiert man ein Modell mit erfundenen RIR-Werten.</td></tr>
+    <tr><td><strong>7</strong></td><td>K-18, Minetti-GAP</td><td>–</td><td>optional</td><td>Erst wenn K-12 gelöst ist.</td></tr>
+  </tbody>
+</table>
+<p class="note">Jeder Schritt: neue Modellversion in <code>model_version</code>, Tests neben dem Code, Ableitungen für bestehende Daten neu berechnen. Grundprinzipien beibehalten: Versionierung, vorab festgelegte Kriterien, naive Baselines, Trennung Beobachtung/Ursache, Sperre bis Validierung.</p>
+
+<!-- ============================================================ -->
+<h2 id="literatur">8. Literatur (aus beiden Befunden, zusammengeführt)</h2>
+<table>
+  <thead><tr><th>Thema</th><th>Quelle</th><th>Verwendung</th></tr></thead>
+  <tbody>
+    <tr><td>Regression zur Mitte</td><td>Barnett, van der Pouw Kraan, Fischer 2005, <em>Int J Epidemiol</em></td><td>K-04</td></tr>
+    <tr><td>Theil-Sen / Kendall-Intervalle</td><td>Gilbert 1987, <em>Statistical Methods for Environmental Pollution Monitoring</em>, Kap. 16–17; SciPy <code>theilslopes</code></td><td>K-01, K-20</td></tr>
+    <tr><td>Äquivalenztests</td><td>Lakens, Scheel, Isager 2018, <em>AMPPS</em></td><td>K-02</td></tr>
+    <tr><td>Zeitreihen-Validierung</td><td>Hyndman &amp; Athanasopoulos, <em>FPP3</em> §5.10</td><td>K-06</td></tr>
+    <tr><td>1RM-Formeln</td><td>LeSuer et al. 1997 <em>JSCR</em>; Reynolds, Gordon, Robergs 2006 <em>JSCR</em>; Nuzzo et al. 2024 (269 Studien)</td><td>K-07</td></tr>
+    <tr><td>1RM-Reliabilität</td><td>Grgic et al. 2020 <em>Sports Med Open</em>; Hopkins SWC</td><td>K-08</td></tr>
+    <tr><td>RIR/RPE</td><td>Zourdos et al. 2016 <em>JSCR</em>; Helms et al. 2016; Refalo et al. 2023 <em>Sports Med</em>; Robinson et al. 2024</td><td>K-03, K-17</td></tr>
+    <tr><td>Muskelkater ≠ Schaden</td><td>Nosaka, Newton, Sacco 2002 <em>Scand J Med Sci Sports</em>; Cheung, Hume, Maxwell 2003 <em>Sports Med</em></td><td>K-17</td></tr>
+    <tr><td>Impulsantwort</td><td>Banister 1975; Busso 2003</td><td>K-17</td></tr>
+    <tr><td>GPS-Distanz</td><td>Ranacher et al. 2016 <em>Int J GIS</em>; Gerätevalidierung 2020 (PMID 32396865)</td><td>K-09</td></tr>
+    <tr><td>Steigung / Energiekosten</td><td>Minetti et al. 2002 <em>J Appl Physiol</em>; Eston et al. 1995</td><td>K-12, Schritt 7</td></tr>
+    <tr><td>Session-RPE</td><td>Foster et al. 2001 <em>JSCR</em></td><td>K-11</td></tr>
+    <tr><td>Umwelt</td><td>Ely et al. 2007 <em>MSSE</em> (Hitze); Pugh 1971, Davies 1980 (Wind)</td><td>Caliper</td></tr>
+    <tr><td>Prognose</td><td>Riegel 1981; Vickers &amp; Vertosick 2016 <em>BMC Sports Sci</em>; Critical Speed 2023 (PMID 37888148)</td><td>K-21</td></tr>
+    <tr><td>Steigerung</td><td>ACSM Position Stand 2009 (2–10 %)</td><td>Zielgewicht</td></tr>
+    <tr><td>Mit Vorbehalt</td><td>Pelland et al. 2026 (direkte/indirekte Sätze); arXiv 2603.17495 (1RM-Preprint, keine gemessenen Maxima)</td><td>nur Vergleich</td></tr>
+  </tbody>
+</table>
+
+</main>
+</body>
+</html>

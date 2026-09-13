@@ -61,13 +61,19 @@ export function selectRecommendations(
   const seen = new Set<string>();
   const alternatives: ConsideredRecommendation[] = [];
   const eligible: { recommendation: Recommendation; quality: number }[] = [];
+  // A follow-up preview must never recycle evidence from before acceptance —
+  // weder als auslösender Lauf noch in der Vergleichsbasis.
+  const history = options.active
+    ? ordered.filter(
+        run => run.startTime > (options.active as Experiment).acceptedAt,
+      )
+    : ordered;
   for (const run of ordered) {
     const canonical = run.canonicalId || run.id;
     if (seen.has(canonical)) continue;
     seen.add(canonical);
-    // A follow-up preview must never recycle evidence from before acceptance.
     if (options.active && run.startTime <= options.active.acceptedAt) continue;
-    const analysis = analyzeRun(run);
+    const analysis = analyzeRun(run, undefined, history);
     const recommendation = analysis.recommendation;
     const reject = (reason: string) =>
       alternatives.push({ runId: run.id, recommendation, reason });
@@ -80,7 +86,7 @@ export function selectRecommendations(
         item =>
           item.recommendation.id === recommendation.id ||
           (isRunRecommendation(item.recommendation) &&
-            item.recommendation.criteria.baselineRunIds.some(
+            [item.recommendation.criteria.baselineRunIds[0]].some(
               id => id === run.id || id === canonical,
             )),
       )

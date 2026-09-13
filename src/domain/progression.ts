@@ -1,22 +1,24 @@
+import { exactLowerRank, finite, median, robustScale } from './inference';
 import { epley1RM, type LoggedSet, type StrengthSession } from './strength';
 
-export const PROGRESSION_MODEL_VERSION = 'strength-progression-v1';
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * v2: exakte Kendall-Verteilung statt Normalapproximation bei kleinem n,
+ * Richtungsaussage erst ab fünf Trainingstagen, Plateau als Äquivalenzprüfung,
+ * Relevanzschwelle 4 % statt 2 % (Test-Retest-Streuung von 1RM ≈ 2–3 %).
+ */
+export const PROGRESSION_MODEL_VERSION = 'strength-progression-v2';
+export const PROGRESSION_CHECK_METHOD = 'strength-e1rm-v2';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
 const PLATEAU_MS = 4 * WEEK_MS;
-
-const finite = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value);
-
-const median = (values: number[]): number => {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (!sorted.length) {
-    throw new Error('Der Median braucht mindestens einen Wert.');
-  }
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
-};
+/** Unter fünf Tagen ist selbst eine perfekt monotone Reihe zu häufig Zufall. */
+export const MINIMUM_SESSIONS_FOR_DIRECTION = 5;
+/** Kleinste Änderung des e1RM, die über der Tagesform liegt (Setzung). */
+export const MINIMUM_RELEVANT_CHANGE_PERCENT = 4;
+/** „Stabil“ heißt: die Wochensteigung liegt sicher innerhalb ± dieses Anteils. */
+export const PLATEAU_EQUIVALENCE_PERCENT_PER_WEEK = 0.5;
+/** Bis hierhin wird die exakte Verteilung gerechnet, darüber die Näherung. */
+const EXACT_DISTRIBUTION_MAX_POINTS = 12;
 
 export interface E1RMPoint {
   sessionId: string;
@@ -103,25 +105,52 @@ export interface RankConfidenceInterval {
   confidenceLevel: number;
   lowerRank: number;
   upperRank: number;
+  /** true: exakte Permutationsverteilung; false: Normalnäherung (n > 12). */
+  exact: boolean;
 }
 
 /**
  * Rangbasierte Schranke für dieselben paarweisen Steigungen wie Theil-Sen.
- * Es wird keine parametrische Regression als Ersatz eingeführt.
+ * Bis zwölf Punkten exakt über die Verteilung der Inversionen; darüber die
+ * Normalnäherung nach Gilbert (1987) mit Bindungskorrektur. Kein Ergebnis,
+ * wenn n das gewünschte Niveau nicht tragen kann – das ist kein Fehler.
  */
 export function rankConfidenceInterval(
   slopes: number[],
   observations: number,
   confidenceLevel = 0.95,
+  tieGroupSizes: number[] = [],
 ): RankConfidenceInterval | null {
   const finiteSlopes = slopes.filter(finite).sort((a, b) => a - b);
-  if (!finiteSlopes.length || observations < 2) {
+  const expectedPairs = (observations * (observations - 1)) / 2;
+  if (
+    !finiteSlopes.length ||
+    observations < 2 ||
+    finiteSlopes.length !== expectedPairs
+  ) {
     return null;
   }
   const confidence = Math.min(
     0.999,
     Math.max(0.5, finite(confidenceLevel) ? confidenceLevel : 0.95),
   );
+  const alpha = (1 - confidence) / 2;
+  const n = finiteSlopes.length;
+  if (observations <= EXACT_DISTRIBUTION_MAX_POINTS) {
+    const lowerRank = exactLowerRank(observations, alpha);
+    if (lowerRank === null) {
+      return null;
+    }
+    const upperRank = n - 1 - lowerRank;
+    return {
+      lower: finiteSlopes[lowerRank],
+      upper: finiteSlopes[upperRank],
+      confidenceLevel: confidence,
+      lowerRank,
+      upperRank,
+      exact: true,
+    };
+  }
   const z =
     confidence >= 0.985
       ? 2.326
@@ -130,22 +159,20 @@ export function rankConfidenceInterval(
       : confidence >= 0.89
       ? 1.645
       : 1.282;
+  const tieTerm = tieGroupSizes
+    .filter(size => size > 1)
+    .reduce((sum, size) => sum + size * (size - 1) * (2 * size + 5), 0);
   const variance =
-    (observations * (observations - 1) * (2 * observations + 5)) / 18;
-  const rankHalfWidth = z * Math.sqrt(variance);
+    (observations * (observations - 1) * (2 * observations + 5) - tieTerm) / 18;
+  const rankHalfWidth = z * Math.sqrt(Math.max(0, variance));
+  // Gilbert: M1 = (N − C)/2 ist ein 1-basierter Rang, hier 0-basiert.
   const lowerRank = Math.max(
     0,
-    Math.min(
-      finiteSlopes.length - 1,
-      Math.floor((finiteSlopes.length - rankHalfWidth) / 2),
-    ),
+    Math.min(n - 1, Math.floor((n - rankHalfWidth) / 2) - 1),
   );
   const upperRank = Math.max(
     lowerRank,
-    Math.min(
-      finiteSlopes.length - 1,
-      Math.ceil((finiteSlopes.length + rankHalfWidth) / 2),
-    ),
+    Math.min(n - 1, Math.ceil((n + rankHalfWidth) / 2)),
   );
   return {
     lower: finiteSlopes[lowerRank],
@@ -153,6 +180,7 @@ export function rankConfidenceInterval(
     confidenceLevel: confidence,
     lowerRank,
     upperRank,
+    exact: false,
   };
 }
 
@@ -167,14 +195,30 @@ export interface TheilSenTrend {
   predictAt: (at: number) => number;
 }
 
+/** Zwei Einheiten am selben Tag sind ein Beobachtungstag; die bessere zählt. */
+export function collapseToDays(series: E1RMPoint[]): E1RMPoint[] {
+  const byDay = new Map<number, E1RMPoint>();
+  for (const point of series) {
+    if (!finite(point.at) || !finite(point.e1rm)) {
+      continue;
+    }
+    const day = Math.floor(point.at / DAY_MS);
+    const existing = byDay.get(day);
+    if (!existing || point.e1rm > existing.e1rm) {
+      byDay.set(day, point);
+    }
+  }
+  return [...byDay.values()].sort(
+    (a, b) => a.at - b.at || a.sessionId.localeCompare(b.sessionId),
+  );
+}
+
 /** Theil-Sen-Schätzung mit Zeitachse in Wochen ab dem ersten Punkt. */
 export function theilSenSlope(
   series: E1RMPoint[],
   confidenceLevel = 0.95,
 ): TheilSenTrend | null {
-  const points = series
-    .filter(point => finite(point.at) && finite(point.e1rm))
-    .sort((a, b) => a.at - b.at || a.sessionId.localeCompare(b.sessionId));
+  const points = collapseToDays(series);
   if (points.length < 2) {
     return null;
   }
@@ -184,15 +228,18 @@ export function theilSenSlope(
   for (let i = 0; i < points.length; i += 1) {
     for (let j = i + 1; j < points.length; j += 1) {
       const deltaX = x(points[j].at) - x(points[i].at);
-      if (deltaX > 0) {
-        slopes.push((points[j].e1rm - points[i].e1rm) / deltaX);
-      }
+      slopes.push((points[j].e1rm - points[i].e1rm) / deltaX);
     }
+  }
+  const tieGroups = new Map<number, number>();
+  for (const point of points) {
+    tieGroups.set(point.e1rm, (tieGroups.get(point.e1rm) ?? 0) + 1);
   }
   const confidenceInterval = rankConfidenceInterval(
     slopes,
     points.length,
     confidenceLevel,
+    [...tieGroups.values()],
   );
   if (!confidenceInterval) {
     return null;
@@ -262,14 +309,15 @@ export function detectCusumChangePoints(
       ),
     };
   }
-  const absoluteDeviation = residuals.map(item => Math.abs(item.residual));
-  const center = median(absoluteDeviation);
-  const mad = median(absoluteDeviation.map(value => Math.abs(value - center)));
+  // MAD der Residuen selbst (nicht der Beträge): sonst halbiert sich σ.
   const baseline = Math.max(
     0.5,
     median(points.map(point => point.e1rm)) * 0.005,
   );
-  const scale = Math.max(baseline, 1.4826 * mad);
+  const scale = Math.max(
+    baseline,
+    robustScale(residuals.map(item => item.residual)),
+  );
   const allowance = Math.max(
     0.1,
     finite(options.allowance) ? options.allowance : scale * 0.5,
@@ -335,31 +383,62 @@ export function detectCusumChangePoints(
   };
 }
 
+export type PlateauStatus = 'changing' | 'stable' | 'unclear';
+
 export interface PlateauAssessment {
+  /** true nur bei `status === 'stable'`; „Intervall enthält 0“ reicht nicht. */
   isPlateau: boolean;
+  status: PlateauStatus;
   spanWeeks: number;
+  /** Zulässige Wochensteigung in kg, innerhalb derer „stabil“ gilt. */
+  equivalenceMarginKgPerWeek: number | null;
   criterion: string;
 }
 
+/**
+ * Äquivalenzprüfung statt „kein Nachweis“: Stabil heißt, das gesamte
+ * Steigungsintervall liegt innerhalb ± Marge. Ein breites Intervall um 0
+ * ist „noch nicht klar“, kein Plateau.
+ */
 export function assessPlateau(
   series: E1RMPoint[],
   trend: TheilSenTrend | null,
 ): PlateauAssessment {
-  const points = [...series].sort((a, b) => a.at - b.at);
+  const points = collapseToDays(series);
   const spanWeeks =
     points.length > 1
       ? (points[points.length - 1].at - points[0].at) / WEEK_MS
       : 0;
-  const isPlateau =
-    trend !== null &&
-    spanWeeks * WEEK_MS >= PLATEAU_MS &&
-    trend.confidenceInterval.lower <= 0 &&
-    trend.confidenceInterval.upper >= 0;
+  const margin =
+    points.length > 0
+      ? (median(points.map(point => point.e1rm)) *
+          PLATEAU_EQUIVALENCE_PERCENT_PER_WEEK) /
+        100
+      : null;
+  const criterion =
+    'Stabil bedeutet: das Steigungsintervall liegt vollständig innerhalb ±0,5 % des e1RM pro Woche und umfasst mindestens vier Wochen. Ein breites Intervall um 0 heißt nur „noch nicht klar“.';
+  if (!trend || margin === null) {
+    return {
+      isPlateau: false,
+      status: 'unclear',
+      spanWeeks,
+      equivalenceMarginKgPerWeek: margin,
+      criterion,
+    };
+  }
+  const { lower, upper } = trend.confidenceInterval;
+  const status: PlateauStatus =
+    lower > 0 || upper < 0
+      ? 'changing'
+      : spanWeeks * WEEK_MS >= PLATEAU_MS && lower >= -margin && upper <= margin
+      ? 'stable'
+      : 'unclear';
   return {
-    isPlateau,
+    isPlateau: status === 'stable',
+    status,
     spanWeeks,
-    criterion:
-      'Plateau bedeutet: rangbasiertes Steigungsintervall enthält 0 und umfasst mindestens vier Wochen; drei nicht gesteigerte Einheiten allein reichen nicht.',
+    equivalenceMarginKgPerWeek: margin,
+    criterion,
   };
 }
 
@@ -383,7 +462,7 @@ export interface TargetRange {
 }
 
 export interface ProgressionCheckCriterion {
-  method: 'strength-e1rm-v1';
+  method: typeof PROGRESSION_CHECK_METHOD;
   baselineSessionIds: string[];
   outcome: 'bestes Arbeits-e1RM';
   minimumRelevantChangePercent: number;
@@ -506,13 +585,13 @@ function makeSuggestion(
       text: `Ziel sind etwa ${targetRir} Wiederholungen im Tank (RIR); die Ausführung bleibt maßgeblich.`,
     },
     checkCriterion: {
-      method: 'strength-e1rm-v1',
+      method: PROGRESSION_CHECK_METHOD,
       baselineSessionIds: series.slice(-3).map(point => point.sessionId),
       outcome: 'bestes Arbeits-e1RM',
-      minimumRelevantChangePercent: 2,
+      minimumRelevantChangePercent: MINIMUM_RELEVANT_CHANGE_PERCENT,
       reviewAfterSessions: 3,
       check:
-        'Nach drei vergleichbaren abgeschlossenen Einheiten prüfen, ob mindestens zwei beste Arbeits-e1RM den Zielbereich erreichen und die Ausführung beurteilbar bleibt.',
+        'Ab sechs umgesetzten Einheiten per Vorzeichentest prüfen, ob das beste Arbeits-e1RM häufiger als zufällig mindestens 4 % über dem Median der Vergleichseinheiten liegt; die Ausführung bleibt maßgeblich.',
     },
   };
 }
@@ -534,7 +613,9 @@ export function assessExerciseProgression(
     };
   });
   const emptyPlateau = assessPlateau(series, null);
-  if (series.length < 3) {
+  const days = collapseToDays(series).length;
+  if (days < MINIMUM_SESSIONS_FOR_DIRECTION) {
+    const missing = MINIMUM_SESSIONS_FOR_DIRECTION - days;
     return {
       model_version: PROGRESSION_MODEL_VERSION,
       inputSources,
@@ -546,8 +627,9 @@ export function assessExerciseProgression(
       cusum: null,
       verdict: 'not_assessable',
       suggestion: null,
-      reason:
-        'Noch nicht klar: Es fehlen mindestens drei abgeschlossene Einheiten mit geeigneten Arbeitssätzen.',
+      reason: `Noch nicht klar: Erst ab ${MINIMUM_SESSIONS_FOR_DIRECTION} Trainingstagen mit geeigneten Arbeitssätzen trägt der Verlauf eine Richtung; es ${
+        missing === 1 ? 'fehlt noch einer' : `fehlen noch ${missing}`
+      }.`,
     };
   }
   const trend = theilSenSlope(series, options.confidenceLevel);
@@ -564,7 +646,7 @@ export function assessExerciseProgression(
       verdict: 'not_assessable',
       suggestion: null,
       reason:
-        'Noch nicht klar: Die Einheiten liegen zeitlich zu nah beieinander, um einen verlässlichen Verlauf zu erkennen.',
+        'Noch nicht klar: Aus diesen Einheiten lässt sich kein Steigungsintervall auf dem gewählten Niveau bilden.',
     };
   }
   const plateau = assessPlateau(series, trend);
@@ -583,8 +665,8 @@ export function assessExerciseProgression(
       : verdict === 'reduce'
       ? 'Dein Leistungsverlauf fällt ab. Die Empfehlung ist, etwas weniger Gewicht auszuprobieren.'
       : verdict === 'plateau'
-      ? 'Seit mindestens vier Wochen ist keine klare Leistungsänderung erkennbar; einzelne gleichbleibende Einheiten reichen für diese Einschätzung nicht.'
-      : 'Noch ist keine klare Leistungsänderung erkennbar. Behalte dein Training vorerst bei.';
+      ? 'Seit mindestens vier Wochen ist deine Leistung nachweislich stabil; das Steigungsintervall liegt eng um null.'
+      : 'Noch nicht klar: Der Verlauf lässt sowohl eine Änderung als auch Stillstand zu. Behalte dein Training vorerst bei.';
   return {
     model_version: PROGRESSION_MODEL_VERSION,
     inputSources,
@@ -612,7 +694,7 @@ export function suggestNextSession(
       : verdict === 'reduce'
       ? 'Dein Leistungsverlauf spricht dafür, etwas weniger Gewicht auszuprobieren.'
       : verdict === 'plateau'
-      ? 'Seit mindestens vier Wochen ist keine klare Leistungsänderung erkennbar.'
+      ? 'Seit mindestens vier Wochen ist deine Leistung nachweislich stabil.'
       : 'Für eine neue Empfehlung ist der Verlauf noch zu unklar. Behalte dein Training vorerst bei.';
   return makeSuggestion(verdict, reason, series, trend, options);
 }

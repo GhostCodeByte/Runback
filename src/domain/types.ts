@@ -25,6 +25,9 @@ export interface SegmentAggregate {
   avgHeartRate?: number;
   avgCadence?: number;
   gradePercent?: number;
+  /** Summe der Anstiege bzw. Abstiege im Abschnitt (mit Hysterese), in m. */
+  ascentMeters?: number;
+  descentMeters?: number;
   gapSeconds?: number;
   phase?: 'warmup' | 'work' | 'recovery' | 'cooldown' | 'pause';
   sourceVersion?: string;
@@ -41,8 +44,12 @@ export interface RunSummary {
   sport?: Sport;
   source: string;
   status: string;
+  /** Zeitgewichtet. Fehlt die Abdeckung, stammt der Wert aus Altdaten oder Importen. */
   avgHeartRate?: number;
+  /** Anteil der Bewegungszeit mit Pulswerten (0–1). */
+  heartRateCoverage?: number;
   avgCadence?: number;
+  cadenceCoverage?: number;
   segments?: SegmentAggregate[];
   /** Count only. Raw samples stay in native storage. */
   samples?: number;
@@ -73,7 +80,11 @@ export interface QualityReport {
 export interface EffortEstimate extends Provenance {
   kind: 'estimate';
   speedIndex?: number;
-  accumulatedIndexMinutes?: number;
+  /**
+   * Belastung nach Session-RPE (Foster 2001): RPE × Bewegungsminuten. Beine
+   * und Atmung bleiben getrennt; fehlt eine Angabe, fehlt ihr Wert.
+   */
+  sessionLoad?: { legs?: number; breathing?: number };
   unit: 'index (100 = 3 m/s)';
   uncertainty: string;
   assumptions: string[];
@@ -99,9 +110,13 @@ export interface Recommendation extends Provenance {
   criteria: ExperimentCriteria;
 }
 export interface ExperimentCriteria {
-  method: 'pacing-fade-v1';
+  method: 'pacing-fade-v2';
+  /** Auslösender Lauf plus vergleichbare Vorläufe; die Basis ist ihr Median. */
   baselineRunIds: string[];
+  /** Median des späten Tempoabfalls der Vergleichsläufe, in Prozent. */
   baselineFadePercent: number;
+  /** Vorab festgelegtes Niveau des Vorzeichentests (zweiseitig). */
+  signTestAlpha: number;
   baselineDurationSeconds: number;
   baselineDistanceMeters: number;
   baselineContext?: RunSummary['context'];
@@ -120,7 +135,7 @@ export interface ExperimentCriteria {
 }
 /** Empfehlung im Bereich Krafttraining: die Last einer Übung. */
 export interface StrengthCriteria {
-  method: 'strength-e1rm-v1';
+  method: 'strength-e1rm-v2';
   exerciseId: string;
   baselineSessionIds: string[];
   /** Median des besten Arbeits-e1RM der Vergleichseinheiten, in kg. */
@@ -130,6 +145,8 @@ export interface StrengthCriteria {
   targetReps: number;
   outcome: 'best_working_e1rm_percent';
   minimumRelevantChangePercent: number;
+  /** Vorab festgelegtes Niveau des Vorzeichentests (zweiseitig). */
+  signTestAlpha: number;
   minimumObservations: number;
   reviewAfterSessions: number;
   maxDays: number;
@@ -179,6 +196,14 @@ export interface ExperimentEvaluation extends Provenance {
   }[];
   changePercentPoints?: number;
   observedRange?: [number, number];
+  /** Vorzeichentest gegen die Relevanzschwelle; Bindungen zählen nicht. */
+  signTest?: {
+    positives: number;
+    negatives: number;
+    ties: number;
+    pValue: number;
+    alpha: number;
+  };
   causalClaim: false;
 }
 export interface RunAnalysis extends Provenance {

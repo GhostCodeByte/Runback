@@ -2,9 +2,11 @@ import { couplingGate, isStrengthRecommendation } from './areas';
 import { catalogExercise } from './catalog';
 import { focusTypesFor, type TrainingFocus } from './focus';
 import { relevance, RELEVANCE_VERSION } from './prioritization';
+import { median, signTest } from './inference';
 import {
   assessExerciseProgression,
   bestWorkingSet,
+  PROGRESSION_CHECK_METHOD,
   PROGRESSION_MODEL_VERSION,
 } from './progression';
 import type { StrengthSession } from './strength';
@@ -23,21 +25,16 @@ import type {
  * Laufen: vorher festlegen, Umsetzung und Ergebnis trennen, keine Ursache
  * behaupten.
  */
-export const STRENGTH_RECOMMENDATION_VERSION = 'strength-load-v1';
+export const STRENGTH_RECOMMENDATION_VERSION = 'strength-load-v2';
 const DAY = 86400000;
+/** Vorab festgelegt: Erst ab sechs Einheiten kann der Vorzeichentest 5 % erreichen. */
+const MINIMUM_OUTCOME_SESSIONS = 6;
+const SIGN_TEST_ALPHA = 0.05;
 /** Anteil, ab dem eine Region als Hauptregion der Übung zählt. */
 const MAIN_REGION_SHARE = 0.15;
 
 const kg = (value: number) =>
   value.toLocaleString('de-DE', { maximumFractionDigits: 1 });
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
-}
 
 export function exerciseRegions(exerciseId: string): string[] {
   const shares = catalogExercise(exerciseId)?.shares ?? {};
@@ -92,13 +89,13 @@ export function strengthRecommendationFor(
       title: 'Last anpassen',
       action,
       reason: suggestion.reason,
-      goal: `Nach ${suggestion.checkCriterion.reviewAfterSessions} passenden Einheiten liegt dein bestes Arbeits-e1RM bei ${name} mindestens ${suggestion.checkCriterion.minimumRelevantChangePercent} % über den Vergleichseinheiten.`,
+      goal: `In den umgesetzten Einheiten liegt dein bestes Arbeits-e1RM bei ${name} häufiger als zufällig mindestens ${suggestion.checkCriterion.minimumRelevantChangePercent} % über dem Median der Vergleichseinheiten.`,
       exerciseId,
       exerciseName: name,
       direction,
       regions: exerciseRegions(exerciseId),
       criteria: {
-        method: 'strength-e1rm-v1',
+        method: PROGRESSION_CHECK_METHOD,
         exerciseId,
         baselineSessionIds: baseline.map(point => point.sessionId),
         baselineE1RM: median(baseline.map(point => point.e1rm)),
@@ -108,7 +105,8 @@ export function strengthRecommendationFor(
         outcome: 'best_working_e1rm_percent',
         minimumRelevantChangePercent:
           suggestion.checkCriterion.minimumRelevantChangePercent,
-        minimumObservations: 3,
+        signTestAlpha: SIGN_TEST_ALPHA,
+        minimumObservations: MINIMUM_OUTCOME_SESSIONS,
         reviewAfterSessions: suggestion.checkCriterion.reviewAfterSessions,
         maxDays: 42,
         exclusions: [
@@ -307,7 +305,7 @@ export function evaluateStrengthExperiment(
     causalClaim: false,
   };
   if (
-    c.method !== 'strength-e1rm-v1' ||
+    c.method !== PROGRESSION_CHECK_METHOD ||
     experiment.recommendation.model_version !== STRENGTH_RECOMMENDATION_VERSION
   ) {
     return {
@@ -392,22 +390,31 @@ export function evaluateStrengthExperiment(
     return result;
   }
   const causal = ' Beobachtung, kein Ursachennachweis.';
-  if (changes.every(change => change >= c.minimumRelevantChangePercent)) {
+  const test = signTest(changes, c.minimumRelevantChangePercent);
+  result.signTest = { ...test, alpha: c.signTestAlpha };
+  if (test.pValue <= c.signTestAlpha && test.positives > test.negatives) {
     return {
       ...result,
       verdict: 'improved',
-      summary: `Dein bestes Arbeits-e1RM lag in allen ${outcomes.length} umgesetzten Einheiten über den Vergleichseinheiten.${causal}`,
+      summary: `Dein bestes Arbeits-e1RM lag in ${test.positives} von ${outcomes.length} umgesetzten Einheiten mindestens ${c.minimumRelevantChangePercent} % über den Vergleichseinheiten; das ist häufiger als zufällig.${causal}`,
     };
   }
-  if (changes.every(change => change <= -c.minimumRelevantChangePercent)) {
+  if (test.pValue <= c.signTestAlpha && test.negatives > test.positives) {
     return {
       ...result,
       verdict: 'worsened',
-      summary: `Dein bestes Arbeits-e1RM lag in allen ${outcomes.length} umgesetzten Einheiten unter den Vergleichseinheiten.${causal}`,
+      summary: `Dein bestes Arbeits-e1RM lag in ${test.negatives} von ${outcomes.length} umgesetzten Einheiten mindestens ${c.minimumRelevantChangePercent} % unter den Vergleichseinheiten; das ist häufiger als zufällig.${causal}`,
+    };
+  }
+  if (test.ties === changes.length) {
+    return {
+      ...result,
+      verdict: 'no_relevant_effect',
+      summary: `Alle ${outcomes.length} umgesetzten Einheiten lagen innerhalb von ±${c.minimumRelevantChangePercent} % der Vergleichseinheiten.${causal}`,
     };
   }
   return {
     ...result,
-    summary: `Noch nicht klar. Der Vergleich zeigt keinen eindeutigen Unterschied.${causal}`,
+    summary: `Noch nicht klar. ${test.positives} Einheiten besser, ${test.negatives} schlechter, ${test.ties} unverändert; das kann Zufall sein.${causal}`,
   };
 }

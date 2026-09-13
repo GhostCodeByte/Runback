@@ -44,6 +44,11 @@ export interface CouplingRegression {
   temperatureCoefficient?: number;
   temperatureReferenceC?: number;
   covariates: ('100_minus_leg_freshness' | 'temperatureC')[];
+  /** Standardfehler je Koeffizient in Reihenfolge Achsenabschnitt, Frische, Temperatur. */
+  standardErrors: number[];
+  /** 95-%-Intervall des bereinigten Tempoabfalls (t-Verteilung, n − p Freiheitsgrade). */
+  adjustedFadeInterval: [number, number];
+  residualDegreesOfFreedom: number;
 }
 
 export type CouplingAssessment =
@@ -279,6 +284,32 @@ function inputSourcesFor(
   }));
 }
 
+/** t-Quantil (zweiseitig 95 %) für kleine Freiheitsgrade; ab 30 ≈ 1,96. */
+function tQuantile95(df: number): number {
+  const table: [number, number][] = [
+    [1, 12.706],
+    [2, 4.303],
+    [3, 3.182],
+    [4, 2.776],
+    [5, 2.571],
+    [6, 2.447],
+    [7, 2.365],
+    [8, 2.306],
+    [9, 2.262],
+    [10, 2.228],
+    [12, 2.179],
+    [15, 2.131],
+    [20, 2.086],
+    [30, 2.042],
+  ];
+  for (const [limit, value] of table) {
+    if (df <= limit) {
+      return value;
+    }
+  }
+  return 1.96;
+}
+
 function regressionFor(
   rows: ComparableRun[],
 ): { regression: CouplingRegression; adjustedFadePercent: number } | null {
@@ -312,12 +343,39 @@ function regressionFor(
   if (!coefficients) {
     return null;
   }
+  // Standardfehler aus σ²·(XᵀX)⁻¹; ohne sie wäre der Wert eine nackte Zahl.
+  const parameters = coefficients.length;
+  const residualDegreesOfFreedom = rows.length - parameters;
+  if (residualDegreesOfFreedom < 1) {
+    return null;
+  }
+  const residualSumOfSquares = rows.reduce((sum, row, index) => {
+    const predicted = design[index].reduce(
+      (acc, value, column) => acc + value * coefficients[column],
+      0,
+    );
+    return sum + (row.fadePercent - predicted) ** 2;
+  }, 0);
+  const sigmaSquared = residualSumOfSquares / residualDegreesOfFreedom;
+  const standardErrors: number[] = [];
+  for (let column = 0; column < parameters; column += 1) {
+    const unit = design[0].map((_, index) => (index === column ? 1 : 0));
+    const inverseColumn = solveLinearSystem(matrix, unit);
+    if (!inverseColumn) {
+      return null;
+    }
+    standardErrors.push(Math.sqrt(Math.max(0, sigmaSquared * inverseColumn[column])));
+  }
+  const halfWidth = tQuantile95(residualDegreesOfFreedom) * standardErrors[0];
   const regression: CouplingRegression = {
     interceptFadePercent: coefficients[0],
     freshnessDeficitCoefficient: coefficients[1],
     covariates: withTemperature
       ? ['100_minus_leg_freshness', 'temperatureC']
       : ['100_minus_leg_freshness'],
+    standardErrors,
+    adjustedFadeInterval: [coefficients[0] - halfWidth, coefficients[0] + halfWidth],
+    residualDegreesOfFreedom,
   };
   if (withTemperature) {
     regression.temperatureCoefficient = coefficients[2];

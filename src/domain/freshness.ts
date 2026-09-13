@@ -21,12 +21,17 @@ import { catalogExercise } from './catalog';
 /**
  * Versionierte Ausgangsannahmen des Muskelmodells.
  *
- * Alle Zahlen aus der Parameterübersicht der Spezifikation liegen hier an
- * einer Stelle. Die zusätzlichen Werte machen numerische Randfälle und die
- * noch nicht im Katalog hinterlegten Startannahmen sichtbar.
+ * Alle Zahlen liegen hier an einer Stelle. Sie sind Setzungen, keine
+ * validierten Werte: Die Impulsantwort folgt der Banister-Klasse, die
+ * „effektiven Wiederholungen“ (λ = 4) sind eine Hypothese, die Lauf- und
+ * Steigungskoeffizienten sind Startannahmen. Das Modell bleibt gesperrt,
+ * bis die Validierung (modelValidation.ts) besteht.
+ *
+ * v2: kein Ersatz-Körpergewicht, keine Planwerte als Ist, RIR nur aus
+ * Nutzereingabe oder unabhängiger Referenz, Epley nur bis zwölf Wdh.
  */
 export const MUSCLE_MODEL_CONSTANTS = Object.freeze({
-  modelVersion: 'muscle-model-v1',
+  modelVersion: 'muscle-model-v2',
   effectiveRepLambda: 4,
   relativeLoadGamma: 1,
   fastRiseHours: 0.5,
@@ -45,7 +50,6 @@ export const MUSCLE_MODEL_CONSTANTS = Object.freeze({
   modelHorizonDays: 7,
   posteriorCorrelationThreshold: 0.9,
   isometricReferenceSeconds: 12,
-  bodyweightCatalogKg: 75,
   defaultBodyweightFraction: 1,
   pushUpBodyweightFraction: 0.65,
   runCoefficientCalfGastroc: 12,
@@ -68,7 +72,7 @@ export const MUSCLE_MODEL_CONSTANTS = Object.freeze({
   timePeakToleranceHours: 36,
   timeCheckStepHours: 0.25,
   e1rmLookbackWeeks: 8,
-  maxEpleyRepetitions: 30,
+  maxEpleyRepetitions: 12,
 } as const);
 
 export const MUSCLE_MODEL_VERSION = MUSCLE_MODEL_CONSTANTS.modelVersion;
@@ -131,8 +135,14 @@ export interface SetStimulusOptions {
   reports?: MuscleReport[];
 }
 
+/**
+ * Grobe Spanne aus festen Zuschlägen. Keine Standardabweichung und kein
+ * Vorhersageintervall: Bis eine zeitlich fortlaufende Validierung Fehler an
+ * unbekannten Beobachtungen liefert, bleibt `calibrated` false.
+ */
 export interface StimulusUncertainty {
-  standardDeviation: number;
+  roughSpread: number;
+  calibrated: false;
   reasons: string[];
 }
 
@@ -144,6 +154,8 @@ export interface SetStimulusResult extends MuscleModelProvenance {
   e1rmEstimate: number | null;
   relativeLoad: number | null;
   rir: number | null;
+  /** Herkunft der Reserve; null heißt unbekannt und kein Reiz. */
+  rirSource: 'reported' | 'failure_confirmed' | 'estimated' | null;
   effectiveReps: number | null;
   stimulus: number | null;
   nEff: number | null;
@@ -192,6 +204,8 @@ export interface RunSegmentStimulusResult extends MuscleModelProvenance {
   speedMps: number | null;
   durationHours: number | null;
   stimulusByRegion: Partial<Record<RegionId, number>>;
+  /** false: Steigungsfaktoren nicht berechnet; der Reiz ist eine Untergrenze. */
+  gradeKnown: boolean;
   uncertainty: StimulusUncertainty;
   valid: boolean;
   reason?: string;
@@ -215,9 +229,11 @@ export type RegionalStimulusContribution =
   | RunStimulusContribution;
 
 export interface FreshnessUncertainty {
-  standardDeviationPoints: number;
-  lowerPoints: number;
-  upperPoints: number;
+  /** Grobe Spanne in Frischepunkten aus festen Zuschlägen; kein Intervall. */
+  roughSpreadPoints: number;
+  roughLowerPoints: number;
+  roughUpperPoints: number;
+  calibrated: false;
   reasons: string[];
 }
 
@@ -383,11 +399,12 @@ interface SetLoad {
   reasons: string[];
 }
 
+/** Nur tatsächlich erfasste Werte; Planwerte bleiben Planung. */
 const setLoad = (set: LoggedSet, exercise: Exercise, options: SetStimulusOptions): SetLoad => {
-  const raw = set.actualWeightKg ?? set.planned.weightKg;
+  const raw = set.actualWeightKg;
   const loadKind = set.planned.loadKind;
   const reasons: string[] = [];
-  let uncertain = false;
+  const uncertain = false;
   if (loadKind === 'kg') {
     return {
       weightKg: finite(raw) && raw > 0 ? raw : null,
@@ -397,15 +414,17 @@ const setLoad = (set: LoggedSet, exercise: Exercise, options: SetStimulusOptions
   }
   const providedBodyweight =
     options.bodyweightByExercise?.[exercise.id] ?? options.bodyweightKg;
-  const bodyweight =
-    finite(providedBodyweight) && providedBodyweight > 0
-      ? providedBodyweight
-      : MUSCLE_MODEL_CONSTANTS.bodyweightCatalogKg;
   if (!(finite(providedBodyweight) && providedBodyweight > 0)) {
-    uncertain = true;
-    reasons.push('Körpergewicht fehlt; der Katalogwert wird verwendet.');
+    return {
+      weightKg: null,
+      uncertain,
+      reasons: [
+        'Körpergewicht fehlt; ohne Angabe bleibt die bewegte Last unbekannt.',
+      ],
+    };
   }
-  const movedBodyweight = bodyweight * bodyweightFraction(exercise, options);
+  const movedBodyweight =
+    providedBodyweight * bodyweightFraction(exercise, options);
   if (loadKind === 'bodyweight') {
     return { weightKg: movedBodyweight, uncertain, reasons };
   }
@@ -430,16 +449,24 @@ export function estimateE1RM(weightKg: number, repetitions: number): number | nu
   return epley1RM(weightKg, repetitions);
 }
 
-/** Bester beobachteter Epley-Wert innerhalb der letzten acht Wochen. */
+/**
+ * Bester beobachteter Epley-Wert früherer Einheiten innerhalb der letzten
+ * acht Wochen. Die eigene Einheit zählt nicht: Ein Satz darf nicht seine
+ * eigene Referenz sein, sonst wird die Reserve rechnerisch immer 0.
+ */
 export function bestExerciseE1RM(
   exerciseId: string,
   sessions: StrengthSession[],
   at: number,
+  excludeSessionId?: string,
 ): number | null {
   const eightWeeksMs =
     MUSCLE_MODEL_CONSTANTS.e1rmLookbackWeeks * 7 * 24 * 60 * 60 * 1000;
   let best: number | null = null;
   for (const session of sessions) {
+    if (excludeSessionId !== undefined && session.id === excludeSessionId) {
+      continue;
+    }
     for (const exercise of session.exercises) {
       if (exercise.exerciseId !== exerciseId) {
         continue;
@@ -449,16 +476,18 @@ export function bestExerciseE1RM(
           set.skipped ||
           set.completedAt === undefined ||
           set.completedAt < at - eightWeeksMs ||
-          set.completedAt > at
+          set.completedAt >= at
         ) {
           continue;
         }
-        const weight = set.actualWeightKg ?? set.planned.weightKg;
-        const repetitions = set.actualReps ?? set.planned.reps;
+        const weight = set.actualWeightKg;
+        const repetitions = set.actualReps;
         if (!finite(weight) || !finite(repetitions)) {
           continue;
         }
-        const estimate = epley1RM(weight, repetitions);
+        const estimate = finite(set.actualRir)
+          ? epley1RM(weight, repetitions + Math.max(0, set.actualRir))
+          : epley1RM(weight, repetitions);
         if (estimate !== null && (best === null || estimate > best)) {
           best = estimate;
         }
@@ -503,58 +532,82 @@ export function calculateSetStimulus(
     options.reports ?? [],
   );
   const uncertaintyReasons = [...load.reasons];
-  const timedSeconds = set.actualSeconds ?? set.planned.seconds;
-  const repetitions = set.actualReps ?? set.planned.reps;
+  const timedSeconds = set.actualSeconds;
+  const repetitions = set.actualReps;
   const isTimed = set.planned.kind === 'timed' || finite(timedSeconds);
-  const nEff = isTimed
-    ? effectiveRepetitionsFromSeconds(timedSeconds ?? 0)
-    : finite(repetitions)
-      ? (() => {
-          const estimate =
-            options.e1rmEstimate ??
-            (options.recentSessions
-              ? bestExerciseE1RM(exercise.id, options.recentSessions, at)
-              : null) ??
-            (finite(load.weightKg) && finite(repetitions)
-              ? epley1RM(load.weightKg, repetitions)
-              : null);
-          if (estimate === null || !finite(load.weightKg) || !(load.weightKg > 0)) {
-            return 0;
-          }
-          const relative = Math.min(
-            1,
-            Math.max(0, load.weightKg / estimate),
-          );
-          const reserve =
-            set.planned.kind === 'failure'
-              ? 0
-              : Math.max(
-                  0,
-                  30 * (1 / relative - 1) - repetitions,
-                );
-          return effectiveRepetitions(repetitions, reserve);
-        })()
-      : 0;
+  if (set.completedAt === undefined) {
+    uncertaintyReasons.push(
+      'Satz nicht abgeschlossen; Planwerte zählen nicht als Reiz.',
+    );
+  }
+  // Unabhängige Referenz: explizit übergeben oder aus früheren Einheiten.
+  const reference =
+    options.e1rmEstimate ??
+    (options.recentSessions
+      ? bestExerciseE1RM(
+          exercise.id,
+          options.recentSessions,
+          at,
+          options.sessionId,
+        )
+      : null);
+  // Reserve: Nutzereingabe > bestätigter Satz bis zum Versagen > Schätzung
+  // aus unabhängiger Referenz. Ohne eine davon bleibt sie unbekannt.
+  let rir: number | null = null;
+  let rirSource: 'reported' | 'failure_confirmed' | 'estimated' | null = null;
+  if (!isTimed && finite(repetitions)) {
+    if (finite(set.actualRir) && set.actualRir >= 0) {
+      rir = set.actualRir;
+      rirSource = 'reported';
+    } else if (set.planned.kind === 'failure' && set.completedAt !== undefined) {
+      rir = 0;
+      rirSource = 'failure_confirmed';
+    } else if (
+      reference !== null &&
+      finite(load.weightKg) &&
+      load.weightKg > 0 &&
+      reference > 0
+    ) {
+      const relative = Math.min(1, Math.max(0, load.weightKg / reference));
+      rir = Math.max(0, 30 * (1 / relative - 1) - repetitions);
+      rirSource = 'estimated';
+      uncertaintyReasons.push(
+        'Anstrengung (RIR) aus dem e1RM einer früheren Einheit geschätzt.',
+      );
+    } else {
+      uncertaintyReasons.push(
+        'Anstrengung (RIR) nicht angegeben und keine frühere Einheit als Referenz; der Reiz bleibt unbekannt.',
+      );
+    }
+  }
+  // e1RM: mit bekannter Reserve aus diesem Satz (inverse Epley mit Wdh. + RIR),
+  // sonst nur aus der unabhängigen Referenz. Nie aus dem Satz allein.
   const e1rm =
-    finite(load.weightKg) && finite(repetitions)
-      ? options.e1rmEstimate ??
-        (options.recentSessions
-          ? bestExerciseE1RM(exercise.id, options.recentSessions, at)
-          : null) ??
-        epley1RM(load.weightKg, repetitions)
-      : null;
+    !isTimed && finite(load.weightKg) && finite(repetitions) && rir !== null
+      ? epley1RM(load.weightKg, repetitions + rir) ?? reference
+      : reference;
+  if (
+    !isTimed &&
+    finite(load.weightKg) &&
+    finite(repetitions) &&
+    rir !== null &&
+    epley1RM(load.weightKg, repetitions + rir) === null
+  ) {
+    uncertaintyReasons.push(
+      `Mehr als ${MUSCLE_MODEL_CONSTANTS.maxEpleyRepetitions} Wiederholungen bis zum Versagen; Epley trägt hier keine Schätzung.`,
+    );
+  }
   const relativeLoad =
     finite(load.weightKg) && finite(e1rm) && e1rm > 0
       ? Math.min(1, Math.max(0, load.weightKg / e1rm))
       : isTimed && finite(load.weightKg)
         ? 1
         : null;
-  const rir =
-    relativeLoad !== null && finite(repetitions) && !isTimed
-      ? set.planned.kind === 'failure'
-        ? 0
-        : Math.max(0, 30 * (1 / relativeLoad - 1) - repetitions)
-      : null;
+  const nEff = isTimed
+    ? effectiveRepetitionsFromSeconds(timedSeconds ?? 0)
+    : finite(repetitions) && rir !== null
+      ? effectiveRepetitions(repetitions, rir)
+      : 0;
   if (isTimed && !(nEff > 0)) {
     uncertaintyReasons.push('Spannungsdauer fehlt oder ist ungültig.');
   }
@@ -565,11 +618,14 @@ export function calculateSetStimulus(
     uncertaintyReasons.push('Eigene Übung: Anteile sind keine Katalogannahme.');
   }
   const stimulus =
-    nEff > 0 && relativeLoad !== null
+    nEff > 0 && relativeLoad !== null && set.completedAt !== undefined
       ? nEff * relativeLoad ** MUSCLE_MODEL_CONSTANTS.relativeLoadGamma * exercise.eccentric
       : null;
-  const standardDeviation =
-    (load.uncertain ? 8 : 3) + (exercise.origin === 'catalog' ? 0 : 5);
+  // Feste Zuschläge, keine geschätzte Streuung.
+  const roughSpread =
+    (load.uncertain ? 8 : 3) +
+    (exercise.origin === 'catalog' ? 0 : 5) +
+    (rirSource === 'estimated' ? 2 : 0);
   const valid = stimulus !== null && finite(stimulus) && stimulus >= 0;
   return {
     ...provenanceValue,
@@ -580,6 +636,7 @@ export function calculateSetStimulus(
     e1rmEstimate: e1rm,
     relativeLoad,
     rir,
+    rirSource,
     effectiveReps: nEff,
     stimulus,
     nEff,
@@ -587,7 +644,8 @@ export function calculateSetStimulus(
     RIR: rir,
     s: stimulus,
     uncertainty: {
-      standardDeviation,
+      roughSpread,
+      calibrated: false,
       reasons: Array.from(new Set(uncertaintyReasons)),
     },
     valid,
@@ -769,8 +827,11 @@ export function runSegmentStimulus(
   if (segment.phase === 'pause') {
     uncertaintyReasons.push('Pausenabschnitt erzeugt keinen Reiz.');
   }
-  if (!finite(segment.gradePercent)) {
-    uncertaintyReasons.push('Steigung fehlt; ebene Strecke wird als Ausgangsannahme verwendet.');
+  const gradeKnown = finite(segment.gradePercent);
+  if (!gradeKnown) {
+    uncertaintyReasons.push(
+      'Steigung fehlt; der Steigungsanteil wird nicht berechnet, Zeit und Distanz bleiben nutzbar.',
+    );
   }
   if (speedMps === null || segment.phase === 'pause') {
     return {
@@ -781,8 +842,10 @@ export function runSegmentStimulus(
       speedMps,
       durationHours: validTime ? durationSeconds / 3600 : null,
       stimulusByRegion: {},
+      gradeKnown,
       uncertainty: {
-        standardDeviation: speedMps === null ? 15 : 5,
+        roughSpread: speedMps === null ? 15 : 5,
+        calibrated: false,
         reasons: [...uncertaintyReasons, 'Dauer oder Distanz des Abschnitts ist ungültig.'],
       },
       valid: false,
@@ -791,7 +854,9 @@ export function runSegmentStimulus(
   }
   const durationHours = durationSeconds / 3600;
   const speedRatio = speedMps / MUSCLE_MODEL_CONSTANTS.referenceSpeedMps;
-  const grade = (segment.gradePercent ?? 0) / 100;
+  // Ohne Steigung entfallen die Steigungsfaktoren; der Reiz ist dann eine
+  // Untergrenze, keine Annahme „eben“.
+  const grade = gradeKnown ? (segment.gradePercent as number) / 100 : 0;
   const downhill = Math.max(0, -grade);
   const uphill = Math.max(0, grade);
   const baseStimulus: Partial<Record<RegionBase, number>> = {
@@ -831,8 +896,10 @@ export function runSegmentStimulus(
     speedMps,
     durationHours,
     stimulusByRegion,
+    gradeKnown,
     uncertainty: {
-      standardDeviation: uncertaintyReasons.length ? 8 : 4,
+      roughSpread: uncertaintyReasons.length ? 8 : 4,
+      calibrated: false,
       reasons: uncertaintyReasons,
     },
     valid: true,
@@ -1147,7 +1214,9 @@ const regionFreshness = (
   if (!reports.length) {
     uncertaintyReasons.push('Keine bestätigende Meldung vorhanden.');
   }
-  const standardDeviation = Math.min(
+  // Feste Zuschläge plus Koeffizientenvarianz ohne Kovarianz: eine grobe
+  // Spanne, kein Vorhersageintervall.
+  const roughSpread = Math.min(
     100,
     Math.sqrt(variance) * 100 + (reports.length ? 0 : 2) +
       (loadByContribution.some(item => item.coefficient.source !== 'personal') ? 8 : 0),
@@ -1170,7 +1239,7 @@ const regionFreshness = (
   } else if (!reliableShares) {
     reasonCode = 'no_reliable_shares';
     reason = 'Die Anteile dieser Region sind noch nicht belastbar hinterlegt.';
-  } else if (standardDeviation > MUSCLE_MODEL_CONSTANTS.uncertaintyThresholdFreshnessPoints) {
+  } else if (roughSpread > MUSCLE_MODEL_CONSTANTS.uncertaintyThresholdFreshnessPoints) {
     reasonCode = 'uncertainty_too_high';
     reason = 'Die Unsicherheit der Regionsschätzung liegt über der festgelegten Schwelle.';
   } else if (!recentEnough && !hasConfirmation) {
@@ -1182,9 +1251,10 @@ const regionFreshness = (
   }
   const uniqueReasons = Array.from(new Set(uncertaintyReasons));
   const uncertainty: FreshnessUncertainty = {
-    standardDeviationPoints: standardDeviation,
-    lowerPoints: Math.max(0, freshness - standardDeviation),
-    upperPoints: Math.min(100, freshness + standardDeviation),
+    roughSpreadPoints: roughSpread,
+    roughLowerPoints: Math.max(0, freshness - roughSpread),
+    roughUpperPoints: Math.min(100, freshness + roughSpread),
+    calibrated: false,
     reasons: uniqueReasons,
   };
   const base = {

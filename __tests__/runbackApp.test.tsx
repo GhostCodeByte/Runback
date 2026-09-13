@@ -38,6 +38,17 @@ import { RunbackApp } from '../src/ui/RunbackApp';
 import { native } from '../src/native';
 import { ChipGroup } from '../src/ui/components';
 import { acceptRecommendation, analyzeRun } from '../src/domain';
+import type { RunSummary } from '../src/domain';
+
+const DAY = 86400000;
+/** Zwei vergleichbare Vorläufe: erst der Median mehrerer Läufe trägt eine Empfehlung. */
+const previousRuns = (base: RunSummary): RunSummary[] =>
+  [1, 2].map(index => ({
+    ...base,
+    id: `${base.id}-prev-${index}`,
+    startTime: base.startTime - index * 7 * DAY,
+    endTime: base.startTime - index * 7 * DAY + (base.endTime - base.startTime),
+  }));
 
 function textContent(node: TestRenderer.ReactTestInstance): string {
   return node.children
@@ -152,8 +163,8 @@ describe('Fokus', () => {
     async status => {
       const baseline = {
         id: 'deleted',
-        startTime: 0,
-        endTime: 1320000,
+        startTime: 30 * DAY,
+        endTime: 30 * DAY + 1320000,
         durationSeconds: 1320,
         distanceMeters: 2000,
         purpose: 'easy' as const,
@@ -167,19 +178,27 @@ describe('Fokus', () => {
         })),
       };
       const accepted = {
-        ...acceptRecommendation(analyzeRun(baseline).recommendation!, 2000000),
+        ...acceptRecommendation(
+          analyzeRun(baseline, undefined, previousRuns(baseline))
+            .recommendation!,
+          30 * DAY + 2000000,
+        ),
         status,
       };
       const before = JSON.stringify(accepted);
       const later = {
         ...baseline,
         id: 'later',
-        startTime: 3000000,
-        endTime: 4320000,
+        startTime: 60 * DAY,
+        endTime: 60 * DAY + 1320000,
         purpose: 'long' as const,
       };
       jest.mocked(native.state).mockResolvedValueOnce({
-        runs: [later, { ...later, id: 'incomplete', segments: [] }],
+        runs: [
+          later,
+          ...previousRuns(later),
+          { ...later, id: 'incomplete', segments: [] },
+        ],
         recording: null,
         settings: { onboardedAt: 1, minutes: 30, experiments: [accepted] },
         capabilities: {},
@@ -223,8 +242,8 @@ describe('Fokus', () => {
   it('keeps focus and recommendation independent through editing, removal, pause and completion', async () => {
     const baseline = {
       id: 'baseline',
-      startTime: 0,
-      endTime: 1320000,
+      startTime: 30 * DAY,
+      endTime: 30 * DAY + 1320000,
       durationSeconds: 1320,
       distanceMeters: 2000,
       purpose: 'easy' as const,
@@ -238,12 +257,12 @@ describe('Fokus', () => {
       })),
     };
     const accepted = acceptRecommendation(
-      analyzeRun(baseline).recommendation!,
-      2000000,
+      analyzeRun(baseline, undefined, previousRuns(baseline)).recommendation!,
+      30 * DAY + 2000000,
     );
     const saved = JSON.stringify(accepted);
     jest.mocked(native.state).mockResolvedValueOnce({
-      runs: [baseline],
+      runs: [baseline, ...previousRuns(baseline)],
       recording: null,
       settings: {
         onboardedAt: 1,

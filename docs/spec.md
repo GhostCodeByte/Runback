@@ -88,6 +88,8 @@ Verletzung ist ein Bug, kein Trade-off.
    Beobachtungen brauchen keine Prüfung.
 4. **Beibehalten ist erlaubt.** „Beibehalten“, „keine Empfehlung nötig“ und
    „noch nicht beurteilbar“ sind drei verschiedene, begründete Ergebnisse.
+   Fehlender Nachweis einer Änderung ist kein Nachweis von Stillstand:
+   „stabil“ braucht ein enges Intervall, sonst heißt es „noch nicht klar“.
 5. **Unsicherheit bleibt sichtbar.** Keine erfundenen Intervalle, keine
    erfundenen Ersatzwerte. Messung, Nutzereingabe und Schätzung sind
    unterscheidbar.
@@ -107,7 +109,9 @@ Verletzung ist ein Bug, kein Trade-off.
     wenn dafür das eigentliche Training aufgegeben wird.
 12. **Vorher festlegen, später ehrlich bleiben.** Vergleichsläufe, Zielgröße
     und Prüfregel stehen vor dem Start fest und werden nicht nachträglich
-    passend gemacht.
+    passend gemacht. Die Vergleichsbasis ist der Median mehrerer passender
+    Einheiten, nie ein einzelner Ausreißer; die Prüfregel nennt vorab, wie
+    viele Beobachtungen ein Urteil tragen.
 13. **Drei Fragen, drei Antworten.** Umsetzung, Ergebnis und Ursache bleiben
     getrennt. Ein Unterschied ist kein Kausalbeweis.
 14. **Empfehlungen bleiben ruhig.** Neue Daten, ein RPE-Nachtrag oder ein
@@ -121,12 +125,16 @@ Getrennt und nie vermischt:
 
 - **Effort** — modellierte äußere Anforderung eines Laufs. Kein Fitness-,
   Ermüdungs- oder Gesundheitswert.
-- **Intensität / Gesamtbelastung / RPE** — Anforderung pro Zeit, Summe über die
-  Einheit, subjektive Anstrengung (Beine und Atmung getrennt).
+- **Intensität / Belastung / RPE** — Anforderung pro Zeit, subjektive
+  Anstrengung (Beine und Atmung getrennt) und daraus Belastung als RPE ×
+  Minuten je Skala. Kein Gesamtwert aus beiden Skalen, keine Kennzahl, die
+  nur die Distanz in anderer Einheit wiederholt.
 - **Frische** — modellierte Skala 0–100 je Muskelregion aus Sätzen, Läufen und
   gemeldetem Muskelkater. Regionenbezogen, mit sichtbarer Herkunft. Ohne
   tragfähige Grundlage bleibt eine Region **unbekannt**. Niemals formuliert
-  als „bereit“, „belastbar“ oder „Verletzungsrisiko“.
+  als „bereit“, „belastbar“ oder „Verletzungsrisiko“. Ihre Spanne ist eine
+  grobe Setzung, kein Vorhersageintervall, bis eine Prüfung an späteren,
+  unbekannten Meldungen etwas anderes belegt.
 - **Priorisierung** — deterministisch, kein lernendes Profil:
   - Eine versionierte **Relevanzmatrix** gibt jeder Handlungsklasse je
     Fokus-Art ein festes Gewicht. Gleiche Eingaben → gleiche Reihenfolge.

@@ -310,7 +310,7 @@ export function queryEngine(
     (a, b) => b.startTime - a.startTime || a.id.localeCompare(b.id),
   )[0];
   const analysis: RunAnalysis | undefined = latest
-    ? analyzeRun(latest, active)
+    ? analyzeRun(latest, active, runs)
     : undefined;
   const answer = !analysis
     ? 'Noch keine Läufe vorhanden. Für eine Empfehlung fehlen noch passende Daten.'
