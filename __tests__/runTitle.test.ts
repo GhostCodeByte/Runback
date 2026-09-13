@@ -28,6 +28,8 @@ describe('isMeaningfulRunName', () => {
   it('rejects the placeholder names the importers write', () => {
     expect(isMeaningfulRunName('Garmin Lauf')).toBe(false);
     expect(isMeaningfulRunName('Importierter Lauf')).toBe(false);
+    expect(isMeaningfulRunName('Lauf am Nachmittag')).toBe(false);
+    expect(isMeaningfulRunName('Afternoon Run')).toBe(false);
     expect(isMeaningfulRunName('activity')).toBe(false);
   });
 });
