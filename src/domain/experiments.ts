@@ -2,9 +2,11 @@ import {
   analyzeRun,
   flatPacingContext,
   MODEL_VERSION,
+  PACING_METHOD,
   pacingFor,
   provenance,
 } from './analysis';
+import { signTest } from './inference';
 import { isRunRecommendation, recommendationArea } from './areas';
 import type { StrengthSession } from './strength';
 import { evaluateStrengthExperiment } from './strengthRecommendation';
@@ -150,7 +152,7 @@ export function evaluateExperiment(
     causalClaim: false,
   };
   if (
-    c.method !== 'pacing-fade-v1' ||
+    c.method !== PACING_METHOD ||
     experiment.recommendation.model_version !== MODEL_VERSION
   ) {
     return {
@@ -280,28 +282,41 @@ export function evaluateExperiment(
       ? ' Fehlender Wetterkontext begrenzt die Zuordnung zusätzlich.'
       : ''
   }`;
-  if (changes.every(change => change >= c.minimumRelevantChangePercentPoints)) {
+  // Ein ruhigerer Start senkt den Tempoabfall schon rechnerisch. Das Ergebnis
+  // heißt deshalb „gleichmäßiger“, nie „schneller“ oder „fitter“.
+  const test = signTest(changes, c.minimumRelevantChangePercentPoints);
+  result.signTest = { ...test, alpha: c.signTestAlpha };
+  if (test.pValue <= c.signTestAlpha && test.positives > test.negatives) {
     return {
       ...result,
       verdict: 'improved',
-      summary: `Bei erhaltenem Zweck und Umfang war der späte Tempoabfall in allen ${outcomes.length} umgesetzten Läufen geringer.${causal}`,
+      summary: `Bei erhaltenem Zweck und Umfang lief die zweite Hälfte in ${test.positives} von ${outcomes.length} umgesetzten Läufen gleichmäßiger als in den Vergleichsläufen; das ist häufiger als zufällig. Über Tempo oder Fitness sagt das nichts.${causal}`,
     };
   }
-  if (
-    changes.every(change => change <= -c.minimumRelevantChangePercentPoints)
-  ) {
+  if (test.pValue <= c.signTestAlpha && test.negatives > test.positives) {
     return {
       ...result,
       verdict: 'worsened',
-      summary: `In allen ${outcomes.length} umgesetzten Läufen war der späte Tempoabfall größer.${causal}`,
+      summary: `In ${test.negatives} von ${outcomes.length} umgesetzten Läufen war der späte Tempoabfall größer als in den Vergleichsläufen; das ist häufiger als zufällig.${causal}`,
+    };
+  }
+  if (test.ties === changes.length) {
+    return {
+      ...result,
+      verdict: 'no_relevant_effect',
+      summary: `Alle ${outcomes.length} umgesetzten Läufe lagen innerhalb von ±${c.minimumRelevantChangePercentPoints} Prozentpunkten der Vergleichsläufe.${causal}`,
     };
   }
   return {
     ...result,
-    summary: `Noch nicht klar. Der Vergleich zeigt keinen eindeutigen Unterschied; ein einzelner Vergleichslauf reicht nicht, um eine Wirkung auszuschließen.${causal}`,
+    summary: `Noch nicht klar. ${test.positives} Läufe gleichmäßiger, ${test.negatives} ungleichmäßiger, ${test.ties} unverändert; das kann Zufall sein.${causal}`,
   };
 }
 
-export function recommend(run: RunSummary, active?: Experiment) {
-  return analyzeRun(run, active);
+export function recommend(
+  run: RunSummary,
+  active?: Experiment,
+  history: RunSummary[] = [],
+) {
+  return analyzeRun(run, active, history);
 }

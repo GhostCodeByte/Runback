@@ -20,6 +20,8 @@ import {
 } from '../domain/strength';
 import {
   assessExerciseProgression,
+  collapseToDays,
+  MINIMUM_SESSIONS_FOR_DIRECTION,
   type ProgressionAssessment,
 } from '../domain/progression';
 import { color, Copy } from './components';
@@ -95,9 +97,7 @@ function CompactRow({
       onPress={() => onPress(index)}
       style={({ pressed }) => [styles.compact, pressed && styles.pressed]}
     >
-      <Text style={styles.compactArrow}>
-        {direction === 'up' ? '↑' : '↓'}
-      </Text>
+      <Text style={styles.compactArrow}>{direction === 'up' ? '↑' : '↓'}</Text>
       <Text numberOfLines={1} style={styles.compactName}>
         {exercise.name}
       </Text>
@@ -129,12 +129,14 @@ const SetRow = memo(function SetRow({
     setId: string,
     weight: string,
     reps: string,
+    rir: string,
     timed: boolean,
   ) => void;
   onEdit: (
     setId: string,
     weight: string,
     reps: string,
+    rir: string,
     timed: boolean,
   ) => void;
 }) {
@@ -156,10 +158,18 @@ const SetRow = memo(function SetRow({
   const [reps, setReps] = useState(
     initialReps === undefined ? '' : String(initialReps),
   );
+  // Reserve (RIR) ist freiwillig und nur eine Nutzereingabe. Leer heißt
+  // unbekannt; die App schätzt sie nicht aus demselben Satz.
+  const [rir, setRir] = useState(
+    set.actualRir === undefined ? '' : String(set.actualRir),
+  );
   const [touched, setTouched] = useState(false);
   const done = set.completedAt !== undefined;
   const weightIsSuggested =
-    !touched && !done && ownWeight === undefined && suggestedWeight !== undefined;
+    !touched &&
+    !done &&
+    ownWeight === undefined &&
+    suggestedWeight !== undefined;
   const repsIsSuggested =
     !touched && !done && ownReps === undefined && suggestedReps !== undefined;
   const bodyweight = set.planned.loadKind === 'bodyweight';
@@ -192,7 +202,7 @@ const SetRow = memo(function SetRow({
         }`}
         editable={!bodyweight}
         keyboardType="decimal-pad"
-        onBlur={() => onEdit(set.id, weight, reps, timed)}
+        onBlur={() => onEdit(set.id, weight, reps, rir, timed)}
         onChangeText={value => {
           setTouched(true);
           setWeight(value);
@@ -208,11 +218,13 @@ const SetRow = memo(function SetRow({
         value={bodyweight ? '' : weight}
       />
       <TextInput
-        accessibilityLabel={`${timed ? 'Sekunden' : 'Wiederholungen'} für Satz ${position}${
+        accessibilityLabel={`${
+          timed ? 'Sekunden' : 'Wiederholungen'
+        } für Satz ${position}${
           repsIsSuggested ? ', Vorschlag aus der letzten Einheit' : ''
         }`}
         keyboardType="number-pad"
-        onBlur={() => onEdit(set.id, weight, reps, timed)}
+        onBlur={() => onEdit(set.id, weight, reps, rir, timed)}
         onChangeText={value => {
           setTouched(true);
           setReps(value);
@@ -223,13 +235,31 @@ const SetRow = memo(function SetRow({
         style={[styles.input, repsIsSuggested && styles.inputSuggested]}
         value={reps}
       />
+      {timed ? (
+        <View style={styles.inputSmall} />
+      ) : (
+        <TextInput
+          accessibilityLabel={`Wiederholungen im Tank für Satz ${position}, optional`}
+          keyboardType="number-pad"
+          onBlur={() => onEdit(set.id, weight, reps, rir, timed)}
+          onChangeText={value => {
+            setTouched(true);
+            setRir(value);
+          }}
+          placeholder="–"
+          placeholderTextColor={color.muted}
+          selectTextOnFocus
+          style={[styles.input, styles.inputSmall]}
+          value={rir}
+        />
+      )}
       <Pressable
         accessibilityLabel={
           done ? `Satz ${position} zurücknehmen` : `Satz ${position} bestätigen`
         }
         accessibilityRole="button"
         accessibilityState={{ checked: done }}
-        onPress={() => onComplete(set.id, weight, reps, timed)}
+        onPress={() => onComplete(set.id, weight, reps, rir, timed)}
         style={({ pressed }) => [
           styles.check,
           styles.checkLarge,
@@ -259,12 +289,13 @@ function ProgressionNote({
   const headline = `Bestes geschätztes Maximum: ${formatWeight(
     Math.round(latest.e1rm * 10) / 10,
   )} kg`;
-  const missing = 3 - assessment.series.length;
+  const missing =
+    MINIMUM_SESSIONS_FOR_DIRECTION - collapseToDays(assessment.series).length;
   const detail =
     assessment.verdict === 'not_assessable'
       ? missing > 0
         ? `Noch ${missing} ${
-            missing === 1 ? 'Einheit' : 'Einheiten'
+            missing === 1 ? 'Trainingstag' : 'Trainingstage'
           } bis zur ersten Einschätzung des Verlaufs.`
         : 'Der Verlauf ist noch nicht belastbar einzuschätzen.'
       : assessment.verdict === 'increase'
@@ -272,8 +303,10 @@ function ProgressionNote({
       : assessment.verdict === 'reduce'
       ? 'Der Verlauf zeigt nach unten. Beim nächsten Mal vorsichtig reduzieren.'
       : assessment.verdict === 'plateau'
-      ? `Seit ${Math.round(assessment.plateau.spanWeeks)} Wochen unverändert.`
-      : 'Kein klarer Trend. So weitermachen ist eine eigene Entscheidung.';
+      ? `Seit ${Math.round(
+          assessment.plateau.spanWeeks,
+        )} Wochen nachweislich stabil.`
+      : 'Noch nicht klar: Änderung und Stillstand sind beide möglich. So weitermachen ist eine eigene Entscheidung.';
   const target = assessment.suggestion?.targetRange;
   return (
     <View style={styles.progression}>
@@ -281,9 +314,8 @@ function ProgressionNote({
       <Text style={styles.progressionDetail}>{detail}</Text>
       {target ? (
         <Text style={styles.progressionDetail}>
-          Nächstes Mal etwa {formatWeight(target.targetKg)} kg ×{' '}
-          {target.reps} ({formatWeight(target.minKg)}–
-          {formatWeight(target.maxKg)} kg).
+          Nächstes Mal etwa {formatWeight(target.targetKg)} kg × {target.reps} (
+          {formatWeight(target.minKg)}–{formatWeight(target.maxKg)} kg).
         </Text>
       ) : null}
       <Text style={styles.progressionSource}>
@@ -323,6 +355,7 @@ export function WorkoutScreen({
       actualWeightKg?: number;
       actualReps?: number;
       actualSeconds?: number;
+      actualRir?: number;
     },
   ) => void;
   onEditSet: (
@@ -332,6 +365,7 @@ export function WorkoutScreen({
       actualWeightKg?: number;
       actualReps?: number;
       actualSeconds?: number;
+      actualRir?: number;
     },
   ) => void;
   onAddSet: (exerciseIndex: number) => void;
@@ -345,37 +379,55 @@ export function WorkoutScreen({
   const rest = restRemaining(session, now);
   const elapsed = Math.max(0, (now - session.startTime) / 1000);
 
-  const parse = useCallback((weight: string, reps: string, timed: boolean) => {
-    const parsedWeight = Number(weight.replace(',', '.'));
-    const parsedReps = Number(reps);
-    return {
-      actualWeightKg: Number.isFinite(parsedWeight) && weight.trim()
-        ? parsedWeight
-        : undefined,
-      ...(timed
-        ? {
-            actualSeconds:
-              Number.isFinite(parsedReps) && reps.trim()
-                ? Math.round(parsedReps)
-                : undefined,
-          }
-        : {
-            actualReps:
-              Number.isFinite(parsedReps) && reps.trim()
-                ? Math.round(parsedReps)
-                : undefined,
-          }),
-    };
-  }, []);
+  const parse = useCallback(
+    (weight: string, reps: string, rir: string, timed: boolean) => {
+      const parsedWeight = Number(weight.replace(',', '.'));
+      const parsedReps = Number(reps);
+      const parsedRir = Number(rir);
+      return {
+        actualWeightKg:
+          Number.isFinite(parsedWeight) && weight.trim()
+            ? parsedWeight
+            : undefined,
+        ...(!timed && rir.trim() && Number.isFinite(parsedRir) && parsedRir >= 0
+          ? { actualRir: Math.round(parsedRir) }
+          : {}),
+        ...(timed
+          ? {
+              actualSeconds:
+                Number.isFinite(parsedReps) && reps.trim()
+                  ? Math.round(parsedReps)
+                  : undefined,
+            }
+          : {
+              actualReps:
+                Number.isFinite(parsedReps) && reps.trim()
+                  ? Math.round(parsedReps)
+                  : undefined,
+            }),
+      };
+    },
+    [],
+  );
 
   const complete = useCallback(
-    (setId: string, weight: string, reps: string, timed: boolean) =>
-      onCompleteSet(index, setId, parse(weight, reps, timed)),
+    (
+      setId: string,
+      weight: string,
+      reps: string,
+      rir: string,
+      timed: boolean,
+    ) => onCompleteSet(index, setId, parse(weight, reps, rir, timed)),
     [index, onCompleteSet, parse],
   );
   const edit = useCallback(
-    (setId: string, weight: string, reps: string, timed: boolean) =>
-      onEditSet(index, setId, parse(weight, reps, timed)),
+    (
+      setId: string,
+      weight: string,
+      reps: string,
+      rir: string,
+      timed: boolean,
+    ) => onEditSet(index, setId, parse(weight, reps, rir, timed)),
     [index, onEditSet, parse],
   );
 
@@ -433,7 +485,10 @@ export function WorkoutScreen({
           accessibilityLabel="Training in den Hintergrund legen"
           accessibilityRole="button"
           onPress={onMinimize}
-          style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.headerButton,
+            pressed && styles.pressed,
+          ]}
         >
           <Text style={styles.headerButtonText}>‹</Text>
         </Pressable>
@@ -497,6 +552,9 @@ export function WorkoutScreen({
               </Text>
               <Text style={[styles.columnLabel, styles.columnInput]}>kg</Text>
               <Text style={[styles.columnLabel, styles.columnInput]}>Wdh.</Text>
+              <Text style={[styles.columnLabel, styles.columnInputSmall]}>
+                RIR
+              </Text>
               <View style={styles.columnCheck} />
             </View>
 
@@ -528,7 +586,9 @@ export function WorkoutScreen({
                         },
                       ]}
                     />
-                    <Text style={styles.restText}>Pause {formatClock(rest)}</Text>
+                    <Text style={styles.restText}>
+                      Pause {formatClock(rest)}
+                    </Text>
                   </View>
                 ) : null}
               </View>
@@ -647,6 +707,7 @@ const styles = StyleSheet.create({
   columnNumber: { width: 36 },
   columnReference: { flex: 1 },
   columnInput: { width: 64, textAlign: 'center' },
+  columnInputSmall: { width: 44, textAlign: 'center' },
   columnCheck: { width: 44 },
 
   setRow: {
@@ -687,6 +748,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   inputDisabled: { opacity: 0.4 },
+  inputSmall: { width: 44, fontSize: 15 },
   progression: {
     marginTop: 12,
     padding: 12,

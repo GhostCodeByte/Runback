@@ -112,6 +112,12 @@ describe('Kopplung von Lauf und Krafttraining', () => {
     expect(result.assessment).toBe('observation');
     expect(result.method).toBe('covariate_regression');
     expect(result.regression?.covariates).toEqual(['100_minus_leg_freshness']);
+    // Kein bereinigter Wert ohne Standardfehler und Intervall.
+    expect(result.regression?.standardErrors).toHaveLength(2);
+    expect(result.regression?.residualDegreesOfFreedom).toBeGreaterThanOrEqual(8);
+    const [lower, upper] = result.regression!.adjustedFadeInterval;
+    expect(lower).toBeLessThanOrEqual(result.adjustedFadePercent as number);
+    expect(upper).toBeGreaterThanOrEqual(result.adjustedFadePercent as number);
     expect(result.causalClaim).toBe(false);
   });
 

@@ -176,14 +176,18 @@ class RunStore(context: Context) {
         val boundaries = events(id); val cuts = (0 until boundaries.length()).map { boundaries.getJSONObject(it) }
             .filter { it.optString("type") in listOf("pause","resume","interrupted") }.map { it.optLong("at") }
         var distance = 0.0; var segmentDistance = 0.0; var segmentDuration = 0.0; var segmentRise = 0.0; var allAltitude = true
+        var elevation = RunMath.ElevationAccumulator()
         var gaps = 0; var previous: JSONObject? = null
+        // Anker: Distanz zählt erst, wenn die Verschiebung den GPS-Rauschboden übersteigt.
+        var anchor: JSONObject? = null
         fun split() {
             if (segmentDistance > 0) {
                 val s = JSONObject().put("id", "${id}:${segments.length()}").put("distanceMeters",segmentDistance)
                     .put("durationSeconds",segmentDuration).put("sourceVersion",RunMath.MODEL_VERSION)
                 if (allAltitude) s.put("gradePercent",100 * segmentRise / segmentDistance)
+                    .put("ascentMeters", elevation.ascent).put("descentMeters", elevation.descent)
                 segments.put(s)
-            }; segmentDistance=0.0;segmentDuration=0.0;segmentRise=0.0;allAltitude=true
+            }; segmentDistance=0.0;segmentDuration=0.0;segmentRise=0.0;allAltitude=true;elevation=RunMath.ElevationAccumulator();anchor=null
         }
         points.forEachIndexed { index, p ->
             var gap = false
@@ -192,8 +196,15 @@ class RunStore(context: Context) {
                 val d = if(crossing) null else RunMath.acceptedDistance(before.optDouble("latitude"),before.optDouble("longitude"),before.optLong("time"),before.optDouble("accuracyM",0.0),
                     p.optDouble("latitude"),p.optDouble("longitude"),p.optLong("time"),p.optDouble("accuracyM",0.0))
                 if(d == null) { gap=true; gaps++; split() } else {
-                    distance += d; segmentDistance += d; segmentDuration += (p.optLong("time")-before.optLong("time"))/1000.0
-                    if(before.has("altitudeM") && p.has("altitudeM")) segmentRise += p.optDouble("altitudeM")-before.optDouble("altitudeM") else allAltitude=false
+                    segmentDuration += (p.optLong("time")-before.optLong("time"))/1000.0
+                    val base = anchor ?: before
+                    val step = RunMath.anchoredDistance(base.optDouble("latitude"),base.optDouble("longitude"),base.optDouble("accuracyM",0.0),
+                        p.optDouble("latitude"),p.optDouble("longitude"),p.optDouble("accuracyM",0.0))
+                    if (step != null) { distance += step; segmentDistance += step; anchor = p } else if (anchor == null) anchor = base
+                    if(before.has("altitudeM") && p.has("altitudeM")) {
+                        segmentRise += p.optDouble("altitudeM")-before.optDouble("altitudeM")
+                        elevation.add(before.optDouble("altitudeM")); elevation.add(p.optDouble("altitudeM"))
+                    } else allAltitude=false
                     if(segmentDistance >= 1000) split()
                 }
             }
@@ -203,12 +214,19 @@ class RunStore(context: Context) {
         }; split()
         val run = read(id)
         if(points.size>1) run.put("distanceMeters",distance)
-        for ((kind,key,output) in listOf(Triple("heartRate","bpm","avgHeartRate"),Triple("cadence","rpm","avgCadence"))) {
-            var total=0.0;var count=0
+        // Zeitgewichtet statt nach Sample-Anzahl: unregelmäßige Aufzeichnung verzerrt sonst das Mittel.
+        val durationSeconds = run.optDouble("durationSeconds", Double.NaN)
+        for ((kind,key,output,coverage) in listOf(
+            listOf("heartRate","bpm","avgHeartRate","heartRateCoverage"), listOf("cadence","rpm","avgCadence","cadenceCoverage"))) {
+            val times = ArrayList<Long>(); val values = ArrayList<Double>()
             db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind=? ORDER BY time", arrayOf(id,kind)).use {
                 while(it.moveToNext()) { val v=JSONObject(it.getString(1)).optDouble(key)
-                    if(v.isFinite() && v>0 && v<=300) { total+=v;count++;if(series.length()<256) series.put(JSONObject().put("time",it.getLong(0)).put("kind",kind).put("value",v)) } }
-            }; if(count>0)run.put(output,total/count)
+                    if(v.isFinite() && v>0 && v<=300) { times.add(it.getLong(0)); values.add(v); if(series.length()<256) series.put(JSONObject().put("time",it.getLong(0)).put("kind",kind).put("value",v)) } }
+            }
+            RunMath.timeWeightedAverage(times, values)?.let { (mean, covered) ->
+                run.put(output, mean)
+                if (durationSeconds.isFinite() && durationSeconds > 0) run.put(coverage, (covered / durationSeconds).coerceIn(0.0, 1.0))
+            }
         }
         run.put("segments",segments).put("gapCount",gaps).put("model_version",RunMath.MODEL_VERSION)
         run.put("dataRetention",JSONObject().put("originals","retained").put("recomputable",true))

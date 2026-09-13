@@ -420,19 +420,19 @@ export function Statistics({
             }
           />
           <ValueRow
-            label="Ø Beine"
+            label="Beine (Median)"
             value={
-              stats.totals.averageLegsRpe === null
+              stats.totals.medianLegsRpe === null
                 ? DASH
-                : `${decimal(stats.totals.averageLegsRpe)} / 10`
+                : `${decimal(stats.totals.medianLegsRpe)} / 10`
             }
           />
           <ValueRow
-            label="Ø Atmung"
+            label="Atmung (Median)"
             value={
-              stats.totals.averageBreathingRpe === null
+              stats.totals.medianBreathingRpe === null
                 ? DASH
-                : `${decimal(stats.totals.averageBreathingRpe)} / 10`
+                : `${decimal(stats.totals.medianBreathingRpe)} / 10`
             }
           />
           <ValueRow

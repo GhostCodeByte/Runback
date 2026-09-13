@@ -447,7 +447,7 @@ export function RunbackApp() {
     () =>
       runningRuns.map(run => ({
         run,
-        analysis: analyzeRun(run, experiment),
+        analysis: analyzeRun(run, experiment, runningRuns),
       })),
     [runningRuns, experiment],
   );
@@ -1223,7 +1223,9 @@ export function RunbackApp() {
   // Die Laufauswertung gilt nur für Läufe. Bei anderen Sportarten erscheint
   // sie gar nicht statt mit falschen Zahlen (Spec T-1).
   const snapshot =
-    selected && isRun(selected) ? analyzeRun(selected, experiment) : null;
+    selected && isRun(selected)
+      ? analyzeRun(selected, experiment, runningRuns)
+      : null;
   // Full hold-out/stability validation currently takes seconds to minutes.
   // Keep predictions locked until a validated result can be produced off the
   // UI thread and bound to the exact data/model version (model spec §11).
@@ -1681,10 +1683,12 @@ export function RunbackApp() {
           : 'Bei der Annahme werden diese Regeln festgeschrieben.'}
       </Copy>
       <Copy muted>
-        {recommendation.criteria.minimumObservations} geeignete Läufe über
-        mindestens {recommendation.criteria.minimumDays} Tage ·{' '}
+        Ab {recommendation.criteria.minimumObservations} geeigneten Läufen über
+        mindestens {recommendation.criteria.minimumDays} Tage · Vorzeichentest:
+        häufiger als zufällig mindestens{' '}
         {recommendation.criteria.minimumRelevantChangePercentPoints}{' '}
-        Prozentpunkte weniger Tempoabfall
+        Prozentpunkte weniger Tempoabfall als der Median der Vergleichsläufe (
+        {number(recommendation.criteria.baselineFadePercent, 1)} %)
       </Copy>
       {recommendation.criteria.exclusions.map((text, i) => (
         <Copy muted key={i}>
@@ -1698,6 +1702,9 @@ export function RunbackApp() {
         möchtest.
       </Copy>
       <Section title="Vergleichsläufe">
+        <Copy muted>
+          Die Basis ist der Median dieser Läufe, nicht ein einzelner Ausreißer.
+        </Copy>
         {recommendation.criteria.baselineRunIds.map(id => {
           const run = runningRuns.find(item => item.id === id);
           return (
@@ -1870,12 +1877,12 @@ export function RunbackApp() {
                 }
               />
               <Row
-                title="Ist es besser geworden?"
+                title="Bist du gleichmäßiger gelaufen?"
                 subtitle={
                   evaluation?.verdict === 'improved'
-                    ? 'Du hast zum Ende weniger Tempo verloren.'
+                    ? 'Ja, häufiger als zufällig. Über Tempo oder Fitness sagt das nichts.'
                     : evaluation?.verdict === 'worsened'
-                    ? 'Du hast zum Ende mehr Tempo verloren.'
+                    ? 'Nein, du hast zum Ende häufiger mehr Tempo verloren.'
                     : evaluation?.verdict === 'no_relevant_effect'
                     ? 'Kein spürbarer Unterschied.'
                     : 'Noch nicht klar.'
@@ -2074,10 +2081,13 @@ export function RunbackApp() {
           : 'Bei der Annahme werden diese Regeln festgeschrieben.'}
       </Copy>
       <Copy muted>
-        {recommendation.criteria.minimumObservations} passende Einheiten ·
+        Ab {recommendation.criteria.minimumObservations} passenden Einheiten ·
         Zielbereich {number(recommendation.criteria.targetMinKg, 1)}–
         {number(recommendation.criteria.targetMaxKg, 1)} kg ×{' '}
-        {recommendation.criteria.targetReps}
+        {recommendation.criteria.targetReps} · Vorzeichentest: häufiger als
+        zufällig mindestens{' '}
+        {recommendation.criteria.minimumRelevantChangePercent} % über dem
+        Median der Vergleichseinheiten
       </Copy>
       {recommendation.criteria.exclusions.map((text, i) => (
         <Copy muted key={i}>
@@ -2195,9 +2205,9 @@ export function RunbackApp() {
                 title="Ist es besser geworden?"
                 subtitle={
                   evaluation?.verdict === 'improved'
-                    ? 'Dein bestes Arbeitsgewicht ist gestiegen.'
+                    ? 'Dein bestes Arbeitsgewicht lag häufiger als zufällig darüber.'
                     : evaluation?.verdict === 'worsened'
-                    ? 'Dein bestes Arbeitsgewicht ist gesunken.'
+                    ? 'Dein bestes Arbeitsgewicht lag häufiger als zufällig darunter.'
                     : evaluation?.verdict === 'no_relevant_effect'
                     ? 'Kein spürbarer Unterschied.'
                     : 'Noch nicht klar.'

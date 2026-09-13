@@ -1,4 +1,5 @@
 import type { Run } from '../native';
+import { medianOrNull } from './inference';
 import { isRun } from './sport';
 
 export interface StatisticsWeek {
@@ -14,8 +15,9 @@ export interface RunStatistics {
   totalDurationSeconds: number;
   runCount: number;
   paceSecondsPerKm: number | null;
-  averageLegsRpe: number | null;
-  averageBreathingRpe: number | null;
+  /** RPE ist ordinal: Median statt Mittelwert. */
+  medianLegsRpe: number | null;
+  medianBreathingRpe: number | null;
   longestRun: Run | null;
   weeks: StatisticsWeek[];
 }
@@ -148,8 +150,8 @@ export function aggregateStatistics(
     runCount: valid.length,
     paceSecondsPerKm:
       paceDistance > 0 ? (paceDuration / paceDistance) * 1000 : null,
-    averageLegsRpe: average(legs),
-    averageBreathingRpe: average(breathing),
+    medianLegsRpe: medianOrNull(legs),
+    medianBreathingRpe: medianOrNull(breathing),
     longestRun: valid.reduce<Run | null>(
       (longest, run) =>
         !longest || run.distanceMeters > longest.distanceMeters ? run : longest,

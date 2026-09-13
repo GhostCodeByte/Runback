@@ -1,5 +1,6 @@
 import type { Run } from '../native';
 import type { RunPurpose } from './types';
+import { medianOrNull } from './inference';
 import { average, mondayStart, validRun } from './statistics';
 
 /**
@@ -63,8 +64,8 @@ export interface StatsTotals {
   distanceKm: number;
   durationSeconds: number;
   paceSecondsPerKm: number | null;
-  averageLegsRpe: number | null;
-  averageBreathingRpe: number | null;
+  medianLegsRpe: number | null;
+  medianBreathingRpe: number | null;
   averageHeartRate: number | null;
   averageCadence: number | null;
   averageDistanceKm: number | null;
@@ -237,9 +238,14 @@ function rated(runs: Run[], key: 'legs' | 'breathing'): number[] {
 }
 
 /** Ein Wert für „wie hart hat es sich angefühlt“: Mittel aus Beinen und
- *  Atmung, sofern der Lauf überhaupt bewertet wurde. */
+ *  Atmung, nur wenn beide bewertet wurden. Sonst würde derselbe Kennwert je
+ *  Lauf etwas anderes bedeuten. */
 function runEffort(run: Run): number | null {
-  return average(rated([run], 'legs').concat(rated([run], 'breathing')));
+  const legs = rated([run], 'legs');
+  const breathing = rated([run], 'breathing');
+  return legs.length && breathing.length
+    ? average(legs.concat(breathing))
+    : null;
 }
 
 function positive(values: (number | undefined)[]): number[] {
@@ -279,7 +285,7 @@ function makeDelta(current: number | null, previous: number | null): StatsDelta 
     current,
     previous,
     changeRatio,
-    // Unter einem Prozent ist keine Veränderung, sondern Rauschen.
+    // Anzeigeregel, kein Messrauschen: unter einem Prozent steht „± 0 %“.
     direction:
       Math.abs(changeRatio) < 0.01 ? 'flat' : changeRatio > 0 ? 'up' : 'down',
   };
@@ -485,8 +491,9 @@ function totalsFor(runs: Run[], weeks: number): StatsTotals {
     distanceKm,
     durationSeconds: runs.reduce((sum, run) => sum + run.durationSeconds, 0),
     paceSecondsPerKm: weightedPace(runs),
-    averageLegsRpe: average(rated(runs, 'legs')),
-    averageBreathingRpe: average(rated(runs, 'breathing')),
+    // RPE ist ordinal: Median statt Mittelwert.
+    medianLegsRpe: medianOrNull(rated(runs, 'legs')),
+    medianBreathingRpe: medianOrNull(rated(runs, 'breathing')),
     averageHeartRate: average(positive(runs.map(run => run.avgHeartRate))),
     averageCadence: average(positive(runs.map(run => run.avgCadence))),
     averageDistanceKm: runs.length ? distanceKm / runs.length : null,

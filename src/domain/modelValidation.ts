@@ -37,9 +37,25 @@ export interface ModelValidationInput {
   calibration?: CalibrationState;
 }
 
+/**
+ * Vorab festgelegte Prüfschwellen (Setzungen). Drei Meldungen aus einem
+ * Erholungsverlauf sind keine drei unabhängigen Erfahrungen; deshalb zählen
+ * Beobachtungen und Belastungsblöcke getrennt, und ein Gewinn gegenüber der
+ * besten naiven Vorhersage muss praktisch spürbar sein.
+ */
+export const VALIDATION_THRESHOLDS = Object.freeze({
+  minimumHoldouts: 8,
+  minimumBlocks: 3,
+  /** Relativer MAE-Gewinn gegenüber der besten naiven Vorhersage. */
+  minimumRelativeGain: 0.1,
+  /** Absoluter MAE-Gewinn in Skalenpunkten (0–10). */
+  minimumAbsoluteGainPoints: 1,
+} as const);
+
 export interface ValidationOptions {
   timeConstantGrid?: CalibrationInput['timeConstantGrid'];
   minimumHoldouts?: number;
+  minimumBlocks?: number;
 }
 
 export interface HoldoutObservation {
@@ -51,15 +67,23 @@ export interface HoldoutObservation {
   repeatLast: number | null;
   alwaysZero: number;
   trainingReportCount: number;
+  /** Letzte Einheit vor der Meldung; Meldungen desselben Blocks sind verwandt. */
+  blockId: string | null;
 }
 
 export interface HoldoutCheck {
   count: number;
+  /** Anzahl verschiedener Belastungsblöcke unter den Beobachtungen. */
+  blocks: number;
   modelMae: number | null;
   personalMedianMae: number | null;
   repeatLastMae: number | null;
   alwaysZeroMae: number | null;
+  /** MAE der besten naiven Vorhersage. */
+  bestBaselineMae: number | null;
   beatsAllBaselines: boolean;
+  /** Gewinn erreicht die vorab festgelegten Mindestwerte. */
+  gainIsRelevant: boolean;
   passes: boolean;
 }
 
@@ -119,7 +143,9 @@ export interface ModelValidationResult extends MuscleModelProvenance {
 export interface ModelUnlockReason {
   code:
     | 'not_enough_holdouts'
+    | 'not_enough_blocks'
     | 'naive_baseline_not_beaten'
+    | 'gain_too_small'
     | 'calibration_gap'
     | 'time_behaviour'
     | 'stability'
@@ -144,6 +170,11 @@ const sortedReports = (reports: MuscleReport[]): MuscleReport[] =>
     .sort((left, right) => left.report.at - right.report.at || left.index - right.index)
     .map(item => item.report);
 
+/**
+ * Die Kalibrierung lernt nur Kraftbeiträge. Läufe wären in der Prognose
+ * unkalibrierte Zusatzlast; sie bleiben deshalb aus der Prüfung draußen,
+ * bis sie mitkalibriert werden.
+ */
 const commonFreshnessInput = (
   input: ModelValidationInput,
   at: number,
@@ -152,7 +183,7 @@ const commonFreshnessInput = (
 ): FreshnessInput => ({
   at,
   sessions: input.sessions,
-  runs: input.runs,
+  runs: undefined,
   reports,
   exercises: input.exercises,
   exerciseById: input.exerciseById,
@@ -164,6 +195,11 @@ const commonFreshnessInput = (
   state,
 });
 
+/**
+ * Immer neu aus den Meldungen vor dem Prüfzeitpunkt. Eine von außen
+ * übergebene Kalibrierung könnte spätere Meldungen enthalten und die
+ * Prüfung mit Zukunftswissen bestehen; sie wird hier bewusst nicht benutzt.
+ */
 const calibrationFor = (
   input: ModelValidationInput,
   reports: MuscleReport[],
@@ -171,9 +207,6 @@ const calibrationFor = (
 ): CalibrationState | undefined => {
   if (!reports.length) {
     return undefined;
-  }
-  if (input.calibration) {
-    return input.calibration;
   }
   return calibrateModel({
     sessions: input.sessions,
@@ -227,6 +260,17 @@ const reportsBefore = (
   return targetIndex < 0 ? sorted.filter(report => report.at < target.at) : sorted.slice(0, targetIndex);
 };
 
+const blockFor = (input: ModelValidationInput, at: number): string | null => {
+  let latest: StrengthSession | null = null;
+  for (const session of input.sessions) {
+    const end = session.endTime ?? session.startTime;
+    if (end <= at && (!latest || end > (latest.endTime ?? latest.startTime))) {
+      latest = session;
+    }
+  }
+  return latest?.id ?? null;
+};
+
 const makeHoldouts = (
   input: ModelValidationInput,
   options: ValidationOptions,
@@ -256,6 +300,7 @@ const makeHoldouts = (
       repeatLast: values[values.length - 1] ?? null,
       alwaysZero: 0,
       trainingReportCount: trainingReports.length,
+      blockId: blockFor(input, report.at),
     });
   }
   return observations;
@@ -264,6 +309,7 @@ const makeHoldouts = (
 const holdoutCheck = (
   observations: HoldoutObservation[],
   minimumHoldouts: number,
+  minimumBlocks: number,
 ): HoldoutCheck => {
   const observed = observations.map(observation => observation.observed);
   const modelMae = meanAbsoluteError(
@@ -282,22 +328,37 @@ const holdoutCheck = (
     observations.map(observation => observation.alwaysZero),
     observed,
   );
+  const bestBaselineMae =
+    medianMae !== null && repeatMae !== null && zeroMae !== null
+      ? Math.min(medianMae, repeatMae, zeroMae)
+      : null;
   const beatsAllBaselines =
+    modelMae !== null && bestBaselineMae !== null && modelMae < bestBaselineMae;
+  const gainIsRelevant =
+    beatsAllBaselines &&
     modelMae !== null &&
-    medianMae !== null &&
-    repeatMae !== null &&
-    zeroMae !== null &&
-    modelMae < medianMae &&
-    modelMae < repeatMae &&
-    modelMae < zeroMae;
+    bestBaselineMae !== null &&
+    bestBaselineMae - modelMae >=
+      VALIDATION_THRESHOLDS.minimumAbsoluteGainPoints &&
+    modelMae <=
+      bestBaselineMae * (1 - VALIDATION_THRESHOLDS.minimumRelativeGain);
+  const blocks = new Set(
+    observations.map(observation => observation.blockId ?? 'none'),
+  ).size;
   return {
     count: observations.length,
+    blocks,
     modelMae,
     personalMedianMae: medianMae,
     repeatLastMae: repeatMae,
     alwaysZeroMae: zeroMae,
+    bestBaselineMae,
     beatsAllBaselines,
-    passes: observations.length >= minimumHoldouts && beatsAllBaselines,
+    gainIsRelevant,
+    passes:
+      observations.length >= minimumHoldouts &&
+      blocks >= minimumBlocks &&
+      gainIsRelevant,
   };
 };
 
@@ -556,7 +617,8 @@ export function validateModel(
   const observations = makeHoldouts(input, options);
   const holdout = holdoutCheck(
     observations,
-    options.minimumHoldouts ?? 3,
+    options.minimumHoldouts ?? VALIDATION_THRESHOLDS.minimumHoldouts,
+    options.minimumBlocks ?? VALIDATION_THRESHOLDS.minimumBlocks,
   );
   const calibration = calibrationCheck(observations);
   const timeBehaviour = timeBehaviourCheck(input, observations);
@@ -587,16 +649,31 @@ export function modelIsUnlocked(
 ): ModelUnlockVerdict {
   const checks = validateModel(input, options);
   const reasons: ModelUnlockReason[] = [];
-  if (checks.holdout.count < (options.minimumHoldouts ?? 3)) {
+  const minimumHoldouts =
+    options.minimumHoldouts ?? VALIDATION_THRESHOLDS.minimumHoldouts;
+  const minimumBlocks =
+    options.minimumBlocks ?? VALIDATION_THRESHOLDS.minimumBlocks;
+  if (checks.holdout.count < minimumHoldouts) {
     reasons.push({
       code: 'not_enough_holdouts',
-      reason: 'Es gibt noch nicht genügend aufeinanderfolgende Meldungen für eine Hold-out-Prüfung.',
+      reason: `Es gibt noch nicht genügend spätere Meldungen für die Prüfung (${checks.holdout.count} von ${minimumHoldouts}).`,
+    });
+  }
+  if (checks.holdout.blocks < minimumBlocks) {
+    reasons.push({
+      code: 'not_enough_blocks',
+      reason: `Die Meldungen stammen aus zu wenigen Belastungsblöcken (${checks.holdout.blocks} von ${minimumBlocks}); verwandte Meldungen zählen nicht als unabhängige Erfahrung.`,
     });
   }
   if (!checks.holdout.beatsAllBaselines) {
     reasons.push({
       code: 'naive_baseline_not_beaten',
       reason: 'Der mittlere absolute Fehler schlägt nicht alle drei einfachen Vergleichswerte.',
+    });
+  } else if (!checks.holdout.gainIsRelevant) {
+    reasons.push({
+      code: 'gain_too_small',
+      reason: `Der Gewinn gegenüber der besten einfachen Vorhersage ist kleiner als vorab festgelegt (mindestens ${VALIDATION_THRESHOLDS.minimumAbsoluteGainPoints} Punkt und ${Math.round(VALIDATION_THRESHOLDS.minimumRelativeGain * 100)} %).`,
     });
   }
   if (!checks.calibration.passes) {

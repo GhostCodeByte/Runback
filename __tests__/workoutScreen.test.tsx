@@ -131,8 +131,8 @@ describe('Trainingsansicht', () => {
     expect(shown).toContain('Beinbeuger liegend');
     expect(shown).toContain('Kniebeuge (Langhantel)');
     expect(shown).toContain('Wadenheben stehend');
-    // Nur die aktuelle Übung zeigt Eingabefelder.
-    expect(tree.root.findAllByType(TextInput)).toHaveLength(2);
+    // Nur die aktuelle Übung zeigt Eingabefelder: kg, Wdh. und RIR (optional).
+    expect(tree.root.findAllByType(TextInput)).toHaveLength(3);
   });
 
   it('kennzeichnet die Richtung der Nachbarübungen', () => {
@@ -168,6 +168,25 @@ describe('Trainingsansicht', () => {
       base().exercises[0].sets[0].id,
       { actualWeightKg: 100, actualReps: 4 },
     );
+  });
+
+  it('übernimmt eine gemeldete Reserve (RIR) nur als Nutzereingabe', () => {
+    const props = handlers();
+    const tree = render(base(), props);
+    ReactTestRenderer.act(() => {
+      tree.root.findAllByType(TextInput)[2].props.onChangeText('2');
+    });
+    byLabel(tree, 'Satz 1 bestätigen').props.onPress();
+    expect(props.onCompleteSet).toHaveBeenCalledWith(
+      0,
+      base().exercises[0].sets[0].id,
+      { actualWeightKg: 100, actualReps: 5, actualRir: 2 },
+    );
+    // Leer bleibt unbekannt: kein Feld, keine 0.
+    const empty = handlers();
+    const bare = render(base(), empty);
+    byLabel(bare, 'Satz 1 bestätigen').props.onPress();
+    expect(empty.onCompleteSet.mock.calls[0][2]).not.toHaveProperty('actualRir');
   });
 
   it('speichert bei einem Zeitsatz Sekunden statt Wiederholungen', () => {

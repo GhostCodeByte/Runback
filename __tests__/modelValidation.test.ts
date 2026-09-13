@@ -55,7 +55,7 @@ describe('Modellprüfung', () => {
     expect(result.holdout.personalMedianMae).not.toBeNull();
     expect(result.holdout.repeatLastMae).not.toBeNull();
     expect(result.calibration.bins).toHaveLength(5);
-    expect(result.model_version).toBe('muscle-model-v1');
+    expect(result.model_version).toBe('muscle-model-v2');
   });
 
   it('bleibt bei fehlender Datengrundlage gesperrt und nennt Gründe', () => {
@@ -65,6 +65,31 @@ describe('Modellprüfung', () => {
     expect(verdict.checks.failures.passes).toBe(true);
     expect(verdict.regions_version).toBe('regions-v1');
     expect(verdict.catalog_version).toBe('catalog-v1');
+  });
+
+  it('zählt Meldungen eines Erholungsverlaufs als einen Block und verlangt einen spürbaren Gewinn', () => {
+    const result = validateModel(input);
+    // Vier Meldungen nach derselben Einheit: ein Block, keine unabhängige Erfahrung.
+    expect(result.holdout.blocks).toBe(1);
+    expect(result.holdout.passes).toBe(false);
+    const verdict = modelIsUnlocked(input);
+    expect(verdict.reasons.map(reason => reason.code)).toEqual(
+      expect.arrayContaining(['not_enough_holdouts', 'not_enough_blocks']),
+    );
+    expect(verdict.unlocked).toBe(false);
+  });
+
+  it('ignoriert eine von außen übergebene Kalibrierung, damit kein Zukunftswissen einfließt', () => {
+    const plain = validateModel(input);
+    const leaked = validateModel({
+      ...input,
+      calibration: {
+        coefficients: { 'leg_extension:quad': 42 },
+      } as unknown as ModelValidationInput['calibration'],
+    });
+    expect(leaked.holdouts.map(item => item.predicted)).toEqual(
+      plain.holdouts.map(item => item.predicted),
+    );
   });
 
   it('behandelt widersprüchliche Meldungen ohne Absturz', () => {

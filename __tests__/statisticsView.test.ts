@@ -102,6 +102,15 @@ describe('buildStatisticsView', () => {
     expect(rich.available.effort).toBe(true);
     expect(rich.available.heartRate).toBe(true);
     expect(rich.buckets[rich.buckets.length - 1].effort).toBe(7);
+
+    // Nur Beine bewertet: kein Gefühlswert, sonst wechselt seine Bedeutung.
+    const half = buildStatisticsView(
+      [run({ rpe: { legs: 6, recordedAt: 1 } })],
+      '4w',
+      NOW,
+    );
+    expect(half.available.effort).toBe(false);
+    expect(half.buckets[half.buckets.length - 1].effort).toBeNull();
   });
 
   it('splits distance by purpose, largest share first', () => {

@@ -450,11 +450,33 @@ export function updateRecursiveCalibration(
   const means = state.means.map((mean, index) =>
     Math.max(0, mean + gain[index] * error),
   );
+  // Joseph-Form: P⁺ = (I − KH) P (I − KH)ᵀ + K R Kᵀ. Bleibt auch bei
+  // Rundungsfehlern symmetrisch und positiv semidefinit.
+  const identityMinusKH = Array.from({ length: count }, (_, row) =>
+    Array.from({ length: count }, (_, column) =>
+      (row === column ? 1 : 0) - gain[row] * (values[column] ?? 0),
+    ),
+  );
+  const left = zeroMatrix(count);
+  for (let row = 0; row < count; row += 1) {
+    for (let column = 0; column < count; column += 1) {
+      let sum = 0;
+      for (let k = 0; k < count; k += 1) {
+        sum += identityMinusKH[row][k] * state.covariance[k][column];
+      }
+      left[row][column] = sum;
+    }
+  }
   const covariance = zeroMatrix(count);
   for (let row = 0; row < count; row += 1) {
     for (let column = 0; column < count; column += 1) {
+      let sum = 0;
+      for (let k = 0; k < count; k += 1) {
+        sum += left[row][k] * identityMinusKH[column][k];
+      }
       covariance[row][column] =
-        state.covariance[row][column] - gain[row] * projected[column] +
+        sum +
+        gain[row] * gain[column] * scaledMeasurementVariance +
         (row === column ? MUSCLE_MODEL_CONSTANTS.processNoiseQ : 0);
     }
   }
@@ -570,31 +592,39 @@ const predictRow = (row: DesignMatrixRow, coefficients: number[]): number => {
   return 10 * (1 - Math.exp(-load / row.capacity));
 };
 
-/** Wählt Zeitkonstanten aus einem festen Raster mit Leave-one-out-Fehler. */
+/**
+ * Wählt Zeitkonstanten aus einem festen Raster mit zeitlich fortlaufendem
+ * Fehler: jede Meldung wird mit dem Stand davor vorhergesagt, dann erst
+ * eingelernt. Derselbe rekursive Schätzer wie im Endstand, damit die Wahl
+ * das Modell bewertet, das später auch rechnet.
+ */
 export function selectTimeConstants(input: CalibrationInput): TimeConstantSelection {
   const grid = input.timeConstantGrid ?? TIME_CONSTANT_GRID;
   const errors = grid.map(candidate => {
     const matrix = buildDesignMatrix({ ...input, timeConstants: candidate });
     const sorenessRows = matrix.rows.filter(row => reportIsSoreness(row.report));
-    if (!sorenessRows.length) {
+    if (sorenessRows.length < 2) {
       return { candidate, error: 0 };
     }
+    const priorValues = defaultPriors(matrix.columns, input.priors);
+    let recursive = createRecursiveCalibrationState(
+      matrix.columns.length,
+      priorValues,
+    );
     let totalError = 0;
-    for (let holdout = 0; holdout < sorenessRows.length; holdout += 1) {
-      const trainingRows = sorenessRows.filter((_, index) => index !== holdout);
-      const solved = solveRegularizedNonNegativeLeastSquares(
-        trainingRows.map(row => row.values),
-        trainingRows.map(row => row.target),
-        trainingRows[0]?.values.map(() => 1) ?? [],
-      );
-      totalError += Math.abs(
-        predictRow(sorenessRows[holdout], solved.coefficients) -
-          sorenessRows[holdout].observedValue,
-      );
-    }
+    let scored = 0;
+    sorenessRows.forEach((row, index) => {
+      if (index > 0) {
+        totalError += Math.abs(
+          predictRow(row, recursive.means) - row.observedValue,
+        );
+        scored += 1;
+      }
+      recursive = updateRecursiveCalibration(recursive, row.values, row.target);
+    });
     return {
       candidate,
-      error: totalError / sorenessRows.length,
+      error: scored ? totalError / scored : 0,
     };
   });
   const selected = errors.reduce(

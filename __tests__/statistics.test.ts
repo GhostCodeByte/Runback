@@ -88,17 +88,18 @@ describe('aggregateStatistics', () => {
     expect(stats.paceSecondsPerKm).toBeNull();
   });
 
-  it('returns eight local weeks and averages only recorded RPE values', () => {
+  it('returns eight local weeks and takes the median of recorded RPE values only', () => {
     const stats = aggregateStatistics(
       [
         run({ rpe: { legs: 6, breathing: 8, recordedAt: 1 } }),
         run({ id: 'second', rpe: { legs: 8, recordedAt: 1 } }),
+        run({ id: 'third', rpe: { legs: 9, recordedAt: 1 } }),
       ],
       Date.UTC(2026, 0, 7),
     );
 
     expect(stats.weeks).toHaveLength(8);
-    expect(stats.averageLegsRpe).toBe(7);
-    expect(stats.averageBreathingRpe).toBe(8);
+    expect(stats.medianLegsRpe).toBe(8);
+    expect(stats.medianBreathingRpe).toBe(8);
   });
 });

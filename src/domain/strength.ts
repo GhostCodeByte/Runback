@@ -54,6 +54,8 @@ export interface LoggedSet {
   actualReps?: number;
   actualSeconds?: number;
   actualWeightKg?: number;
+  /** Gemeldete Wiederholungen im Tank (RIR). Nutzereingabe, nie geschätzt. */
+  actualRir?: number;
   completedAt?: number;
   /** Vom Nutzer übersprungen. Kein Fehler, nur eine Angabe zur Umsetzung. */
   skipped?: boolean;
@@ -199,7 +201,10 @@ export function editSet(
   session: StrengthSession,
   exerciseIndex: number,
   setId: string,
-  values: Pick<LoggedSet, 'actualReps' | 'actualWeightKg' | 'actualSeconds'>,
+  values: Pick<
+    LoggedSet,
+    'actualReps' | 'actualWeightKg' | 'actualSeconds' | 'actualRir'
+  >,
 ): StrengthSession {
   const exercise = session.exercises[exerciseIndex];
   const set = exercise?.sets.find(candidate => candidate.id === setId);
@@ -224,7 +229,7 @@ export function completeSet(
   now: number,
   values: Pick<
     LoggedSet,
-    'actualReps' | 'actualWeightKg' | 'actualSeconds'
+    'actualReps' | 'actualWeightKg' | 'actualSeconds' | 'actualRir'
   > = {},
 ): StrengthSession {
   const exercise = session.exercises[exerciseIndex];
@@ -483,11 +488,19 @@ export function formatWeight(value: number): string {
 }
 
 /**
+ * Bis hierhin ist Epley gegen gemessene 1RM geprüft (LeSuer 1997, Reynolds
+ * 2006); darüber dominiert Ausdauer, und die Schätzung streut zu stark, um
+ * ungewichtet in einen Trend einzugehen.
+ */
+export const MAX_REPS_FOR_E1RM = 12;
+
+/**
  * Geschätztes Einwiederholungsmaximum nach Epley.
- * Schätzung, keine Messung. Nur für Arbeitssätze mit Last und Wiederholungen.
+ * Schätzung, keine Messung. Nur für Arbeitssätze mit Last und bis zu zwölf
+ * Wiederholungen; längere Sätze liefern keinen Wert statt eines groben.
  */
 export function epley1RM(weightKg: number, reps: number): number | null {
-  if (!(weightKg > 0) || !(reps > 0) || reps > 30) {
+  if (!(weightKg > 0) || !(reps > 0) || reps > MAX_REPS_FOR_E1RM) {
     return null;
   }
   return weightKg * (1 + reps / 30);
