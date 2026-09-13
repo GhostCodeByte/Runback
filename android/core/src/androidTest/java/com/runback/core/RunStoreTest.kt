@@ -118,6 +118,49 @@ class RunStoreTest {
     }
 
     @Test
+    fun summaryImportDeduplicatesShiftedOverlappingExports() {
+        val start = System.currentTimeMillis() - 600_000
+        val first = JSONObject().put("startTime", start).put("durationSeconds", 1_800.0)
+            .put("distanceMeters", 5_000.0)
+        val shifted = JSONObject().put("startTime", start + 55_000).put("durationSeconds", 2_050.0)
+            .put("distanceMeters", 5_050.0)
+        val separate = JSONObject().put("startTime", start + 2_000_000).put("durationSeconds", 1_800.0)
+            .put("distanceMeters", 5_000.0)
+
+        val imported = store.addSummaryRun(first, "strava-summary")
+        val duplicate = store.addSummaryRun(shifted, "google-health-summary")
+        val other = store.addSummaryRun(separate, "other-run")
+
+        assertEquals("imported", imported.getString("status"))
+        assertEquals("duplicate", duplicate.getString("status"))
+        assertEquals(imported.getString("id"), duplicate.getString("id"))
+        assertEquals("imported", other.getString("status"))
+        assertEquals(2, store.listRuns().length())
+    }
+
+    @Test
+    fun duplicateSummaryEnrichesTheExistingRunWithoutOverwritingItsCoreData() {
+        val start = System.currentTimeMillis() - 600_000
+        val first = JSONObject().put("startTime", start).put("durationSeconds", 1_800.0)
+            .put("distanceMeters", 5_000.0).put("name", "activity_19404735112.gpx")
+        val richer = JSONObject().put("startTime", start + 40_000).put("durationSeconds", 1_820.0)
+            .put("distanceMeters", 5_010.0).put("name", "Parkrunde")
+            .put("calories", 299.0).put("steps", 4_200).put("sourceActivityId", "19404735112")
+
+        val imported = store.addSummaryRun(first, "track-source")
+        val duplicate = store.addSummaryRun(richer, "summary-source")
+        val run = store.listRuns().getJSONObject(0)
+
+        assertEquals("duplicate", duplicate.getString("status"))
+        assertTrue(duplicate.getBoolean("enriched"))
+        assertEquals(imported.getString("id"), run.getString("id"))
+        assertEquals("Parkrunde", run.getString("name"))
+        assertEquals(299.0, run.getDouble("calories"), 0.1)
+        assertEquals(4_200, run.getInt("steps"))
+        assertEquals(5_000.0, run.getDouble("distanceMeters"), 0.1)
+    }
+
+    @Test
     fun summaryImportRejectsInvalidDurationAndDistanceBeforePersisting() {
         val start = System.currentTimeMillis() - 120_000
         val invalidDuration = JSONObject().put("startTime", start).put("durationSeconds", -1.0)

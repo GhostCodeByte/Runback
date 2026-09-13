@@ -296,17 +296,73 @@ class RunStore(context: Context) {
         value.keys().forEach { feedback.put(it,value.get(it)) }; feedback.put("updatedAt",System.currentTimeMillis())
         transaction { putDocument("feedback_$id",feedback); addEvent(id,"feedback",value) }
     }
+    private fun findDuplicateRunId(start: Long, durationSeconds: Double): String? {
+        val duration = durationSeconds.coerceAtLeast(0.0)
+        val end = start + (duration * 1000.0).toLong()
+        val queryStart = start - MAX_RUN_DURATION_MS
+        val queryEnd = end + MAX_RUN_DURATION_MS
+        db.rawQuery("SELECT id,start,json FROM runs WHERE start BETWEEN ? AND ?",
+            arrayOf(queryStart.toString(), queryEnd.toString())).use { rows ->
+            while (rows.moveToNext()) {
+                val otherStart = rows.getLong(1)
+                val other = JSONObject(rows.getString(2))
+                val otherDuration = other.optLong("durationMs", 0L).coerceAtLeast(0L) / 1000.0
+                val otherEnd = otherStart + (otherDuration * 1000.0).toLong()
+                val startDiff = abs(otherStart - start) / 1000.0
+                val durationDiff = abs(otherDuration - duration)
+                if (duration <= 0.0 && otherDuration <= 0.0) {
+                    if (startDiff <= 10.0) return rows.getString(0)
+                    continue
+                }
+                val sameStart = startDiff <= 120.0 &&
+                    durationDiff <= maxOf(120.0, maxOf(duration, otherDuration) * 0.20)
+                val overlap = maxOf(0L, minOf(end, otherEnd) - maxOf(start, otherStart)) / 1000.0
+                val intervalMatch = duration > 0.0 && otherDuration > 0.0 &&
+                    overlap >= minOf(duration, otherDuration) * 0.75 &&
+                    durationDiff <= maxOf(180.0, maxOf(duration, otherDuration) * 0.20)
+                if (sameStart || intervalMatch) return rows.getString(0)
+            }
+        }
+        return null
+    }
+
+    private fun isTechnicalImportedName(value: String): Boolean {
+        val name = value.trim().lowercase()
+        if (name.isBlank()) return true
+        if (name in setOf("lauf", "laufen", "run", "running", "activity", "track", "workout",
+                "training", "importierter lauf", "garmin lauf", "google fit lauf", "mi fitness lauf")) return true
+        if (Regex("\\d{6,}").containsMatchIn(name)) return true
+        return !name.contains(' ') && (name.contains('.') || name.contains('_')) && name.any(Char::isDigit)
+    }
+
+    /** Merge fields that are only present in a richer summary export. User edits win. */
+    private fun mergeImportedMetadata(id: String, incoming: JSONObject): Boolean {
+        val existing = read(id)
+        var changed = false
+        val incomingName = incoming.optString("name").trim()
+        if (isTechnicalImportedName(existing.optString("name")) && incomingName.isNotBlank()) {
+            existing.put("name", incomingName); changed = true
+        }
+        listOf("avgHeartRate", "avgCadence", "calories", "steps", "elevationGainMeters",
+            "sourceActivityId", "sourceActivityType", "importVersion", "importDetails").forEach { key ->
+            if ((!existing.has(key) || existing.isNull(key)) && incoming.has(key) && !incoming.isNull(key)) {
+                existing.put(key, incoming.get(key)); changed = true
+            }
+        }
+        if (changed) write(existing)
+        return changed
+    }
+
     fun addImportedRun(summary: JSONObject, samples: JSONArray, sourceHash: String): JSONObject = locked {
         val start = summary.optLong("startTime",summary.optLong("startedAt"));require(start>0){"Startzeit fehlt"}
         val fingerprint = "start:${start/1000}"
         db.rawQuery("SELECT id FROM tombstones WHERE id IN (?,?)",arrayOf(sourceHash,fingerprint)).use { if(it.moveToFirst())return@locked JSONObject().put("status","deleted") }
         var duplicate: String? = null
         db.rawQuery("SELECT run_id FROM hashes WHERE hash=?",arrayOf(sourceHash)).use { if(it.moveToFirst())duplicate=it.getString(0) }
-        if(duplicate==null) db.rawQuery("SELECT id,json FROM runs WHERE abs(start-?)<=10000",arrayOf(start.toString())).use { rows ->
-            while(rows.moveToNext()) { val other=JSONObject(rows.getString(1));val duration=summary.optDouble("durationSeconds",0.0)
-                if(abs(other.optLong("durationMs")/1000.0-duration)<=maxOf(30.0,duration*.05)) {duplicate=rows.getString(0);break} } }
-        if(duplicate!=null) { db.insertWithOnConflict("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",duplicate)},SQLiteDatabase.CONFLICT_IGNORE)
-            return@locked JSONObject().put("status","duplicate").put("id",duplicate) }
+        if(duplicate==null) duplicate = findDuplicateRunId(start, summary.optDouble("durationSeconds",0.0))
+        if(duplicate!=null) { val enriched = mergeImportedMetadata(duplicate!!, summary)
+            db.insertWithOnConflict("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",duplicate)},SQLiteDatabase.CONFLICT_IGNORE)
+            return@locked JSONObject().put("status","duplicate").put("id",duplicate).put("enriched", enriched) }
         transaction {
             val run=JSONObject(summary.toString());val id=run.optString("id").takeIf{it.matches(Regex("[A-Za-z0-9_-]{1,100}"))}?:UUID.randomUUID().toString()
             run.put("id",id).put("startTime",start).put("durationMs",(summary.optDouble("durationSeconds",0.0)*1000).toLong())
@@ -415,11 +471,10 @@ class RunStore(context: Context) {
         db.rawQuery("SELECT id FROM tombstones WHERE id IN (?,?)",arrayOf(sourceHash,fingerprint)).use { if(it.moveToFirst())return@locked JSONObject().put("status","deleted") }
         var duplicate: String? = null
         db.rawQuery("SELECT run_id FROM hashes WHERE hash=?",arrayOf(sourceHash)).use { if(it.moveToFirst())duplicate=it.getString(0) }
-        if(duplicate==null) db.rawQuery("SELECT id,json FROM runs WHERE abs(start-?)<=10000",arrayOf(start.toString())).use { rows ->
-            while(rows.moveToNext()) { val other=JSONObject(rows.getString(1));val duration=summary.optDouble("durationSeconds",0.0)
-                if(abs(other.optLong("durationMs")/1000.0-duration)<=maxOf(30.0,duration*.05)) {duplicate=rows.getString(0);break} } }
-        if(duplicate!=null) { db.insertWithOnConflict("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",duplicate)},SQLiteDatabase.CONFLICT_IGNORE)
-            return@locked JSONObject().put("status","duplicate").put("id",duplicate) }
+        if(duplicate==null) duplicate = findDuplicateRunId(start, duration)
+        if(duplicate!=null) { val enriched = mergeImportedMetadata(duplicate!!, summary)
+            db.insertWithOnConflict("hashes",null,ContentValues().apply{put("hash",sourceHash);put("run_id",duplicate)},SQLiteDatabase.CONFLICT_IGNORE)
+            return@locked JSONObject().put("status","duplicate").put("id",duplicate).put("enriched", enriched) }
         transaction {
             val run=JSONObject(summary.toString());val id=run.optString("id").takeIf{it.matches(Regex("[A-Za-z0-9_-]{1,100}"))}?:UUID.randomUUID().toString()
             run.put("id",id).put("startTime",start).put("durationMs",(duration*1000).toLong())
@@ -533,5 +588,5 @@ class RunStore(context: Context) {
             db.execSQL("CREATE INDEX IF NOT EXISTS strength_sets_workout ON strength_sets(workout_id)")
         }
     }
-    companion object {private val lock=Any();private var helper:Database?=null;private val tables=listOf("runs","samples","events","documents","hashes","tombstones","sources","wellness","strength_workouts","strength_sets");private val legacyTables=listOf("runs","samples","events","documents","hashes","tombstones","sources");private const val MAX_WELLNESS_BATCH = 50000}
+    companion object {private val lock=Any();private var helper:Database?=null;private val tables=listOf("runs","samples","events","documents","hashes","tombstones","sources","wellness","strength_workouts","strength_sets");private val legacyTables=listOf("runs","samples","events","documents","hashes","tombstones","sources");private const val MAX_WELLNESS_BATCH = 50000;private const val MAX_RUN_DURATION_MS = 24L*60*60*1000}
 }
