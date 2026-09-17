@@ -1,6 +1,19 @@
 import React, { memo, type PropsWithChildren, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import Svg, { Circle, Path } from 'react-native-svg';
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import Svg, {
+  Circle,
+  Line,
+  Path,
+  Rect,
+  Text as SvgText,
+} from 'react-native-svg';
 import type { RoutePoint } from '../native';
 
 /**
@@ -19,6 +32,8 @@ export const color = {
   greenSoft: '#26331E',
   ink: '#14200E',
   danger: '#E4796B',
+  mapOverlay: '#101210D9',
+  mapLine: '#F2F4EF3D',
 };
 
 export const space = {
@@ -341,61 +356,337 @@ export function Icon({
   );
 }
 
-export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
-  const valid = points
-    .filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
-    .slice(0, 512);
-  if (valid.length < 2) {
-    return <Copy muted>Keine GPS-Strecke aufgezeichnet.</Copy>;
+const ROUTE_VIEWBOX_WIDTH = 360;
+const ROUTE_VIEWBOX_HEIGHT = 220;
+const ROUTE_PADDING = 24;
+const TILE_SIZE = 256;
+const TILE_MIN_ZOOM = 10;
+const TILE_MAX_ZOOM = 18;
+const MAX_ROUTE_POINTS = 512;
+
+type Point = [number, number];
+type Tile = {
+  key: string;
+  url: string;
+  left: number;
+  top: number;
+  size: number;
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Web-Mercator-Projektion in Pixeln. Nur für die Kartenkacheln, nicht für Analyse. */
+function worldPixel(latitude: number, longitude: number, zoom: number): Point {
+  const safeLatitude = clamp(latitude, -85.05112878, 85.05112878);
+  const scale = TILE_SIZE * 2 ** zoom;
+  const radians = (safeLatitude * Math.PI) / 180;
+  return [
+    ((longitude + 180) / 360) * scale,
+    (0.5 -
+      Math.log((1 + Math.sin(radians)) / (1 - Math.sin(radians))) /
+        (4 * Math.PI)) *
+      scale,
+  ];
+}
+
+function bounds(points: Point[]) {
+  const xs = points.map(point => point[0]);
+  const ys = points.map(point => point[1]);
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  };
+}
+
+function routeZoom(points: RoutePoint[]): number {
+  for (let zoom = TILE_MAX_ZOOM; zoom >= TILE_MIN_ZOOM; zoom -= 1) {
+    const projected = points.map(point =>
+      worldPixel(point.latitude, point.longitude, zoom),
+    );
+    const range = bounds(projected);
+    const spanX = Math.max(range.maxX - range.minX, 1);
+    const spanY = Math.max(range.maxY - range.minY, 1);
+    const widthRatio = spanX / (ROUTE_VIEWBOX_WIDTH - ROUTE_PADDING * 2);
+    const heightRatio = spanY / (ROUTE_VIEWBOX_HEIGHT - ROUTE_PADDING * 2);
+    if (Math.max(widthRatio, heightRatio) <= 1.2) {
+      return zoom;
+    }
   }
-  const lat = valid.map(p => p.latitude),
-    lon = valid.map(p => p.longitude);
-  const minLat = Math.min(...lat),
-    maxLat = Math.max(...lat),
-    minLon = Math.min(...lon),
-    maxLon = Math.max(...lon);
-  const correction = Math.max(
-    0.01,
-    Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180),
+  return TILE_MIN_ZOOM;
+}
+
+/** Behält Anfang, Ende und Unterbrechungen, ohne bei langen Läufen das Ziel abzuschneiden. */
+function sampleRoute(points: RoutePoint[]): RoutePoint[] {
+  const valid = points.filter(
+    point =>
+      Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
   );
-  const spanX = (maxLon - minLon) * correction,
-    spanY = maxLat - minLat;
+  if (valid.length <= MAX_ROUTE_POINTS) {
+    return valid;
+  }
+
+  const indexes = new Set<number>([0, valid.length - 1]);
+  valid.forEach((point, index) => {
+    if (point.gap) {
+      indexes.add(index);
+    }
+  });
+  const target = Math.max(0, MAX_ROUTE_POINTS - indexes.size);
+  for (let i = 0; i < target; i += 1) {
+    indexes.add(Math.round((i * (valid.length - 1)) / Math.max(target - 1, 1)));
+  }
+  return Array.from(indexes)
+    .sort((left, right) => left - right)
+    .slice(0, MAX_ROUTE_POINTS)
+    .map(index => valid[index]);
+}
+
+function routePath(points: Point[], source: RoutePoint[]): string {
+  return points
+    .map(
+      (point, index) =>
+        `${index === 0 || source[index].gap ? 'M' : 'L'}${point[0].toFixed(
+          2,
+        )},${point[1].toFixed(2)}`,
+    )
+    .join(' ');
+}
+
+function mapTiles(
+  range: { minX: number; maxX: number; minY: number; maxY: number },
+  scale: number,
+  zoom: number,
+): Tile[] {
+  const firstX = Math.floor(range.minX / TILE_SIZE) - 1;
+  const lastX = Math.floor(range.maxX / TILE_SIZE) + 1;
+  const firstY = Math.floor(range.minY / TILE_SIZE) - 1;
+  const lastY = Math.floor(range.maxY / TILE_SIZE) + 1;
+  const worldTiles = 2 ** zoom;
+  const tiles: Tile[] = [];
+
+  for (let tileY = firstY; tileY <= lastY; tileY += 1) {
+    if (tileY < 0 || tileY >= worldTiles) {
+      continue;
+    }
+    for (let tileX = firstX; tileX <= lastX; tileX += 1) {
+      const wrappedX = ((tileX % worldTiles) + worldTiles) % worldTiles;
+      tiles.push({
+        key: `${zoom}/${tileX}/${tileY}`,
+        url: `https://tile.openstreetmap.org/${zoom}/${wrappedX}/${tileY}.png`,
+        left: ROUTE_PADDING + (tileX * TILE_SIZE - range.minX) * scale,
+        top: ROUTE_PADDING + (tileY * TILE_SIZE - range.minY) * scale,
+        size: TILE_SIZE * scale,
+      });
+    }
+  }
+  return tiles;
+}
+
+function RouteBackdrop() {
+  return (
+    <Svg
+      height="100%"
+      pointerEvents="none"
+      style={s.routeLayer}
+      viewBox={`0 0 ${ROUTE_VIEWBOX_WIDTH} ${ROUTE_VIEWBOX_HEIGHT}`}
+      width="100%"
+    >
+      <Rect
+        width={ROUTE_VIEWBOX_WIDTH}
+        height={ROUTE_VIEWBOX_HEIGHT}
+        fill={color.surface}
+      />
+      {Array.from({ length: 9 }, (_, index) => {
+        const x = index * 45;
+        return (
+          <Line
+            key={`vertical-${x}`}
+            x1={x}
+            x2={x}
+            y1={0}
+            y2={ROUTE_VIEWBOX_HEIGHT}
+            stroke={color.line}
+            strokeOpacity={0.36}
+            strokeWidth={1}
+          />
+        );
+      })}
+      {Array.from({ length: 7 }, (_, index) => {
+        const y = index * 42;
+        return (
+          <Line
+            key={`horizontal-${y}`}
+            x1={0}
+            x2={ROUTE_VIEWBOX_WIDTH}
+            y1={y}
+            y2={y}
+            stroke={color.line}
+            strokeOpacity={0.36}
+            strokeWidth={1}
+          />
+        );
+      })}
+    </Svg>
+  );
+}
+
+function markerLabel(point: Point, label: string, width: number) {
+  const left = clamp(point[0] + 12, 8, ROUTE_VIEWBOX_WIDTH - width - 8);
+  const top = clamp(point[1] - 34, 8, ROUTE_VIEWBOX_HEIGHT - 30);
+  return (
+    <>
+      <Rect
+        x={left}
+        y={top}
+        width={width}
+        height={22}
+        rx={11}
+        fill={color.mapOverlay}
+        stroke={color.text}
+        strokeOpacity={0.24}
+        strokeWidth={1}
+      />
+      <SvgText
+        x={left + width / 2}
+        y={top + 15}
+        fill={color.text}
+        fontSize={10}
+        fontWeight="700"
+        textAnchor="middle"
+      >
+        {label}
+      </SvgText>
+    </>
+  );
+}
+
+export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
+  const valid = sampleRoute(points);
+  if (valid.length < 2) {
+    return (
+      <View
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel="Keine GPS-Strecke aufgezeichnet"
+        style={[s.route, s.routeEmpty]}
+      >
+        <RouteBackdrop />
+        <View pointerEvents="none" style={s.routeEmptyContent}>
+          <Text style={s.routeEmptyTitle}>Keine GPS-Strecke</Text>
+          <Text style={s.routeEmptyCopy}>
+            Für diese Einheit wurde keine Route gespeichert.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const zoom = routeZoom(valid);
+  const projected = valid.map(point =>
+    worldPixel(point.latitude, point.longitude, zoom),
+  );
+  const worldRange = bounds(projected);
+  const spanX = Math.max(worldRange.maxX - worldRange.minX, 1);
+  const spanY = Math.max(worldRange.maxY - worldRange.minY, 1);
   const scale = Math.min(
-    284 / Math.max(spanX, 0.000001),
-    184 / Math.max(spanY, 0.000001),
+    (ROUTE_VIEWBOX_WIDTH - ROUTE_PADDING * 2) / spanX,
+    (ROUTE_VIEWBOX_HEIGHT - ROUTE_PADDING * 2) / spanY,
   );
-  const xy = valid.map(p => [
-    18 +
-      (284 - spanX * scale) / 2 +
-      (p.longitude - minLon) * correction * scale,
-    18 + (184 - spanY * scale) / 2 + (maxLat - p.latitude) * scale,
-  ]);
+  const xy = projected.map(
+    point =>
+      [
+        ROUTE_PADDING + (point[0] - worldRange.minX) * scale,
+        ROUTE_PADDING + (point[1] - worldRange.minY) * scale,
+      ] as Point,
+  );
+  const start = xy[0];
+  const finish = xy[xy.length - 1];
+
   return (
     <View
-      accessibilityLabel="Vereinfachte aufgezeichnete GPS-Strecke, ohne Hintergrundkarte"
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel="Aufgezeichnete GPS-Strecke auf einer OpenStreetMap-Karte. Start und Ziel sind markiert."
       style={s.route}
     >
-      <Svg width="100%" height={220} viewBox="0 0 320 220">
+      <RouteBackdrop />
+      {mapTiles(worldRange, scale, zoom).map(tile => (
+        <Image
+          key={tile.key}
+          accessible={false}
+          fadeDuration={0}
+          source={{ uri: tile.url }}
+          style={[
+            s.routeTile,
+            {
+              height: tile.size,
+              left: tile.left,
+              top: tile.top,
+              width: tile.size,
+            },
+          ]}
+        />
+      ))}
+      <View pointerEvents="none" style={s.routeScrim} />
+      <View pointerEvents="none" style={s.routeBadge}>
+        <Text style={s.routeBadgeText}>GPS-Route</Text>
+      </View>
+      <Svg
+        height="100%"
+        pointerEvents="none"
+        style={s.routeLayer}
+        viewBox={`0 0 ${ROUTE_VIEWBOX_WIDTH} ${ROUTE_VIEWBOX_HEIGHT}`}
+        width="100%"
+      >
         <Path
-          d={xy
-            .map(
-              (p, i) => `${i === 0 || valid[i].gap ? 'M' : 'L'}${p[0]},${p[1]}`,
-            )
-            .join(' ')}
+          d={routePath(xy, valid)}
+          stroke={color.ink}
+          strokeWidth={9}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={0.9}
+        />
+        <Path
+          d={routePath(xy, valid)}
           stroke={color.green}
-          strokeWidth={3}
+          strokeWidth={5}
+          strokeLinecap="round"
           strokeLinejoin="round"
           fill="none"
         />
-        <Circle cx={xy[0][0]} cy={xy[0][1]} r={5} fill={color.text} />
         <Circle
-          cx={xy[xy.length - 1][0]}
-          cy={xy[xy.length - 1][1]}
-          r={5}
-          fill={color.green}
-          stroke={color.bg}
-          strokeWidth={2}
+          cx={start[0]}
+          cy={start[1]}
+          r={8}
+          fill={color.text}
+          stroke={color.ink}
+          strokeWidth={3}
         />
+        <Circle
+          cx={finish[0]}
+          cy={finish[1]}
+          r={8}
+          fill={color.green}
+          stroke={color.ink}
+          strokeWidth={3}
+        />
+        {markerLabel(start, 'Start', 48)}
+        {markerLabel(finish, 'Ziel', 42)}
+        <SvgText
+          x={ROUTE_VIEWBOX_WIDTH - 10}
+          y={ROUTE_VIEWBOX_HEIGHT - 10}
+          fill={color.text}
+          fontSize={9}
+          opacity={0.84}
+          textAnchor="end"
+        >
+          © OpenStreetMap-Mitwirkende
+        </SvgText>
       </Svg>
     </View>
   );
@@ -497,5 +788,48 @@ export const s = StyleSheet.create({
   },
   statLarge: { ...type.display },
   statLabel: { color: color.muted, ...type.label, fontWeight: '400' },
-  route: { backgroundColor: color.surface, borderRadius: radius.sm },
+  route: {
+    height: ROUTE_VIEWBOX_HEIGHT,
+    backgroundColor: color.surface,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  routeLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  routeTile: {
+    position: 'absolute',
+    resizeMode: 'cover',
+    opacity: 0.82,
+  },
+  routeScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: color.mapOverlay,
+    opacity: 0.34,
+  },
+  routeBadge: {
+    position: 'absolute',
+    left: space.md,
+    top: space.md,
+    minHeight: 28,
+    justifyContent: 'center',
+    paddingHorizontal: space.sm,
+    borderRadius: radius.pill,
+    backgroundColor: color.mapOverlay,
+    borderWidth: 1,
+    borderColor: color.mapLine,
+  },
+  routeBadgeText: { color: color.text, ...type.micro, fontWeight: '700' },
+  routeEmpty: { justifyContent: 'center', alignItems: 'center' },
+  routeEmptyContent: {
+    alignItems: 'center',
+    paddingHorizontal: space.lg,
+  },
+  routeEmptyTitle: { color: color.text, ...type.heading },
+  routeEmptyCopy: {
+    color: color.muted,
+    ...type.label,
+    textAlign: 'center',
+    marginTop: space.xs,
+  },
 });
