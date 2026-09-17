@@ -82,7 +82,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
 
     private fun granted(permission: String) = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-    private fun activeState() = store.active()?.apply { put("route", store.activeGeometry()) }
+    private fun activeState() = store.activeWithGeometry()
     private fun state() = JSONObject().put("runs", store.listRuns()).put("recording", activeState() ?: JSONObject.NULL)
         .put("settings", store.settings()).put("capabilities", capabilities()).put("import", importer.status())
 
