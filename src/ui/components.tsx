@@ -401,6 +401,121 @@ export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
   );
 });
 
+type MapPoint = Pick<RoutePoint, 'latitude' | 'longitude'>;
+
+/**
+ * Kleine, lokale Routendarstellung ohne Karten-Scraping oder SDK-Zwang. Die
+ * geplante Linie und der tatsächlich aufgezeichnete Teil bleiben getrennt;
+ * dadurch sieht der Nutzer auch bei fehlender Hintergrundkarte, wo er ist.
+ */
+export const RouteMap = memo(function RouteMap({
+  planned,
+  track = [],
+  current,
+}: {
+  planned: MapPoint[];
+  track?: MapPoint[];
+  current?: MapPoint;
+}) {
+  const validPlanned = planned
+    .filter(
+      point =>
+        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+    )
+    .slice(0, 512);
+  const validTrack = track
+    .filter(
+      point =>
+        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+    )
+    .slice(0, 512);
+  const valid = [...validPlanned, ...validTrack, ...(current ? [current] : [])];
+  if (valid.length < 2) {
+    return <Copy muted>Die Route wird noch geladen.</Copy>;
+  }
+  const latitudes = valid.map(point => point.latitude);
+  const longitudes = valid.map(point => point.longitude);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLon = Math.min(...longitudes);
+  const maxLon = Math.max(...longitudes);
+  const correction = Math.max(
+    0.01,
+    Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180),
+  );
+  const spanX = Math.max((maxLon - minLon) * correction, 0.000001);
+  const spanY = Math.max(maxLat - minLat, 0.000001);
+  const scale = Math.min(284 / spanX, 184 / spanY);
+  const pointToSvg = (point: MapPoint) => [
+    18 +
+      (284 - spanX * scale) / 2 +
+      (point.longitude - minLon) * correction * scale,
+    18 + (184 - spanY * scale) / 2 + (maxLat - point.latitude) * scale,
+  ];
+  const pathFor = (points: MapPoint[]) => {
+    const usable = points.filter(
+      point =>
+        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+    );
+    return usable
+      .map((point, index) => {
+        const [x, y] = pointToSvg(point);
+        return `${index === 0 ? 'M' : 'L'}${x},${y}`;
+      })
+      .join(' ');
+  };
+  const start = validPlanned[0] ? pointToSvg(validPlanned[0]) : null;
+  const lastTrack = validTrack[validTrack.length - 1];
+  const currentPoint = current || lastTrack;
+  const currentSvg = currentPoint ? pointToSvg(currentPoint) : null;
+  return (
+    <View
+      accessibilityLabel="Geplante Laufstrecke mit bisher aufgezeichneter Position"
+      style={s.route}
+    >
+      <Svg width="100%" height={220} viewBox="0 0 320 220">
+        <Path
+          d="M18 18H302M18 110H302M18 202H302M18 18V202M160 18V202M302 18V202"
+          stroke={color.line}
+          strokeWidth={0.7}
+          opacity={0.7}
+          fill="none"
+        />
+        <Path
+          d={pathFor(validPlanned)}
+          stroke={color.muted}
+          strokeWidth={2.2}
+          strokeDasharray="5 5"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        {validTrack.length > 1 ? (
+          <Path
+            d={pathFor(validTrack)}
+            stroke={color.green}
+            strokeWidth={4}
+            strokeLinejoin="round"
+            fill="none"
+          />
+        ) : null}
+        {start ? (
+          <Circle cx={start[0]} cy={start[1]} r={5} fill={color.text} />
+        ) : null}
+        {currentSvg ? (
+          <Circle
+            cx={currentSvg[0]}
+            cy={currentSvg[1]}
+            r={7}
+            fill={color.green}
+            stroke={color.ink}
+            strokeWidth={3}
+          />
+        ) : null}
+      </Svg>
+    </View>
+  );
+});
+
 export type { ReactNode };
 
 export const s = StyleSheet.create({
