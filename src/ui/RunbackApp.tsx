@@ -12,6 +12,7 @@ import {
   AppState as AndroidAppState,
   BackHandler,
   FlatList,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -43,6 +44,10 @@ import {
   type ScheduledSession,
   type ScheduleState,
 } from '../domain/schedule';
+import {
+  googleMapsDirectionsUrl,
+  type RouteCoordinate,
+} from '../domain/routes';
 
 import { TrainingChat } from './TrainingChat';
 import { DeviceSettings } from './DeviceSettings';
@@ -126,6 +131,7 @@ import {
   Icon,
   Notice,
   Route,
+  RouteOpenActions,
   Row,
   Section,
   Stat,
@@ -630,6 +636,16 @@ export function RunbackApp() {
   const save = (patch: Partial<Settings>) => {
     void action(() => persist(patch));
   };
+
+  const openGoogleMaps = useCallback(async (points: RouteCoordinate[]) => {
+    const url = googleMapsDirectionsUrl(points);
+    if (!url) throw new Error('Diese Route kann nicht geöffnet werden.');
+    await Linking.openURL(url);
+  }, []);
+
+  const openCoMaps = useCallback(async (points: RouteCoordinate[]) => {
+    await native.openRouteFile(points, 'comaps');
+  }, []);
 
   useEffect(() => {
     void refresh()
@@ -2086,8 +2102,8 @@ export function RunbackApp() {
         {number(recommendation.criteria.targetMaxKg, 1)} kg ×{' '}
         {recommendation.criteria.targetReps} · Vorzeichentest: häufiger als
         zufällig mindestens{' '}
-        {recommendation.criteria.minimumRelevantChangePercent} % über dem
-        Median der Vergleichseinheiten
+        {recommendation.criteria.minimumRelevantChangePercent} % über dem Median
+        der Vergleichseinheiten
       </Copy>
       {recommendation.criteria.exclusions.map((text, i) => (
         <Copy muted key={i}>
@@ -2614,6 +2630,15 @@ export function RunbackApp() {
         <Section title="Strecke">
           <Route points={selected.route || []} />
         </Section>
+        {selected.route && selected.route.length >= 2 ? (
+          <RouteOpenActions
+            onGoogleMaps={() =>
+              void action(() => openGoogleMaps(selected.route || []))
+            }
+            onCoMaps={() => void action(() => openCoMaps(selected.route || []))}
+            disabled={busy}
+          />
+        ) : null}
         <View style={styles.sectionGap}>
           <Button
             secondary

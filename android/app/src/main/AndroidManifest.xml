@@ -30,6 +30,14 @@
 
     <queries>
       <package android:name="com.google.android.apps.healthdata" />
+      <package android:name="com.google.android.apps.maps" />
+      <package android:name="app.comaps.google" />
+      <package android:name="app.comaps" />
+      <package android:name="app.organicmaps" />
+      <intent>
+        <action android:name="android.intent.action.VIEW" />
+        <data android:mimeType="application/gpx+xml" />
+      </intent>
       <intent>
         <action android:name="android.speech.RecognitionService" />
       </intent>
@@ -60,6 +68,15 @@
           <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
         </intent-filter>
       </activity-alias>
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+      </provider>
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"

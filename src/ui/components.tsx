@@ -1,13 +1,14 @@
 import React, { memo, type PropsWithChildren, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import Svg, {
-  Circle,
-  Image as SvgImage,
-  Line,
-  Path,
-  Rect,
-  Text as SvgText,
-} from 'react-native-svg';
+import {
+  Image as NativeImage,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type ImageStyle,
+} from 'react-native';
+import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
 import type { RoutePoint } from '../native';
 
 /**
@@ -351,12 +352,18 @@ export function Icon({
 }
 
 const ROUTE_VIEWBOX_WIDTH = 360;
-const ROUTE_VIEWBOX_HEIGHT = 220;
-const ROUTE_PADDING = 24;
+const ROUTE_VIEWBOX_HEIGHT = 260;
+const ROUTE_PADDING = 28;
 const TILE_SIZE = 256;
 const TILE_MIN_ZOOM = 10;
 const TILE_MAX_ZOOM = 18;
 const MAX_ROUTE_POINTS = 512;
+const MAP_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MAP_TILE_HEADERS = {
+  Accept: 'image/png,image/*;q=0.8',
+  'User-Agent':
+    'Runback/0.1 (https://github.com/GhostCodeByte/Runback; route map)',
+};
 
 type Point = [number, number];
 type Tile = {
@@ -396,7 +403,19 @@ function bounds(points: Point[]) {
   };
 }
 
-function routeZoom(points: RoutePoint[]): number {
+type MapPoint = Pick<RoutePoint, 'latitude' | 'longitude'> & {
+  gap?: boolean;
+};
+
+function validMapPoint(point: MapPoint | undefined): point is MapPoint {
+  return Boolean(
+    point &&
+      Number.isFinite(point.latitude) &&
+      Number.isFinite(point.longitude),
+  );
+}
+
+function routeZoom(points: MapPoint[]): number {
   for (let zoom = TILE_MAX_ZOOM; zoom >= TILE_MIN_ZOOM; zoom -= 1) {
     const projected = points.map(point =>
       worldPixel(point.latitude, point.longitude, zoom),
@@ -439,26 +458,16 @@ function sampleRoute(points: RoutePoint[]): RoutePoint[] {
     .map(index => valid[index]);
 }
 
-function routePath(points: Point[], source: RoutePoint[]): string {
-  return points
-    .map(
-      (point, index) =>
-        `${index === 0 || source[index].gap ? 'M' : 'L'}${point[0].toFixed(
-          2,
-        )},${point[1].toFixed(2)}`,
-    )
-    .join(' ');
-}
-
 function mapTiles(
   range: { minX: number; maxX: number; minY: number; maxY: number },
   scale: number,
   zoom: number,
 ): Tile[] {
-  const firstX = Math.floor(range.minX / TILE_SIZE) - 1;
-  const lastX = Math.floor(range.maxX / TILE_SIZE) + 1;
-  const firstY = Math.floor(range.minY / TILE_SIZE) - 1;
-  const lastY = Math.floor(range.maxY / TILE_SIZE) + 1;
+  const worldPadding = ROUTE_PADDING / Math.max(scale, 0.0001);
+  const firstX = Math.floor((range.minX - worldPadding) / TILE_SIZE) - 1;
+  const lastX = Math.floor((range.maxX + worldPadding) / TILE_SIZE) + 1;
+  const firstY = Math.floor((range.minY - worldPadding) / TILE_SIZE) - 1;
+  const lastY = Math.floor((range.maxY + worldPadding) / TILE_SIZE) + 1;
   const worldTiles = 2 ** zoom;
   const tiles: Tile[] = [];
 
@@ -470,7 +479,9 @@ function mapTiles(
       const wrappedX = ((tileX % worldTiles) + worldTiles) % worldTiles;
       tiles.push({
         key: `${zoom}/${tileX}/${tileY}`,
-        url: `https://tile.openstreetmap.org/${zoom}/${wrappedX}/${tileY}.png`,
+        url: MAP_TILE_URL.replace('{z}', String(zoom))
+          .replace('{x}', String(wrappedX))
+          .replace('{y}', String(tileY)),
         left: ROUTE_PADDING + (tileX * TILE_SIZE - range.minX) * scale,
         top: ROUTE_PADDING + (tileY * TILE_SIZE - range.minY) * scale,
         size: TILE_SIZE * scale,
@@ -480,57 +491,18 @@ function mapTiles(
   return tiles;
 }
 
-function RouteBackdrop() {
-  return (
-    <Svg
-      height="100%"
-      pointerEvents="none"
-      style={s.routeLayer}
-      viewBox={`0 0 ${ROUTE_VIEWBOX_WIDTH} ${ROUTE_VIEWBOX_HEIGHT}`}
-      width="100%"
-    >
-      <Rect
-        width={ROUTE_VIEWBOX_WIDTH}
-        height={ROUTE_VIEWBOX_HEIGHT}
-        fill={color.surface}
-      />
-      {Array.from({ length: 9 }, (_, index) => {
-        const x = index * 45;
-        return (
-          <Line
-            key={`vertical-${x}`}
-            x1={x}
-            x2={x}
-            y1={0}
-            y2={ROUTE_VIEWBOX_HEIGHT}
-            stroke={color.line}
-            strokeOpacity={0.36}
-            strokeWidth={1}
-          />
-        );
-      })}
-      {Array.from({ length: 7 }, (_, index) => {
-        const y = index * 42;
-        return (
-          <Line
-            key={`horizontal-${y}`}
-            x1={0}
-            x2={ROUTE_VIEWBOX_WIDTH}
-            y1={y}
-            y2={y}
-            stroke={color.line}
-            strokeOpacity={0.36}
-            strokeWidth={1}
-          />
-        );
-      })}
-    </Svg>
-  );
-}
-
-function markerLabel(point: Point, label: string, width: number) {
+function markerLabel(
+  point: Point,
+  label: string,
+  width: number,
+  placement: 'above' | 'below' = 'above',
+) {
   const left = clamp(point[0] + 12, 8, ROUTE_VIEWBOX_WIDTH - width - 8);
-  const top = clamp(point[1] - 34, 8, ROUTE_VIEWBOX_HEIGHT - 30);
+  const top = clamp(
+    placement === 'above' ? point[1] - 34 : point[1] + 12,
+    8,
+    ROUTE_VIEWBOX_HEIGHT - 30,
+  );
   return (
     <>
       <Rect
@@ -558,28 +530,9 @@ function markerLabel(point: Point, label: string, width: number) {
   );
 }
 
-export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
-  const valid = sampleRoute(points);
-  if (valid.length < 2) {
-    return (
-      <View
-        accessible
-        accessibilityRole="image"
-        accessibilityLabel="Keine GPS-Strecke aufgezeichnet"
-        style={[s.route, s.routeEmpty]}
-      >
-        <RouteBackdrop />
-        <View pointerEvents="none" style={s.routeEmptyContent}>
-          <Text style={s.routeEmptyTitle}>Keine GPS-Strecke</Text>
-          <Text style={s.routeEmptyCopy}>
-            Für diese Einheit wurde keine Route gespeichert.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-  const zoom = routeZoom(valid);
-  const projected = valid.map(point =>
+function mapProjection(points: MapPoint[]) {
+  const zoom = routeZoom(points);
+  const projected = points.map(point =>
     worldPixel(point.latitude, point.longitude, zoom),
   );
   const worldRange = bounds(projected);
@@ -589,47 +542,128 @@ export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
     (ROUTE_VIEWBOX_WIDTH - ROUTE_PADDING * 2) / spanX,
     (ROUTE_VIEWBOX_HEIGHT - ROUTE_PADDING * 2) / spanY,
   );
-  const xy = projected.map(
-    point =>
-      [
-        ROUTE_PADDING + (point[0] - worldRange.minX) * scale,
-        ROUTE_PADDING + (point[1] - worldRange.minY) * scale,
-      ] as Point,
-  );
-  const start = xy[0];
-  const finish = xy[xy.length - 1];
+  return {
+    xy: projected.map(
+      point =>
+        [
+          ROUTE_PADDING + (point[0] - worldRange.minX) * scale,
+          ROUTE_PADDING + (point[1] - worldRange.minY) * scale,
+        ] as Point,
+    ),
+    tiles: mapTiles(worldRange, scale, zoom),
+  };
+}
+
+function mapTileStyle(tile: Tile): ImageStyle {
+  return {
+    left: `${(tile.left / ROUTE_VIEWBOX_WIDTH) * 100}%`,
+    top: `${(tile.top / ROUTE_VIEWBOX_HEIGHT) * 100}%`,
+    width: `${(tile.size / ROUTE_VIEWBOX_WIDTH) * 100}%`,
+    height: `${(tile.size / ROUTE_VIEWBOX_HEIGHT) * 100}%`,
+  } as ImageStyle;
+}
+
+function RouteSurface({
+  planned,
+  track,
+  current,
+  mode,
+  accessibilityLabel,
+}: {
+  planned: MapPoint[];
+  track: MapPoint[];
+  current?: MapPoint;
+  mode: 'planned' | 'live' | 'recorded';
+  accessibilityLabel: string;
+}) {
+  const validPlanned = planned.filter(validMapPoint).slice(0, MAX_ROUTE_POINTS);
+  const validTrack = track.filter(validMapPoint).slice(0, MAX_ROUTE_POINTS);
+  const validCurrent = validMapPoint(current) ? current : undefined;
+  const valid = [
+    ...validPlanned,
+    ...validTrack,
+    ...(validCurrent ? [validCurrent] : []),
+  ];
+  if (valid.length < 2) {
+    const hasRecordedTrack = mode === 'recorded';
+    return (
+      <View
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel={accessibilityLabel}
+        style={[s.route, s.routeEmpty]}
+      >
+        <View pointerEvents="none" style={s.mapFallback} />
+        <View pointerEvents="none" style={s.routeEmptyContent}>
+          <Text style={s.routeEmptyTitle}>
+            {hasRecordedTrack ? 'Keine GPS-Strecke' : 'Route wird geladen'}
+          </Text>
+          <Text style={s.routeEmptyCopy}>
+            {hasRecordedTrack
+              ? 'Für diese Einheit wurde keine Route gespeichert.'
+              : 'Die Kartendaten werden vorbereitet.'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const { xy, tiles } = mapProjection(valid);
+  const pointToSvg = (point: MapPoint) => {
+    const index = valid.indexOf(point);
+    return xy[index];
+  };
+  const pathFor = (points: MapPoint[]) => {
+    const usable = points.filter(validMapPoint);
+    return usable
+      .map((point, index) => {
+        const [x, y] = pointToSvg(point);
+        return `${index === 0 || point.gap ? 'M' : 'L'}${x.toFixed(
+          2,
+        )},${y.toFixed(2)}`;
+      })
+      .join(' ');
+  };
+  const startPoint = validPlanned[0] || validTrack[0];
+  const finishPoint =
+    validPlanned[validPlanned.length - 1] || validTrack[validTrack.length - 1];
+  const start = pointToSvg(startPoint);
+  const finish = pointToSvg(finishPoint);
+  const currentPoint =
+    mode === 'recorded' ? undefined : validCurrent || validTrack.at(-1);
+  const currentSvg = currentPoint ? pointToSvg(currentPoint) : undefined;
+  const plannedPath = pathFor(validPlanned);
+  const trackPath = pathFor(validTrack);
 
   return (
     <View
       accessible
       accessibilityRole="image"
-      accessibilityLabel="Aufgezeichnete GPS-Strecke auf einer OpenStreetMap-Karte. Start und Ziel sind markiert."
+      accessibilityLabel={accessibilityLabel}
       style={s.route}
     >
-      <RouteBackdrop />
-      <Svg
-        height="100%"
-        pointerEvents="none"
-        style={s.routeLayer}
-        viewBox={`0 0 ${ROUTE_VIEWBOX_WIDTH} ${ROUTE_VIEWBOX_HEIGHT}`}
-        width="100%"
-      >
-        {mapTiles(worldRange, scale, zoom).map(tile => (
-          <SvgImage
-            key={tile.key}
-            x={tile.left}
-            y={tile.top}
-            width={tile.size}
-            height={tile.size}
-            href={{ uri: tile.url }}
-            opacity={0.82}
-            preserveAspectRatio="xMidYMid slice"
-          />
-        ))}
-      </Svg>
-      <View pointerEvents="none" style={s.routeScrim} />
+      <View pointerEvents="none" style={s.routeLayer}>
+        <View style={s.mapTiles}>
+          {tiles.map(tile => (
+            <NativeImage
+              key={tile.key}
+              accessible={false}
+              source={{
+                uri: tile.url,
+                headers: MAP_TILE_HEADERS,
+                cache: 'force-cache',
+              }}
+              resizeMode="cover"
+              style={[s.mapTile, mapTileStyle(tile)]}
+            />
+          ))}
+        </View>
+        <View style={s.routeScrim} />
+      </View>
       <View pointerEvents="none" style={s.routeBadge}>
-        <Text style={s.routeBadgeText}>GPS-Route</Text>
+        <Text style={s.routeBadgeText}>
+          {mode === 'live' ? 'Live-Route' : 'GPS-Route'}
+        </Text>
       </View>
       <Svg
         height="100%"
@@ -638,23 +672,70 @@ export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
         viewBox={`0 0 ${ROUTE_VIEWBOX_WIDTH} ${ROUTE_VIEWBOX_HEIGHT}`}
         width="100%"
       >
-        <Path
-          d={routePath(xy, valid)}
-          stroke={color.ink}
-          strokeWidth={9}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-          opacity={0.9}
-        />
-        <Path
-          d={routePath(xy, valid)}
-          stroke={color.green}
-          strokeWidth={5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
+        {mode === 'live' && validPlanned.length >= 2 ? (
+          <>
+            <Path
+              d={plannedPath}
+              stroke={color.ink}
+              strokeWidth={9}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="8 8"
+              fill="none"
+              opacity={0.92}
+            />
+            <Path
+              d={plannedPath}
+              stroke={color.text}
+              strokeWidth={5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="8 8"
+              fill="none"
+            />
+          </>
+        ) : mode !== 'live' && validPlanned.length >= 2 ? (
+          <>
+            <Path
+              d={plannedPath}
+              stroke={color.ink}
+              strokeWidth={10}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+              opacity={0.9}
+            />
+            <Path
+              d={plannedPath}
+              stroke={color.green}
+              strokeWidth={5.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </>
+        ) : null}
+        {(mode === 'live' || mode === 'recorded') && validTrack.length >= 2 ? (
+          <>
+            <Path
+              d={trackPath}
+              stroke={color.ink}
+              strokeWidth={10}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+              opacity={0.92}
+            />
+            <Path
+              d={trackPath}
+              stroke={color.green}
+              strokeWidth={6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </>
+        ) : null}
         <Circle
           cx={start[0]}
           cy={start[1]}
@@ -671,29 +752,46 @@ export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
           stroke={color.ink}
           strokeWidth={3}
         />
-        {markerLabel(start, 'Start', 48)}
-        {markerLabel(finish, 'Ziel', 42)}
-        <SvgText
-          x={ROUTE_VIEWBOX_WIDTH - 10}
-          y={ROUTE_VIEWBOX_HEIGHT - 10}
-          fill={color.text}
-          fontSize={9}
-          opacity={0.84}
-          textAnchor="end"
-        >
-          © OpenStreetMap-Mitwirkende
-        </SvgText>
+        {markerLabel(start, 'Start', 48, 'above')}
+        {markerLabel(finish, 'Ziel', 42, 'below')}
+        {currentSvg ? (
+          <Circle
+            cx={currentSvg[0]}
+            cy={currentSvg[1]}
+            r={10}
+            fill={color.green}
+            stroke={color.ink}
+            strokeWidth={4}
+          />
+        ) : null}
       </Svg>
+      <View pointerEvents="none" style={s.mapAttribution}>
+        <Text style={s.mapAttributionText}>© OpenStreetMap-Mitwirkende</Text>
+      </View>
     </View>
+  );
+}
+
+export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
+  const valid = sampleRoute(points);
+  return (
+    <RouteSurface
+      planned={[]}
+      track={valid}
+      mode="recorded"
+      accessibilityLabel={
+        valid.length >= 2
+          ? 'Aufgezeichnete GPS-Strecke mit OpenStreetMap-Karte. Start und Ziel sind markiert.'
+          : 'Keine GPS-Strecke aufgezeichnet'
+      }
+    />
   );
 });
 
-type MapPoint = Pick<RoutePoint, 'latitude' | 'longitude'>;
-
 /**
- * Kleine, lokale Routendarstellung ohne Karten-Scraping oder SDK-Zwang. Die
- * geplante Linie und der tatsächlich aufgezeichnete Teil bleiben getrennt;
- * dadurch sieht der Nutzer auch bei fehlender Hintergrundkarte, wo er ist.
+ * Kartenansicht für geplante und laufende Routen. Die Straßenkarte kommt als
+ * normale React-Native-Bildkachel mit identifizierendem User-Agent; das
+ * verhindert die 403-Sperre des öffentlichen OSM-Tileservers.
  */
 export const RouteMap = memo(function RouteMap({
   planned,
@@ -704,104 +802,47 @@ export const RouteMap = memo(function RouteMap({
   track?: MapPoint[];
   current?: MapPoint;
 }) {
-  const validPlanned = planned
-    .filter(
-      point =>
-        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
-    )
-    .slice(0, 512);
-  const validTrack = track
-    .filter(
-      point =>
-        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
-    )
-    .slice(0, 512);
-  const valid = [...validPlanned, ...validTrack, ...(current ? [current] : [])];
-  if (valid.length < 2) {
-    return <Copy muted>Die Route wird noch geladen.</Copy>;
-  }
-  const latitudes = valid.map(point => point.latitude);
-  const longitudes = valid.map(point => point.longitude);
-  const minLat = Math.min(...latitudes);
-  const maxLat = Math.max(...latitudes);
-  const minLon = Math.min(...longitudes);
-  const maxLon = Math.max(...longitudes);
-  const correction = Math.max(
-    0.01,
-    Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180),
-  );
-  const spanX = Math.max((maxLon - minLon) * correction, 0.000001);
-  const spanY = Math.max(maxLat - minLat, 0.000001);
-  const scale = Math.min(284 / spanX, 184 / spanY);
-  const pointToSvg = (point: MapPoint) => [
-    18 +
-      (284 - spanX * scale) / 2 +
-      (point.longitude - minLon) * correction * scale,
-    18 + (184 - spanY * scale) / 2 + (maxLat - point.latitude) * scale,
-  ];
-  const pathFor = (points: MapPoint[]) => {
-    const usable = points.filter(
-      point =>
-        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
-    );
-    return usable
-      .map((point, index) => {
-        const [x, y] = pointToSvg(point);
-        return `${index === 0 ? 'M' : 'L'}${x},${y}`;
-      })
-      .join(' ');
-  };
-  const start = validPlanned[0] ? pointToSvg(validPlanned[0]) : null;
-  const lastTrack = validTrack[validTrack.length - 1];
-  const currentPoint = current || lastTrack;
-  const currentSvg = currentPoint ? pointToSvg(currentPoint) : null;
   return (
-    <View
-      accessibilityLabel="Geplante Laufstrecke mit bisher aufgezeichneter Position"
-      style={s.route}
-    >
-      <Svg width="100%" height={220} viewBox="0 0 320 220">
-        <Path
-          d="M18 18H302M18 110H302M18 202H302M18 18V202M160 18V202M302 18V202"
-          stroke={color.line}
-          strokeWidth={0.7}
-          opacity={0.7}
-          fill="none"
-        />
-        <Path
-          d={pathFor(validPlanned)}
-          stroke={color.muted}
-          strokeWidth={2.2}
-          strokeDasharray="5 5"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        {validTrack.length > 1 ? (
-          <Path
-            d={pathFor(validTrack)}
-            stroke={color.green}
-            strokeWidth={4}
-            strokeLinejoin="round"
-            fill="none"
-          />
-        ) : null}
-        {start ? (
-          <Circle cx={start[0]} cy={start[1]} r={5} fill={color.text} />
-        ) : null}
-        {currentSvg ? (
-          <Circle
-            cx={currentSvg[0]}
-            cy={currentSvg[1]}
-            r={7}
-            fill={color.green}
-            stroke={color.ink}
-            strokeWidth={3}
-          />
-        ) : null}
-      </Svg>
-    </View>
+    <RouteSurface
+      planned={planned}
+      track={track}
+      current={current}
+      mode={track.length > 1 || current ? 'live' : 'planned'}
+      accessibilityLabel="Geplante Laufstrecke auf einer OpenStreetMap-Karte mit Start, Ziel und bisheriger Position"
+    />
   );
 });
+
+export function RouteOpenActions({
+  onGoogleMaps,
+  onCoMaps,
+  disabled = false,
+}: {
+  onGoogleMaps: () => void;
+  onCoMaps: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Section title="Route in Karten-App öffnen">
+      <Button
+        secondary
+        title="In Google Maps öffnen"
+        onPress={onGoogleMaps}
+        disabled={disabled}
+      />
+      <Button
+        secondary
+        title="In CoMaps oder anderer App öffnen"
+        onPress={onCoMaps}
+        disabled={disabled}
+      />
+      <Copy muted>
+        Google Maps berechnet die Gehroute neu. CoMaps erhält die exakte Route
+        als GPX-Datei.
+      </Copy>
+    </Section>
+  );
+}
 
 export type { ReactNode };
 
@@ -908,10 +949,20 @@ export const s = StyleSheet.create({
   routeLayer: {
     ...StyleSheet.absoluteFillObject,
   },
+  mapTiles: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: color.surface,
+  },
+  mapTile: { position: 'absolute', backgroundColor: color.surface },
+  mapFallback: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: color.surface,
+  },
   routeScrim: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: color.mapOverlay,
-    opacity: 0.34,
+    opacity: 0.16,
   },
   routeBadge: {
     position: 'absolute',
@@ -926,6 +977,16 @@ export const s = StyleSheet.create({
     borderColor: color.mapLine,
   },
   routeBadgeText: { color: color.text, ...type.micro, fontWeight: '700' },
+  mapAttribution: {
+    position: 'absolute',
+    right: space.xs,
+    bottom: space.xs,
+    paddingHorizontal: space.xs,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: color.mapOverlay,
+  },
+  mapAttributionText: { color: color.text, ...type.micro, fontSize: 10 },
   routeEmpty: { justifyContent: 'center', alignItems: 'center' },
   routeEmptyContent: {
     alignItems: 'center',

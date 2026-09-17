@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import {
   nextTurn,
   remainingRouteMeters,
   routePreferenceLabel,
+  googleMapsDirectionsUrl,
   type RouteMode,
   type RoutePlan,
   type RoutePreference,
@@ -40,6 +42,7 @@ import {
   Input,
   Notice,
   RouteMap,
+  RouteOpenActions,
   Row,
   Section,
   Stat,
@@ -512,6 +515,36 @@ export function RoutePlannerScreen({ onClose }: { onClose: () => void }) {
     );
   };
 
+  const openGoogleMaps = async (points: RoutePlan['points']) => {
+    setBusy(true);
+    setError('');
+    try {
+      const url = googleMapsDirectionsUrl(points);
+      if (!url) throw new Error('Diese Route kann nicht geöffnet werden.');
+      await Linking.openURL(url);
+    } catch (errorValue) {
+      setError(
+        errorValue instanceof Error ? errorValue.message : String(errorValue),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openCoMaps = async (points: RoutePlan['points']) => {
+    setBusy(true);
+    setError('');
+    try {
+      await native.openRouteFile(points, 'comaps');
+    } catch (errorValue) {
+      setError(
+        errorValue instanceof Error ? errorValue.message : String(errorValue),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const back = () => {
     setError('');
     setMessage('');
@@ -800,6 +833,11 @@ export function RoutePlannerScreen({ onClose }: { onClose: () => void }) {
             label="Strecke"
           />
         </View>
+        <RouteOpenActions
+          onGoogleMaps={() => void openGoogleMaps(route.points)}
+          onCoMaps={() => void openCoMaps(route.points)}
+          disabled={busy}
+        />
         <Card>
           <Text style={styles.cardTitle}>
             {route.source === 'brouter' ? 'Strecke gefunden' : 'Vorschau'}
@@ -982,6 +1020,11 @@ export function RoutePlannerScreen({ onClose }: { onClose: () => void }) {
           />
           <Stat value={formatPaceSeconds(paceSeconds)} label="Pace" />
         </View>
+        <RouteOpenActions
+          onGoogleMaps={() => void openGoogleMaps(route.points)}
+          onCoMaps={() => void openCoMaps(route.points)}
+          disabled={busy}
+        />
         <Section title="Während des Laufs">
           <Row
             title="Reststrecke"

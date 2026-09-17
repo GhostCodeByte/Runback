@@ -7,7 +7,7 @@ import type {
   Experiment,
   Adherence,
 } from './domain/types';
-import type { RoutePlan } from './domain/routes';
+import type { RouteCoordinate, RoutePlan } from './domain/routes';
 import { normalizeSport } from './domain/sport';
 import type {
   StrengthSession,
@@ -254,6 +254,12 @@ export const native = {
   },
   async stopRouteSpeech() {
     await routeCall('routeStopSpeaking');
+  },
+  async openRouteFile(
+    points: RouteCoordinate[],
+    target: 'comaps' | 'chooser' = 'comaps',
+  ) {
+    await routeCall('openRouteFile', JSON.stringify(points), target);
   },
   async routePlannerState(): Promise<RoutePlannerState> {
     const raw = await routeCall<any>('getRoutePlannerState');

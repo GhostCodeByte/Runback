@@ -2,6 +2,7 @@ package com.runback
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
@@ -10,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import androidx.core.content.FileProvider
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -17,6 +19,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.runback.core.RunStore
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.HashSet
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -169,6 +172,105 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
         val longitude = point.optDouble("longitude", Double.NaN)
         return latitude.isFinite() && longitude.isFinite() &&
             latitude in -90.0..90.0 && longitude in -180.0..180.0
+    }
+
+    @ReactMethod
+    fun openRouteFile(pointsJson: String, target: String, promise: Promise) {
+        worker.execute {
+            try {
+                val points = JSONArray(pointsJson)
+                require(points.length() in 2..512) {
+                    "Eine Route muss zwischen zwei und 512 Punkten enthalten."
+                }
+                val routeDirectory = File(context.cacheDir, "routes").apply { mkdirs() }
+                val routeFile = File(
+                    routeDirectory,
+                    "runback-route-${System.currentTimeMillis()}.gpx",
+                )
+                routeFile.writeText(routeGpx(points), Charsets.UTF_8)
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    routeFile,
+                )
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/gpx+xml")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                require(viewIntent.resolveActivity(context.packageManager) != null) {
+                    "Keine App zum Öffnen von GPX-Dateien gefunden."
+                }
+                val externalIntent = if (target == "comaps") {
+                    val comapsPackage = listOf(
+                        "app.comaps.google",
+                        "app.comaps",
+                        "app.organicmaps",
+                    ).firstOrNull { packageName ->
+                        viewIntent.setPackage(packageName)
+                        viewIntent.resolveActivity(context.packageManager) != null
+                    }
+                    viewIntent.setPackage(comapsPackage)
+                    if (comapsPackage == null) {
+                        Intent.createChooser(viewIntent, "Route öffnen")
+                    } else {
+                        viewIntent
+                    }
+                } else {
+                    Intent.createChooser(viewIntent, "Route öffnen")
+                }
+                main.post {
+                    try {
+                        val activity = context.currentActivity
+                            ?: error("Öffne die App, um die Route zu teilen.")
+                        activity.startActivity(externalIntent)
+                        promise.resolve(
+                            JSONObject()
+                                .put("opened", true)
+                                .put("target", target)
+                                .toString(),
+                        )
+                    } catch (error: Exception) {
+                        promise.reject(
+                            "ROUTE_OPEN_ERROR",
+                            error.message ?: "Route konnte nicht geöffnet werden.",
+                            error,
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                promise.reject(
+                    "ROUTE_FILE_ERROR",
+                    error.message ?: "Route konnte nicht vorbereitet werden.",
+                    error,
+                )
+            }
+        }
+    }
+
+    private fun routeGpx(points: JSONArray): String {
+        val result = StringBuilder(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                "<gpx version=\"1.1\" creator=\"Runback\" " +
+                "xmlns=\"http://www.topografix.com/GPX/1/1\"><trk>" +
+                "<name>Runback Route</name><trkseg>",
+        )
+        for (index in 0 until points.length()) {
+            val point = points.optJSONObject(index) ?: error("Ungültiger Routenpunkt.")
+            require(validCoordinate(point)) { "Ungültige Koordinaten in der Route." }
+            val latitude = point.optDouble("latitude")
+            val longitude = point.optDouble("longitude")
+            result.append("<trkpt lat=\"")
+                .append(latitude)
+                .append("\" lon=\"")
+                .append(longitude)
+                .append("\">")
+            if (point.has("elevationMeters") && !point.isNull("elevationMeters")) {
+                val elevation = point.optDouble("elevationMeters", Double.NaN)
+                if (elevation.isFinite()) result.append("<ele>").append(elevation).append("</ele>")
+            }
+            result.append("</trkpt>")
+        }
+        return result.append("</trkseg></trk></gpx>").toString()
     }
 
     override fun onInit(status: Int) {

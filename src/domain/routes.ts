@@ -65,6 +65,57 @@ export function routeDistanceMeters(points: RouteCoordinate[]): number {
   return total;
 }
 
+function validRoutePoints(points: RouteCoordinate[]) {
+  return points.filter(
+    point =>
+      Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+  );
+}
+
+/**
+ * Google Maps nimmt Zwischenziele entgegen, aber keine komplette GPS-Spur.
+ * Wenige gleichmäßig verteilte Punkte halten den Link kurz und bewahren die
+ * grobe Form, während Google die begehbare Verbindung neu berechnet.
+ */
+export function routeWaypoints(
+  points: RouteCoordinate[],
+  maximum = 3,
+): RouteCoordinate[] {
+  const valid = validRoutePoints(points);
+  const middle = valid.slice(1, -1);
+  const limit = Math.max(0, Math.floor(maximum));
+  if (middle.length <= limit) return middle;
+  if (limit === 0) return [];
+  return Array.from({ length: limit }, (_, index) => {
+    const sourceIndex = Math.round(
+      (index * (middle.length - 1)) / Math.max(limit - 1, 1),
+    );
+    return middle[sourceIndex];
+  });
+}
+
+function coordinateForMaps(point: RouteCoordinate) {
+  return `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`;
+}
+
+/** Universal Google-Maps-Link für eine Laufroute mit wenigen Formpunkten. */
+export function googleMapsDirectionsUrl(points: RouteCoordinate[]): string {
+  const valid = validRoutePoints(points);
+  if (valid.length < 2) return '';
+  const origin = coordinateForMaps(valid[0]);
+  const destination = coordinateForMaps(valid[valid.length - 1]);
+  const waypoints = routeWaypoints(valid).map(coordinateForMaps).join('|');
+  return [
+    'https://www.google.com/maps/dir/?api=1',
+    `origin=${encodeURIComponent(origin)}`,
+    `destination=${encodeURIComponent(destination)}`,
+    'travelmode=walking',
+    waypoints ? `waypoints=${encodeURIComponent(waypoints)}` : '',
+  ]
+    .filter(Boolean)
+    .join('&');
+}
+
 /** Keep route documents and SVG rendering bounded without changing endpoints. */
 export function limitRoutePoints(
   points: RouteCoordinate[],
