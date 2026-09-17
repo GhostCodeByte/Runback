@@ -171,7 +171,7 @@ export function RoutePlannerScreen({ onClose }: { onClose: () => void }) {
     const active = activeId
       ? normalized.routes.find(item => item.id === activeId)
       : undefined;
-    if (run && active) {
+    if (run && active && active.activeRunId === run.id) {
       setRoute(active);
       setView('live');
     }
@@ -436,7 +436,14 @@ export function RoutePlannerScreen({ onClose }: { onClose: () => void }) {
       const activeRoutes = nextRoutes.map(item =>
         item.id === route.id ? { ...item, activeRunId: started.id } : item,
       );
-      await persistPlannerState({ routes: activeRoutes });
+      const nextPlanner = normalizePlannerState({
+        ...(plannerStateRef.current || {}),
+        routes: activeRoutes,
+        activeRoutePlanId: route.id,
+      });
+      plannerStateRef.current = nextPlanner;
+      setPlannerState(nextPlanner);
+      setVoice(nextPlanner.voice);
       setRecording(started);
       setView('live');
     } catch (errorValue) {
