@@ -106,8 +106,9 @@ function routeFromFeature(
   const combined = outbound
     ? outbound.concat(outbound.slice(0, -1).reverse())
     : points;
+  const distanceMeters = routeDistanceMeters(combined);
+  const ascentMeters = routeAscentMeters(combined);
   const routePoints = limitRoutePoints(combined);
-  const distanceMeters = routeDistanceMeters(routePoints);
   if (!Number.isFinite(distanceMeters) || distanceMeters < 100) return null;
   return {
     ...request,
@@ -115,7 +116,7 @@ function routeFromFeature(
     createdAt,
     points: routePoints,
     distanceMeters,
-    ascentMeters: routeAscentMeters(routePoints),
+    ascentMeters,
     source: 'brouter',
     providerLabel: 'OpenStreetMap · BRouter',
     preferencePenalty: preferencePenalty(
