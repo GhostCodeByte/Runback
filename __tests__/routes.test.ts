@@ -2,6 +2,7 @@ import {
   createPreviewRoute,
   formatPaceSeconds,
   haversineMeters,
+  limitRoutePoints,
   nearestRoutePoint,
   nextTurn,
   remainingRouteMeters,
@@ -92,6 +93,18 @@ describe('route planning domain', () => {
   it('formats a pace without inventing a value', () => {
     expect(formatPaceSeconds(5 * 60 + 7)).toBe('5:07 /km');
     expect(formatPaceSeconds(undefined)).toBe('–:––');
+  });
+
+  it('keeps route endpoints while bounding detailed geometry', () => {
+    const points = Array.from({ length: 1_000 }, (_, index) => ({
+      latitude: 48 + index / 100_000,
+      longitude: 7.8 + Math.sin(index / 20) / 100_000,
+    }));
+    const bounded = limitRoutePoints(points, 128);
+
+    expect(bounded.length).toBeLessThanOrEqual(128);
+    expect(bounded[0]).toEqual(points[0]);
+    expect(bounded[bounded.length - 1]).toEqual(points[points.length - 1]);
   });
 
   it('finds a meaningful turn ahead without inventing one on a straight path', () => {
