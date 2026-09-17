@@ -82,7 +82,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     }
 
     private fun granted(permission: String) = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-    private fun state() = JSONObject().put("runs", store.listRuns()).put("recording", store.active() ?: JSONObject.NULL)
+    private fun activeState() = store.active()?.apply { put("route", store.activeGeometry()) }
+    private fun state() = JSONObject().put("runs", store.listRuns()).put("recording", activeState() ?: JSONObject.NULL)
         .put("settings", store.settings()).put("capabilities", capabilities()).put("import", importer.status())
 
     @ReactMethod fun getState(promise: Promise) = task(promise) { state() }
@@ -277,13 +278,13 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun setChatTrainingAccess(includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.clear(includeTraining) }
     @ReactMethod fun sendChat(text: String, includeTraining: Boolean, promise: Promise) = aiTask(promise) { chat.send(text, includeTraining) }
 
-    private fun recording(action: String, purpose: String, promise: Promise, sport: String = "running") {
+    private fun recording(action: String, purpose: String, promise: Promise, sport: String = "running", routePlanId: String? = null) {
         if (action == RecordingService.START && !granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
             promise.reject("LOCATION_PERMISSION", "Für die Aufzeichnung bitte den genauen Standort erlauben."); return
         }
         context.runOnUiQueueThread {
             try {
-                RecordingService.send(context, action, purpose, "phone", sport)
+                RecordingService.send(context, action, purpose, "phone", sport, routePlanId)
                 worker.execute {
                     try {
                         val deadline = android.os.SystemClock.elapsedRealtime() + 5000
@@ -301,6 +302,8 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         }
     }
     @ReactMethod fun startRun(purpose: String, sport: String, promise: Promise) = recording(RecordingService.START, purpose, promise, sport)
+    @ReactMethod fun startRouteRun(routePlanId: String, purpose: String, sport: String, promise: Promise) =
+        recording(RecordingService.START, purpose, promise, sport, routePlanId)
     @ReactMethod fun pauseRun(promise: Promise) = recording(RecordingService.PAUSE, "easy", promise)
     @ReactMethod fun resumeRun(promise: Promise) = recording(RecordingService.RESUME, "easy", promise)
     @ReactMethod fun finishRun(promise: Promise) = recording(RecordingService.FINISH, "easy", promise)
