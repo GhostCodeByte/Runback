@@ -1,14 +1,8 @@
 import React, { memo, type PropsWithChildren, type ReactNode } from 'react';
-import {
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, {
   Circle,
+  Image as SvgImage,
   Line,
   Path,
   Rect,
@@ -614,23 +608,26 @@ export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
       style={s.route}
     >
       <RouteBackdrop />
-      {mapTiles(worldRange, scale, zoom).map(tile => (
-        <Image
-          key={tile.key}
-          accessible={false}
-          fadeDuration={0}
-          source={{ uri: tile.url }}
-          style={[
-            s.routeTile,
-            {
-              height: tile.size,
-              left: tile.left,
-              top: tile.top,
-              width: tile.size,
-            },
-          ]}
-        />
-      ))}
+      <Svg
+        height="100%"
+        pointerEvents="none"
+        style={s.routeLayer}
+        viewBox={`0 0 ${ROUTE_VIEWBOX_WIDTH} ${ROUTE_VIEWBOX_HEIGHT}`}
+        width="100%"
+      >
+        {mapTiles(worldRange, scale, zoom).map(tile => (
+          <SvgImage
+            key={tile.key}
+            x={tile.left}
+            y={tile.top}
+            width={tile.size}
+            height={tile.size}
+            href={{ uri: tile.url }}
+            opacity={0.82}
+            preserveAspectRatio="xMidYMid slice"
+          />
+        ))}
+      </Svg>
       <View pointerEvents="none" style={s.routeScrim} />
       <View pointerEvents="none" style={s.routeBadge}>
         <Text style={s.routeBadgeText}>GPS-Route</Text>
@@ -796,11 +793,6 @@ export const s = StyleSheet.create({
   },
   routeLayer: {
     ...StyleSheet.absoluteFillObject,
-  },
-  routeTile: {
-    position: 'absolute',
-    resizeMode: 'cover',
-    opacity: 0.82,
   },
   routeScrim: {
     ...StyleSheet.absoluteFillObject,

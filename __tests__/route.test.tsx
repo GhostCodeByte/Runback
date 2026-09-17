@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { Image, Text } from 'react-native';
-import { Path } from 'react-native-svg';
+import { Text } from 'react-native';
+import { Image as SvgImage, Path } from 'react-native-svg';
 import type { RoutePoint } from '../src/native';
 import { Route } from '../src/ui/components';
 
@@ -18,12 +18,12 @@ describe('GPS-Strecke', () => {
       tree = TestRenderer.create(<Route points={points} />);
     });
     const map = tree.root.findByProps({ accessibilityRole: 'image' });
-    const images = tree.root.findAllByType(Image);
+    const images = tree.root.findAllByType(SvgImage);
     const paths = tree.root.findAllByType(Path);
 
     expect(map.props.accessibilityLabel).toContain('OpenStreetMap');
     expect(images.length).toBeGreaterThan(0);
-    expect(images[0].props.source.uri).toMatch(
+    expect(images[0].props.href.uri).toMatch(
       /^https:\/\/tile\.openstreetmap\.org\//,
     );
     expect(paths).toHaveLength(2);
