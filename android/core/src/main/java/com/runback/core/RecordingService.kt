@@ -54,6 +54,9 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     private var routeVoice = JSONObject()
     private var routeCursor = 0
     private var nextRouteCueDistance = 1_000.0
+    private var lastOffRouteCueAt = 0L
+    private var offRouteAnnounced = false
+    private var lastAnnouncedTurnIndex = -1
 
     override fun onCreate() {
         super.onCreate()
@@ -107,11 +110,15 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                 }
                 when (intent.action) {
                     START -> {
-                        val session = store.start(
-                            intent.getStringExtra("purpose") ?: "easy",
-                            intent.getStringExtra("source") ?: "phone",
-                            intent.getStringExtra("sport") ?: "running"
-                        )
+                        val purpose = intent.getStringExtra("purpose") ?: "easy"
+                        val source = intent.getStringExtra("source") ?: "phone"
+                        val sport = intent.getStringExtra("sport") ?: "running"
+                        val routePlanId = intent.getStringExtra("routePlanId")
+                        val session = if (routePlanId.isNullOrBlank()) {
+                            store.start(purpose, source, sport)
+                        } else {
+                            store.startRoute(purpose, source, sport, routePlanId)
+                        }
                         activeId = session.getString("id")
                         recording = session.optString("status") == "recording"
                         loadRouteGuidance(intent.getStringExtra("routePlanId"), activeId)
@@ -142,7 +149,9 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                         flush()
                         recording = false
                         endListening()
+                        val finishedId = activeId
                         store.finish()
+                        finishedId?.let { store.clearRouteAssignment(it) }
                         shutdown()
                     }
                     else -> shutdown()
@@ -283,7 +292,9 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         try {
             // GPS is appended immediately; a killed process loses at most the current sensor batch.
             store.appendSamples(runId, listOf(RawSample(location.time, "gps", values)))
-            maybeSpeakRoute(location)
+            val progress = routePlan?.let { routeProgress(location) }
+            maybeSpeakNavigation(progress)
+            maybeSpeakRoute(progress)
         } catch (error: Exception) {
             failRecording(error)
         }
@@ -301,16 +312,22 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         routeCursor = 0
         routeVoice = JSONObject()
         nextRouteCueDistance = 1_000.0
+        lastOffRouteCueAt = 0L
+        offRouteAnnounced = false
+        lastAnnouncedTurnIndex = -1
         val state = store.getDocument("route_planner") ?: return
         routeVoice = state.optJSONObject("voice") ?: JSONObject()
         val activeId = (explicitRouteId ?: state.optString("activeRoutePlanId"))
             .takeIf { it.isNotBlank() }
             ?: return
-        if (explicitRouteId == null && state.optString("activeRunId") != runId) return
         val routes = state.optJSONArray("routes") ?: return
         for (index in 0 until routes.length()) {
             val candidate = routes.optJSONObject(index) ?: continue
-            if (candidate.optString("id") == activeId && candidate.optString("source") == "brouter") {
+            if (
+                candidate.optString("id") == activeId &&
+                candidate.optString("source") == "brouter" &&
+                (explicitRouteId != null || candidate.optString("activeRunId") == runId)
+            ) {
                 routePlan = candidate
                 val intervalKm = routeVoice.optDouble("intervalKm", 1.0)
                 nextRouteCueDistance = intervalKm.coerceIn(0.25, 10.0) * 1_000.0
@@ -323,6 +340,12 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         val nearestIndex: Int,
         val distanceFromRoute: Double,
         val remainingMeters: Double,
+    )
+
+    private data class RouteTurn(
+        val index: Int,
+        val distanceMeters: Double,
+        val direction: String,
     )
 
     private fun routeProgress(location: Location): RouteProgress? {
@@ -359,7 +382,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         return RouteProgress(nearestIndex, nearestDistance, remaining)
     }
 
-    private fun nextTurnCue(progress: RouteProgress): String? {
+    private fun nextTurnCue(progress: RouteProgress): RouteTurn? {
         val points = routePlan?.optJSONArray("points") ?: return null
         if (progress.nearestIndex >= points.length() - 3) return null
         val currentIndex = (progress.nearestIndex + 2).coerceAtMost(points.length() - 2)
@@ -367,13 +390,23 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         val lookAhead = points.optJSONObject(currentIndex) ?: return null
         val currentBearing = bearingDegrees(current, lookAhead)
         var distance = 0.0
+        for (index in progress.nearestIndex until currentIndex) {
+            val before = points.optJSONObject(index) ?: continue
+            val after = points.optJSONObject(index + 1) ?: continue
+            distance += distanceMeters(
+                before.optDouble("latitude"),
+                before.optDouble("longitude"),
+                after.optDouble("latitude"),
+                after.optDouble("longitude"),
+            )
+        }
         for (index in currentIndex + 1 until points.length() - 2) {
             val before = points.optJSONObject(index) ?: continue
             val after = points.optJSONObject(index + 2) ?: continue
             val delta = bearingDelta(currentBearing, bearingDegrees(before, after))
             if (kotlin.math.abs(delta) >= 45.0 && distance >= 35.0) {
                 val direction = if (delta > 0) "rechts" else "links"
-                return "Nächste Richtungsänderung in ungefähr ${formatDistanceSpeech(distance)} $direction."
+                return RouteTurn(index, distance, direction)
             }
             val next = points.optJSONObject(index + 1) ?: continue
             distance += distanceMeters(
@@ -386,11 +419,42 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         return null
     }
 
-    private fun maybeSpeakRoute(location: Location) {
+    private fun maybeSpeakNavigation(progress: RouteProgress?) {
+        if (!routeSpeechReady || routePlan == null || progress == null) return
+        val session = store.active() ?: return
+        refreshRouteVoice(session.optDouble("distanceM", 0.0))
+        if (
+            routePlan == null ||
+            !routeVoice.optBoolean("enabled", true) ||
+            !routeVoice.optBoolean("navigation", true)
+        ) return
+        val now = SystemClock.elapsedRealtime()
+        val cues = ArrayList<String>()
+        if (progress.distanceFromRoute > 80.0) {
+            if (!offRouteAnnounced || now - lastOffRouteCueAt >= 60_000L) {
+                cues.add(
+                    "Du bist ungefähr ${formatDistanceSpeech(progress.distanceFromRoute)} neben der geplanten Route.",
+                )
+                offRouteAnnounced = true
+                lastOffRouteCueAt = now
+            }
+        } else {
+            offRouteAnnounced = false
+        }
+        val turn = nextTurnCue(progress)
+        if (turn != null && turn.distanceMeters <= 120.0 && turn.index > lastAnnouncedTurnIndex) {
+            cues.add("In ungefähr ${formatDistanceSpeech(turn.distanceMeters)} ${turn.direction} abbiegen.")
+            lastAnnouncedTurnIndex = turn.index
+        }
+        if (cues.isNotEmpty()) speakRoute(cues.joinToString(" "))
+    }
+
+    private fun maybeSpeakRoute(progress: RouteProgress?) {
         if (!routeSpeechReady || routePlan == null) return
         val session = store.active() ?: return
         val distance = session.optDouble("distanceM", 0.0)
         refreshRouteVoice(distance)
+        if (routePlan == null) return
         if (!routeVoice.optBoolean("enabled", true)) return
         if (!distance.isFinite() || distance < nextRouteCueDistance) return
         val intervalMeters = routeVoice.optDouble("intervalKm", 1.0).coerceIn(0.25, 10.0) * 1_000.0
@@ -404,10 +468,8 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         if (routeVoice.optBoolean("distance", true)) {
             parts.add("Du bist ${formatDistanceSpeech(distance)} gelaufen.")
         }
-        val progress = routeProgress(location)
         if (routeVoice.optBoolean("navigation", true) && progress != null) {
             parts.add("Noch ungefähr ${formatDistanceSpeech(progress.remainingMeters)} auf der geplanten Route.")
-            nextTurnCue(progress)?.let(parts::add)
         }
         if (routeVoice.optBoolean("heartRate", false)) {
             val heartRate = session.optDouble("lastHeartRate", Double.NaN)
@@ -419,7 +481,10 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     private fun refreshRouteVoice(distance: Double) {
         val activeId = routePlan?.optString("id") ?: return
         val state = store.getDocument("route_planner") ?: return
-        if (state.optString("activeRoutePlanId") != activeId) return
+        if (state.optString("activeRoutePlanId") != activeId) {
+            routePlan = null
+            return
+        }
         val nextVoice = state.optJSONObject("voice") ?: return
         val previousInterval = routeVoice.optDouble("intervalKm", 1.0).coerceIn(0.25, 10.0)
         val nextInterval = nextVoice.optDouble("intervalKm", 1.0).coerceIn(0.25, 10.0)
@@ -497,7 +562,9 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         recording = false
         endListening()
         val message = "Aufzeichnung unterbrochen: ${error.message ?: "Speicher oder Berechtigungen prüfen"}"
+        val interruptedId = activeId
         runCatching { store.markInterrupted(message) }
+        interruptedId?.let { runCatching { store.clearRouteAssignment(it) } }
         broadcastWarning("recording_interrupted", message)
         shutdown()
     }
@@ -571,7 +638,11 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         worker.post {
             try {
                 flush()
-                if (recording) store.markInterrupted("Aufzeichnung wurde beendet. Gespeicherte Daten bleiben erhalten.")
+                if (recording) {
+                    val interruptedId = activeId
+                    store.markInterrupted("Aufzeichnung wurde beendet. Gespeicherte Daten bleiben erhalten.")
+                    interruptedId?.let { store.clearRouteAssignment(it) }
+                }
             } catch (error: Exception) {
                 Log.e(TAG, "Could not persist final recording checkpoint", error)
             } finally {
