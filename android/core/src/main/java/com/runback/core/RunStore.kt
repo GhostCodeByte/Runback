@@ -163,6 +163,28 @@ class RunStore(context: Context) {
             while (it.moveToNext()) result.put(JSONObject().put("time", it.getLong(0)).put("kind", it.getString(1)).put("values", JSONObject(it.getString(2))))
         }; result
     }
+    /** Small bounded GPS snapshot for live screens; finished-run geometry is derived separately. */
+    fun activeGeometry(limit: Int = 512): JSONArray = locked {
+        val points = ArrayList<JSONObject>()
+        val id = activeId() ?: return@locked JSONArray()
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY time,seq", arrayOf(id)).use {
+            while (it.moveToNext()) {
+                val value = JSONObject(it.getString(1))
+                points.add(JSONObject()
+                    .put("latitude", value.optDouble("latitude"))
+                    .put("longitude", value.optDouble("longitude"))
+                    .put("time", it.getLong(0))
+                    .put("gap", false))
+            }
+        }
+        val bounded = limit.coerceIn(2, 512)
+        if (points.size <= bounded) return@locked JSONArray(points)
+        JSONArray().apply {
+            repeat(bounded) { index ->
+                put(points[(index.toLong() * (points.size - 1) / (bounded - 1)).toInt()])
+            }
+        }
+    }
     private fun events(id: String): JSONArray {
         val result = JSONArray(); db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq", arrayOf(id)).use {
             while(it.moveToNext()) result.put(JSONObject(it.getString(0))) }; return result
