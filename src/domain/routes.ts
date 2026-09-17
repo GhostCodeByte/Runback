@@ -72,10 +72,71 @@ export function limitRoutePoints(
 ): RouteCoordinate[] {
   if (points.length <= maxPoints) return points;
   const limit = Math.max(2, Math.floor(maxPoints));
-  return Array.from({ length: limit }, (_, index) => {
-    const sourceIndex = Math.round((index * (points.length - 1)) / (limit - 1));
-    return points[sourceIndex];
-  });
+  const pointToSegmentDistance = (
+    point: RouteCoordinate,
+    first: RouteCoordinate,
+    second: RouteCoordinate,
+  ) => {
+    const target = localMeters(first, second);
+    const current = localMeters(first, point);
+    const denominator = target.north ** 2 + target.east ** 2;
+    if (denominator <= 0) return Math.hypot(current.north, current.east);
+    const ratio = Math.max(
+      0,
+      Math.min(
+        1,
+        (current.north * target.north + current.east * target.east) /
+          denominator,
+      ),
+    );
+    return Math.hypot(
+      current.north - target.north * ratio,
+      current.east - target.east * ratio,
+    );
+  };
+  const simplify = (tolerance: number) => {
+    const keep = new Set([0, points.length - 1]);
+    const stack: [number, number][] = [[0, points.length - 1]];
+    while (stack.length) {
+      const [firstIndex, lastIndex] = stack.pop() as [number, number];
+      let splitIndex = -1;
+      let splitDistance = tolerance;
+      for (let index = firstIndex + 1; index < lastIndex; index += 1) {
+        const distance = pointToSegmentDistance(
+          points[index],
+          points[firstIndex],
+          points[lastIndex],
+        );
+        if (distance > splitDistance) {
+          splitDistance = distance;
+          splitIndex = index;
+        }
+      }
+      if (splitIndex >= 0) {
+        keep.add(splitIndex);
+        stack.push([firstIndex, splitIndex], [splitIndex, lastIndex]);
+      }
+    }
+    return [...keep].sort((first, second) => first - second);
+  };
+
+  let high = 1;
+  for (const point of points) {
+    high = Math.max(high, haversineMeters(points[0], point));
+  }
+  let low = 0;
+  let best = [0, points.length - 1];
+  for (let iteration = 0; iteration < 16; iteration += 1) {
+    const midpoint = (low + high) / 2;
+    const candidate = simplify(midpoint);
+    if (candidate.length <= limit) {
+      best = candidate;
+      high = midpoint;
+    } else {
+      low = midpoint;
+    }
+  }
+  return best.map(index => points[index]);
 }
 
 export function routeAscentMeters(
