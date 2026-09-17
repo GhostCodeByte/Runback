@@ -181,15 +181,29 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
     private fun locationManager() =
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-    private fun enabledProviders(manager: LocationManager, fine: Boolean) =
+    private fun enabledProviders(manager: LocationManager, fine: Boolean, coarse: Boolean) =
         listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { provider -> provider != LocationManager.GPS_PROVIDER || fine }
+            .filter { provider ->
+                if (provider == LocationManager.GPS_PROVIDER) fine else fine || coarse
+            }
             .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
 
-    private fun currentLocation(manager: LocationManager, fine: Boolean): Location? {
-        val providers = enabledProviders(manager, fine)
+    private fun currentLocation(manager: LocationManager, fine: Boolean, coarse: Boolean): Location? {
+        val providers = enabledProviders(manager, fine, coarse)
         val known = providers
-            .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+            .mapNotNull { provider ->
+                if (provider == LocationManager.GPS_PROVIDER &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) return@mapNotNull null
+                if (provider != LocationManager.GPS_PROVIDER &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) return@mapNotNull null
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            }
             .maxByOrNull { it.time }
         val knownAge = known?.let { (System.currentTimeMillis() - it.time).coerceAtLeast(0L) }
         if (known != null && knownAge != null && knownAge <= 120_000L && known.accuracy <= 100f) return known
@@ -209,6 +223,16 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
         }
         main.post {
             providers.forEach { provider ->
+                if (provider == LocationManager.GPS_PROVIDER &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) return@forEach
+                if (provider != LocationManager.GPS_PROVIDER &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) return@forEach
                 runCatching {
                     manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
                 }
@@ -232,7 +256,7 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
                     return@execute
                 }
                 val manager = locationManager()
-                val location = currentLocation(manager, fine)
+                val location = currentLocation(manager, fine, coarse)
                 if (location == null) {
                     promise.reject("LOCATION_UNAVAILABLE", "Keine frische Position verfügbar. Geh kurz nach draußen und versuche es erneut.")
                     return@execute
