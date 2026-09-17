@@ -1,9 +1,9 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { Text } from 'react-native';
-import { Image as SvgImage, Path } from 'react-native-svg';
+import { Image as NativeImage, Text } from 'react-native';
+import { Path } from 'react-native-svg';
 import type { RoutePoint } from '../src/native';
-import { Route } from '../src/ui/components';
+import { Route, RouteMap } from '../src/ui/components';
 
 const points: RoutePoint[] = [
   { latitude: 48.001, longitude: 7.801 },
@@ -18,17 +18,18 @@ describe('GPS-Strecke', () => {
       tree = TestRenderer.create(<Route points={points} />);
     });
     const map = tree.root.findByProps({ accessibilityRole: 'image' });
-    const images = tree.root.findAllByType(SvgImage);
+    const images = tree.root.findAllByType(NativeImage);
     const paths = tree.root.findAllByType(Path);
 
     expect(map.props.accessibilityLabel).toContain('OpenStreetMap');
     expect(images.length).toBeGreaterThan(0);
-    expect(images[0].props.href.uri).toMatch(
+    expect(images[0].props.source.uri).toMatch(
       /^https:\/\/tile\.openstreetmap\.org\//,
     );
+    expect(images[0].props.source.headers['User-Agent']).toContain('Runback');
     expect(paths).toHaveLength(2);
-    expect(paths[0].props.strokeWidth).toBe(9);
-    expect(paths[1].props.strokeWidth).toBe(5);
+    expect(paths[0].props.strokeWidth).toBe(10);
+    expect(paths[1].props.strokeWidth).toBe(6);
     expect(paths[1].props.d).toMatch(/^M/);
     expect(paths[1].props.d).toMatch(/L/);
   });
@@ -47,5 +48,19 @@ describe('GPS-Strecke', () => {
     expect(
       tree.root.findAllByType(Text).map(node => node.props.children),
     ).toContain('Keine GPS-Strecke');
+  });
+
+  it('zeigt auch geplante Routen auf echten Kartentiles statt auf einem Raster', async () => {
+    let tree!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      tree = TestRenderer.create(<RouteMap planned={points} />);
+    });
+
+    const images = tree.root.findAllByType(NativeImage);
+    expect(images.length).toBeGreaterThan(0);
+    expect(images[0].props.source.uri).toMatch(
+      /^https:\/\/tile\.openstreetmap\.org\//,
+    );
+    expect(tree.root.findAllByType(Path).length).toBeGreaterThanOrEqual(2);
   });
 });

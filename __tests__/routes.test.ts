@@ -1,6 +1,7 @@
 import {
   createPreviewRoute,
   formatPaceSeconds,
+  googleMapsDirectionsUrl,
   haversineMeters,
   limitRoutePoints,
   nearestRoutePoint,
@@ -12,6 +13,31 @@ import {
 const start = { latitude: 48, longitude: 7.8 };
 
 describe('route planning domain', () => {
+  it('builds a short Google Maps directions link with ordered walking waypoints', () => {
+    const url = googleMapsDirectionsUrl([
+      { latitude: 48.0, longitude: 7.8 },
+      { latitude: 48.001, longitude: 7.801 },
+      { latitude: 48.002, longitude: 7.802 },
+      { latitude: 48.003, longitude: 7.803 },
+      { latitude: 48.004, longitude: 7.804 },
+    ]);
+
+    expect(url).toContain('https://www.google.com/maps/dir/?api=1');
+    expect(url).toContain('travelmode=walking');
+    expect(url).toContain('origin=48.000000%2C7.800000');
+    expect(url).toContain('destination=48.004000%2C7.804000');
+    expect(url).toContain(
+      'waypoints=48.001000%2C7.801000%7C48.002000%2C7.802000%7C48.003000%2C7.803000',
+    );
+  });
+
+  it('does not create an external link for an incomplete route', () => {
+    expect(googleMapsDirectionsUrl([])).toBe('');
+    expect(googleMapsDirectionsUrl([{ latitude: 48.0, longitude: 7.8 }])).toBe(
+      '',
+    );
+  });
+
   it('creates a loop close to the requested total distance', () => {
     const route = createPreviewRoute(
       {
