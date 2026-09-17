@@ -83,15 +83,45 @@ class RunStore(context: Context) {
         }; result
     }
     fun active(): JSONObject? = locked { activeId()?.let { present(read(it)) } }
-    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running"): JSONObject = locked {
-        activeId()?.let { return@locked present(read(it)) }
+    private fun newRun(purpose: String, source: String, sport: String): JSONObject {
         check(app.filesDir.usableSpace > 32L * 1024 * 1024) { "Zu wenig freier Speicher. Bitte zuerst Daten sichern und Speicher freigeben." }
         val now = System.currentTimeMillis()
-        val run = JSONObject().put("id", UUID.randomUUID().toString()).put("startTime", now).put("endTime", now)
+        return JSONObject().put("id", UUID.randomUUID().toString()).put("startTime", now).put("endTime", now)
             .put("purpose", purpose).put("sport", sport).put("source", source).put("status", "recording").put("durationMs", 0L)
             .put("_tick", SystemClock.elapsedRealtime()).put("distanceMeters", 0.0).put("rawSampleCount", 0)
             .put("model_version", RunMath.MODEL_VERSION).put("sourceVersion", "raw-v1")
+    }
+    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running"): JSONObject = locked {
+        activeId()?.let { return@locked present(read(it)) }
+        val run = newRun(purpose, source, sport)
         transaction { write(run); addEvent(run.getString("id"), "start", JSONObject()) }
+        present(JSONObject(run.toString()))
+    }
+    /** Start a route run and bind its run id to the route in one SQLite lock/transaction. */
+    fun startRoute(purpose: String, source: String, sport: String, routePlanId: String): JSONObject = locked {
+        check(activeId() == null) { "Ein anderer Lauf ist bereits aktiv." }
+        val planner = getDocument("route_planner") ?: error("Routenplaner ist nicht vorbereitet.")
+        val routes = planner.optJSONArray("routes") ?: JSONArray()
+        val route = (0 until routes.length())
+            .mapNotNull { routes.optJSONObject(it) }
+            .firstOrNull { it.optString("id") == routePlanId }
+            ?: error("Die geplante Route wurde nicht gefunden.")
+        check(route.optString("source") == "brouter") { "Nur verifizierte Straßenrouten können gestartet werden." }
+        check(route.optString("activeRunId").isBlank()) { "Diese Route ist bereits einem Lauf zugeordnet." }
+        val run = newRun(purpose, source, sport)
+        val runId = run.getString("id")
+        val updatedRoutes = JSONArray()
+        for (index in 0 until routes.length()) {
+            val candidate = routes.optJSONObject(index) ?: continue
+            if (candidate.optString("id") == routePlanId) candidate.put("activeRunId", runId)
+            updatedRoutes.put(candidate)
+        }
+        transaction {
+            write(run)
+            addEvent(runId, "start", JSONObject().put("routePlanId", routePlanId))
+            planner.put("routes", updatedRoutes).put("activeRoutePlanId", routePlanId)
+            putDocument("route_planner", planner)
+        }
         present(JSONObject(run.toString()))
     }
     fun checkpoint(id: String) = locked {
@@ -124,6 +154,27 @@ class RunStore(context: Context) {
     fun markInterrupted(reason: String) = locked {
         activeId()?.let { id -> val run = read(id); run.put("status", "interrupted"); run.remove("_tick"); write(run)
             addEvent(id, "interrupted", JSONObject().put("message", reason)) }
+    }
+    fun clearRouteAssignment(runId: String) = locked {
+        val planner = getDocument("route_planner") ?: return@locked
+        val routes = planner.optJSONArray("routes") ?: return@locked
+        var changed = false
+        var activeRouteId: String? = null
+        val updatedRoutes = JSONArray()
+        for (index in 0 until routes.length()) {
+            val route = routes.optJSONObject(index) ?: continue
+            if (route.optString("activeRunId") == runId) {
+                activeRouteId = route.optString("id")
+                route.remove("activeRunId")
+                changed = true
+            }
+            updatedRoutes.put(route)
+        }
+        if (changed) {
+            planner.put("routes", updatedRoutes)
+            if (planner.optString("activeRoutePlanId") == activeRouteId) planner.put("activeRoutePlanId", JSONObject.NULL)
+            putDocument("route_planner", planner)
+        }
     }
     fun addEvent(id: String, type: String, data: JSONObject) = locked {
         db.insertOrThrow("events", null, ContentValues().apply { put("run_id", id); put("json", JSONObject()
@@ -162,6 +213,41 @@ class RunStore(context: Context) {
         db.rawQuery("SELECT time,kind,json FROM samples WHERE run_id=? ORDER BY time,seq", arrayOf(id)).use {
             while (it.moveToNext()) result.put(JSONObject().put("time", it.getLong(0)).put("kind", it.getString(1)).put("values", JSONObject(it.getString(2))))
         }; result
+    }
+    /** Small bounded GPS snapshot for live screens; finished-run geometry is derived separately. */
+    private fun geometryForRun(id: String, limit: Int): JSONArray {
+        val points = ArrayList<JSONObject>()
+        val bounded = limit.coerceIn(2, 512)
+        val rawLimit = (bounded * 4).coerceAtMost(2048)
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY time DESC,seq DESC LIMIT ?", arrayOf(id, rawLimit.toString())).use {
+            while (it.moveToNext()) {
+                val value = JSONObject(it.getString(1))
+                points.add(JSONObject().put("latitude", value.optDouble("latitude"))
+                    .put("longitude", value.optDouble("longitude")).put("time", it.getLong(0)))
+            }
+        }
+        points.reverse()
+        val boundaries = events(id)
+        val cuts = (0 until boundaries.length()).mapNotNull { index ->
+            boundaries.optJSONObject(index)?.takeIf { it.optString("type") in listOf("pause", "resume", "interrupted") }?.optLong("at")
+        }
+        val withGaps = points.mapIndexed { index, point ->
+            val previousTime = if (index > 0) points[index - 1].optLong("time") else 0L
+            point.put("gap", previousTime > 0L && cuts.any { it > previousTime && it <= point.optLong("time") })
+        }
+        if (withGaps.size <= bounded) return JSONArray(withGaps)
+        return JSONArray().apply {
+            repeat(bounded) { index ->
+                put(withGaps[(index.toLong() * (withGaps.size - 1) / (bounded - 1)).toInt()])
+            }
+        }
+    }
+    fun activeGeometry(limit: Int = 512): JSONArray = locked {
+        activeId()?.let { geometryForRun(it, limit) } ?: JSONArray()
+    }
+    fun activeWithGeometry(limit: Int = 512): JSONObject? = locked {
+        val id = activeId() ?: return@locked null
+        present(read(id)).put("route", geometryForRun(id, limit))
     }
     private fun events(id: String): JSONArray {
         val result = JSONArray(); db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq", arrayOf(id)).use {

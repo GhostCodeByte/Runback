@@ -7,6 +7,7 @@ import type {
   Experiment,
   Adherence,
 } from './domain/types';
+import type { RoutePlan } from './domain/routes';
 import { normalizeSport } from './domain/sport';
 import type {
   StrengthSession,
@@ -75,6 +76,28 @@ export interface Capabilities {
   healthConnect?: string;
   [key: string]: unknown;
 }
+export interface NativeLocation {
+  latitude: number;
+  longitude: number;
+  accuracyM?: number;
+  label?: string;
+}
+export interface LocationSearchResult extends NativeLocation {
+  label: string;
+}
+export interface RouteVoiceSettings {
+  enabled: boolean;
+  pace: boolean;
+  distance: boolean;
+  heartRate: boolean;
+  navigation: boolean;
+  intervalKm: number;
+}
+export interface RoutePlannerState {
+  routes: RoutePlan[];
+  voice: RouteVoiceSettings;
+  activeRoutePlanId?: string | null;
+}
 export interface SorenessTranscript {
   text: string;
   structured?: StructuredSorenessItem[];
@@ -86,6 +109,7 @@ export interface AppState {
   capabilities: Capabilities;
 }
 const module = NativeModules.Runback;
+const routeModule = NativeModules.RoutePlanner;
 export async function nativeCall<T = unknown>(
   method: string,
   ...args: unknown[]
@@ -94,6 +118,18 @@ export async function nativeCall<T = unknown>(
     throw new Error('Diese Funktion ist in diesem Build noch nicht verfügbar.');
   }
   const result = await module[method](...args);
+  return (typeof result === 'string' ? JSON.parse(result) : result) as T;
+}
+export async function routeCall<T = unknown>(
+  method: string,
+  ...args: unknown[]
+): Promise<T> {
+  if (!routeModule || typeof routeModule[method] !== 'function') {
+    throw new Error(
+      'Der Routenplaner ist in diesem Build noch nicht verfügbar.',
+    );
+  }
+  const result = await routeModule[method](...args);
   return (typeof result === 'string' ? JSON.parse(result) : result) as T;
 }
 export function normalizeRun(raw: any): Run {
@@ -202,6 +238,40 @@ export const native = {
   },
   async transcribeSoreness(): Promise<SorenessTranscript> {
     return nativeCall<SorenessTranscript>('transcribeSoreness');
+  },
+  async currentLocation(): Promise<NativeLocation> {
+    return routeCall<NativeLocation>('getCurrentLocation');
+  },
+  async searchLocation(query: string): Promise<LocationSearchResult[]> {
+    const raw = await routeCall<LocationSearchResult[]>(
+      'searchLocation',
+      query,
+    );
+    return Array.isArray(raw) ? raw : [];
+  },
+  async speakRoute(text: string) {
+    await routeCall('routeSpeak', text);
+  },
+  async stopRouteSpeech() {
+    await routeCall('routeStopSpeaking');
+  },
+  async routePlannerState(): Promise<RoutePlannerState> {
+    const raw = await routeCall<any>('getRoutePlannerState');
+    return {
+      routes: Array.isArray(raw?.routes) ? raw.routes : [],
+      voice: raw?.voice || {
+        enabled: true,
+        pace: true,
+        distance: true,
+        heartRate: false,
+        navigation: true,
+        intervalKm: 1,
+      },
+      activeRoutePlanId: raw?.activeRoutePlanId ?? null,
+    };
+  },
+  async saveRoutePlannerState(state: RoutePlannerState) {
+    await routeCall('saveRoutePlannerState', JSON.stringify(state));
   },
 };
 
