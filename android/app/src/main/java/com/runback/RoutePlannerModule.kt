@@ -17,6 +17,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.runback.core.RunStore
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.HashSet
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -51,8 +52,27 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
         )
         .put("activeRoutePlanId", JSONObject.NULL)
 
-    private fun routePlannerState() =
-        store.getDocument("route_planner") ?: defaultRoutePlannerState()
+    private fun routePlannerState(): JSONObject {
+        val state = store.getDocument("route_planner") ?: return defaultRoutePlannerState()
+        val activeRunId = store.active()?.optString("id").orEmpty()
+        val routes = state.optJSONArray("routes") ?: return state
+        var changed = false
+        var activeRouteId = state.optString("activeRoutePlanId")
+        for (index in 0 until routes.length()) {
+            val route = routes.optJSONObject(index) ?: continue
+            val routeRunId = route.optString("activeRunId")
+            if (routeRunId.isNotBlank() && routeRunId != activeRunId) {
+                route.remove("activeRunId")
+                if (activeRouteId == route.optString("id")) activeRouteId = ""
+                changed = true
+            }
+        }
+        if (changed) {
+            state.put("activeRoutePlanId", if (activeRouteId.isBlank()) JSONObject.NULL else activeRouteId)
+            store.putDocument("route_planner", state)
+        }
+        return state
+    }
 
     @ReactMethod
     fun getRoutePlannerState(promise: Promise) {
@@ -76,11 +96,40 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
                 val next = JSONObject(json)
                 val routes = next.optJSONArray("routes") ?: JSONArray()
                 require(routes.length() <= 10) { "Maximal zehn Routen können gespeichert werden." }
+                val routeIds = HashSet<String>()
+                val currentRunId = store.active()?.optString("id").orEmpty()
+                val activeRouteId = next.optString("activeRoutePlanId")
                 for (index in 0 until routes.length()) {
                     val route = routes.optJSONObject(index)
                         ?: error("Ungültige Route an Position ${index + 1}.")
+                    val routeId = route.optString("id")
+                    require(routeId.matches(Regex("[A-Za-z0-9_-]{1,100}")) && routeIds.add(routeId)) {
+                        "Routen benötigen eindeutige, gültige Kennungen."
+                    }
                     require(route.optString("source") == "brouter") {
                         "Nur verifizierte BRouter-Routen können gespeichert werden."
+                    }
+                    require(route.optString("mode") in setOf("loop", "out_and_back")) {
+                        "Ungültiger Routentyp."
+                    }
+                    require(route.optString("preference") in setOf("flat", "quiet", "green", "balanced")) {
+                        "Ungültige Routenpriorität."
+                    }
+                    require(route.optDouble("distanceKm", Double.NaN).isFinite() && route.optDouble("distanceKm") in 1.0..50.0) {
+                        "Ungültige Routendistanz."
+                    }
+                    require(route.optDouble("distanceMeters", Double.NaN).isFinite() && route.optDouble("distanceMeters") > 0.0) {
+                        "Ungültige Routengeometrie."
+                    }
+                    val start = route.optJSONObject("start")
+                        ?: error("Eine Route benötigt einen Startpunkt.")
+                    require(validCoordinate(start)) { "Ungültige Startkoordinaten." }
+                    val routeRunId = route.optString("activeRunId")
+                    require(routeRunId.isBlank() || routeRunId == currentRunId) {
+                        "Die aktive Laufzuordnung ist nicht mehr gültig."
+                    }
+                    require(routeRunId.isBlank() || activeRouteId == routeId) {
+                        "Die aktive Route und der aktive Lauf passen nicht zusammen."
                     }
                     val points = route.optJSONArray("points") ?: JSONArray()
                     require(points.length() in 2..512) {
@@ -89,13 +138,9 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
                     for (pointIndex in 0 until points.length()) {
                         val point = points.optJSONObject(pointIndex)
                             ?: error("Ungültiger Routenpunkt.")
-                        require(
-                            point.optDouble("latitude", Double.NaN).isFinite() &&
-                                point.optDouble("longitude", Double.NaN).isFinite(),
-                        ) { "Ungültige Koordinaten in der Route." }
+                        require(validCoordinate(point)) { "Ungültige Koordinaten in der Route." }
                     }
                 }
-                val activeRouteId = next.optString("activeRoutePlanId")
                 if (activeRouteId.isNotBlank()) {
                     require((0 until routes.length()).any {
                         routes.optJSONObject(it)?.optString("id") == activeRouteId
@@ -117,6 +162,13 @@ class RoutePlannerModule(private val context: ReactApplicationContext) :
                 )
             }
         }
+    }
+
+    private fun validCoordinate(point: JSONObject): Boolean {
+        val latitude = point.optDouble("latitude", Double.NaN)
+        val longitude = point.optDouble("longitude", Double.NaN)
+        return latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0
     }
 
     override fun onInit(status: Int) {
