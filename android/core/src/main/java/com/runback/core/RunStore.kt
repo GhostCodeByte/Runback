@@ -338,6 +338,43 @@ class RunStore(context: Context) {
         val derived = derive(id)
         present(read(id)).put("geometry",derived.getJSONArray("geometry")).put("series",derived.getJSONArray("series")).put("events",events(id))
     }
+    /** Begrenzter Zeitverlauf für Export und Darstellung; Rohsamples verlassen den Speicher nicht. */
+    fun timeline(id: String, maxRows: Int = 120): JSONObject = locked {
+        val run = read(id)
+        val gps = ArrayList<RunTimeline.GpsPoint>()
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY time,seq", arrayOf(id)).use {
+            while (it.moveToNext()) {
+                val value = JSONObject(it.getString(1))
+                val lat = value.optDouble("latitude", Double.NaN); val lon = value.optDouble("longitude", Double.NaN)
+                if (!lat.isFinite() || !lon.isFinite()) continue
+                gps.add(RunTimeline.GpsPoint(it.getLong(0), lat, lon, value.optDouble("accuracyM", 0.0),
+                    value.optDouble("altitudeM", Double.NaN).takeIf { a -> a.isFinite() }))
+            }
+        }
+        fun readings(kind: String, key: String): List<RunTimeline.Reading> {
+            val result = ArrayList<RunTimeline.Reading>()
+            db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind=? ORDER BY time,seq", arrayOf(id, kind)).use {
+                while (it.moveToNext()) { val v = JSONObject(it.getString(1)).optDouble(key, Double.NaN); if (v.isFinite()) result.add(RunTimeline.Reading(it.getLong(0), v)) }
+            }
+            return result
+        }
+        val boundaries = events(id)
+        val cuts = (0 until boundaries.length()).mapNotNull { index ->
+            boundaries.optJSONObject(index)?.takeIf { it.optString("type") in listOf("pause", "resume", "interrupted") }?.optLong("at")
+        }
+        val start = run.optLong("startTime"); val end = run.optLong("endTime", start)
+        val result = RunTimeline.build(start, end, gps, readings("heartRate", "bpm"), readings("cadence", "rpm"), cuts, maxRows.coerceIn(10, 240))
+        JSONObject().put("version", RunTimeline.VERSION).put("stepSeconds", result.stepSeconds).put("rows", JSONArray().apply {
+            result.rows.forEach { row ->
+                put(JSONObject().put("elapsedSeconds", row.elapsedSeconds).put("distanceMeters", row.distanceMeters)
+                    .put("stepDistanceMeters", row.stepDistanceMeters).put("movingSeconds", row.movingSeconds).apply {
+                        row.avgHeartRate?.let { put("avgHeartRate", it) }
+                        row.avgCadence?.let { put("avgCadence", it) }
+                        row.altitudeM?.let { put("altitudeM", it) }
+                    })
+            }
+        })
+    }
     fun getDocument(key: String): JSONObject? = locked { db.rawQuery("SELECT json FROM documents WHERE key=?",arrayOf(key)).use {
         if(it.moveToFirst()) JSONObject(it.getString(0)) else null } }
     fun putDocument(key: String, value: JSONObject) = locked {

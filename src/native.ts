@@ -8,6 +8,7 @@ import type {
   Adherence,
 } from './domain/types';
 import type { RouteCoordinate, RoutePlan } from './domain/routes';
+import type { RunTimeline } from './domain/runReport';
 import { normalizeSport } from './domain/sport';
 import type {
   StrengthSession,
@@ -174,6 +175,24 @@ export const native = {
   },
   async feedback(id: string, feedback: unknown) {
     await nativeCall('updateRunFeedback', id, JSON.stringify(feedback));
+  },
+  /** Begrenzter Zeitverlauf (Aggregate je Fenster) für den Laufbericht. */
+  async runTimeline(id: string, maxRows = 120): Promise<RunTimeline> {
+    const raw = await nativeCall<any>('getRunTimeline', id, maxRows);
+    return {
+      version: raw?.version,
+      stepSeconds: Number(raw?.stepSeconds) || 60,
+      rows: Array.isArray(raw?.rows) ? raw.rows : [],
+    };
+  },
+  /** Übergibt eine Textdatei an das System-Share-Sheet. */
+  async shareTextFile(
+    fileName: string,
+    content: string,
+    title: string,
+    mimeType = 'text/plain',
+  ) {
+    await nativeCall('shareTextFile', fileName, mimeType, content, title);
   },
   // Krafttraining. Der native Speicher legt die laufende Einheit getrennt von
   // der Historie ab, damit ein bestätigter Satz eine kleine Schreiboperation
