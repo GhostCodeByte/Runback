@@ -5,12 +5,13 @@ import kotlin.math.*
 /**
  * Conservative distance derivation; original coordinates are always retained.
  *
- * 2.0: Schritte unter dem GPS-Rauschboden zählen nicht (Zickzack im Stand
+ * 2.1: Schritte unter dem GPS-Rauschboden zählen nicht (Zickzack im Stand
  * addierte sonst echte Meter), Auf- und Abstieg werden getrennt mit
  * Hysterese summiert, Puls und Kadenz werden zeitgewichtet gemittelt.
+ * Überlappende Telefon- und Wear-Sensorwerte werden pro Quelle zusammengeführt.
  */
 object RunMath {
-    const val MODEL_VERSION = "runback-distance-2.0"
+    const val MODEL_VERSION = "runback-distance-2.1"
     /** Höhenänderung, die ein Aufzeichnungsrauschen von ±1–2 m sicher übersteigt. */
     const val ELEVATION_HYSTERESIS_METERS = 3.0
     /** Längere Lücken zwischen Sensorwerten zählen nicht als abgedeckte Zeit. */
@@ -68,12 +69,19 @@ object RunMath {
      * `maxGapSeconds`. Liefert Mittel und abgedeckte Sekunden; null ohne Werte.
      */
     fun timeWeightedAverage(timesMs: List<Long>, values: List<Double>,
-                            maxGapSeconds: Double = SENSOR_MAX_GAP_SECONDS): Pair<Double, Double>? {
+                            maxGapSeconds: Double = SENSOR_MAX_GAP_SECONDS,
+                            breaks: Set<Int> = emptySet()): Pair<Double, Double>? {
         if (timesMs.isEmpty() || timesMs.size != values.size) return null
         var weighted = 0.0; var covered = 0.0
         for (i in timesMs.indices) {
-            val weight = if (i + 1 < timesMs.size) ((timesMs[i + 1] - timesMs[i]) / 1000.0).coerceIn(0.0, maxGapSeconds)
-                         else 1.0
+            val weight = when {
+                i + 1 == timesMs.size -> 1.0
+                i + 1 in breaks -> 0.0
+                else -> {
+                    val seconds = (timesMs[i + 1] - timesMs[i]) / 1000.0
+                    if (seconds in 0.0..maxGapSeconds) seconds else 0.0
+                }
+            }
             weighted += values[i] * weight; covered += weight
         }
         return if (covered > 0) Pair(weighted / covered, covered) else null

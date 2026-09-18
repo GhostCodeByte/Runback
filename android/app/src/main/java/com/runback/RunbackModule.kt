@@ -33,6 +33,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.UUID
 
 /** All raw sensor and archive processing stays on native worker threads. */
 class RunbackModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
@@ -289,7 +290,9 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         }
         context.runOnUiQueueThread {
             try {
-                RecordingService.send(context, action, purpose, "phone", sport, routePlanId, target)
+                val runId = store.active()?.optString("id")?.takeIf { it.isNotBlank() }
+                    ?: UUID.randomUUID().toString()
+                val commandId = RecordingService.send(context, action, purpose, "phone", sport, routePlanId, target, runId, syncPeers = false)
                 worker.execute {
                     try {
                         val deadline = android.os.SystemClock.elapsedRealtime() + 5000
@@ -300,11 +303,36 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
                             check(android.os.SystemClock.elapsedRealtime() < deadline) { "Aufzeichnung reagiert nicht. Berechtigungen und Status prüfen." }
                             android.os.SystemClock.sleep(50)
                         }
-                        promise.resolve(state().toString())
+                        val snapshot = state()
+                        runCatching {
+                            val sent = WearController.sendCommand(context, action, runId, purpose, sport, routePlanId, target, commandId = commandId)
+                            awaitWearAck(action, runId, commandId, sent.optLong("sequence", 0L), sent)
+                        }.onSuccess { store.putDocument("wearLinkStatus", it) }
+                            .onFailure { store.putDocument("wearLinkStatus", JSONObject()
+                                .put("status", "error").put("message", it.message ?: "Uhr konnte nicht erreicht werden")
+                                .put("action", action).put("runId", runId).put("updatedAt", System.currentTimeMillis())) }
+                        promise.resolve(snapshot.toString())
                     } catch(error:Exception) { promise.reject("RECORDING_ERROR",error.message,error) }
                 }
             } catch (error: Exception) { promise.reject("RECORDING_ERROR", error.message, error) }
         }
+    }
+    private fun awaitWearAck(action: String, runId: String, commandId: String, sequence: Long, sent: JSONObject): JSONObject {
+        if (sent.optString("status") != "sent") return sent
+        val deadline = android.os.SystemClock.elapsedRealtime() + 3_000L
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            val link = store.getDocument("wearLinkStatus")
+            if (link?.optString("runId") == runId && link.optString("action") == action &&
+                link.optString("commandId") == commandId &&
+                link.optLong("sequence", 0L) == sequence &&
+                link.optString("status") in setOf("accepted", "error")) {
+                return JSONObject(sent.toString()).put("status", link.optString("status"))
+                    .put("message", link.optString("message")).put("sensors", link.optJSONObject("sensors") ?: JSONObject())
+            }
+            android.os.SystemClock.sleep(50)
+        }
+        return JSONObject(sent.toString()).put("status", "pending")
+            .put("message", "Uhrbefehl gesendet; Bestätigung steht noch aus.")
     }
     @ReactMethod fun startRun(purpose: String, sport: String, target: String, promise: Promise) =
         recording(RecordingService.START, purpose, promise, sport, target = target)
@@ -451,8 +479,18 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun getWearStatus(promise: Promise) = task(promise) {
         try {
             val nodes = Tasks.await(Wearable.getNodeClient(context).connectedNodes, 5, java.util.concurrent.TimeUnit.SECONDS)
+            val link = store.getDocument("wearLinkStatus")
             JSONObject().put("status", if (nodes.isEmpty()) "disconnected" else "connected")
                 .put("connected", nodes.isNotEmpty())
+                .put("message", when {
+                    nodes.isEmpty() -> "Derzeit keine Uhr verbunden"
+                    link?.optString("status") in setOf("error", "pending", "retry") -> link?.optString("message", "Uhr konnte nicht erreicht werden")
+                    link?.optString("status") == "accepted" -> link.optString("message", "Uhr bestätigt")
+                    link?.optString("status") == "live" -> "Uhr verbunden · Sensordaten werden empfangen"
+                    link?.optString("status") == "sent" -> "Uhr verbunden · Befehl wartet auf Bestätigung"
+                    else -> "Uhr verbunden · Synchronisierung startet mit einer Aufzeichnung"
+                })
+                .put("lastCommand", link ?: JSONObject.NULL)
                 .put("nodes", JSONArray().apply {
                     nodes.forEach { node -> put(JSONObject().put("id", node.id).put("name", node.displayName).put("nearby", node.isNearby)) }
                 })

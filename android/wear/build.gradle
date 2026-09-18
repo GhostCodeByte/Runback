@@ -36,4 +36,6 @@ android {
 dependencies {
     implementation project(':core')
     implementation 'com.google.android.gms:play-services-wearable:19.0.0'
+    implementation 'androidx.wear:wear-remote-interactions:1.2.0'
+    implementation 'com.google.guava:guava:33.2.1-android'
 }

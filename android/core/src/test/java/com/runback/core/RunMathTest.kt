@@ -38,8 +38,11 @@ class RunMathTest {
     @Test fun heartRateIsTimeWeightedAndGapsAreNotCovered() {
         // 150 bpm für 10 s, dann 30 s Lücke, dann 170 bpm für 10 s.
         val result = RunMath.timeWeightedAverage(listOf(0L, 10_000L, 40_000L, 50_000L), listOf(150.0, 150.0, 170.0, 170.0))!!
-        assertEquals(157.1, result.first, 0.1)
-        assertEquals(31.0, result.second, 0.01)
+        assertEquals(160.5, result.first, 0.1)
+        assertEquals(21.0, result.second, 0.01)
+        val paused = RunMath.timeWeightedAverage(listOf(0L, 10_000L, 20_000L), listOf(150.0, 150.0, 170.0), breaks = setOf(2))!!
+        assertEquals(151.8, paused.first, 0.1)
+        assertEquals(11.0, paused.second, 0.01)
         assertNull(RunMath.timeWeightedAverage(emptyList(), emptyList()))
     }
 }

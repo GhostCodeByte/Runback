@@ -30,6 +30,7 @@ import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import java.util.Locale
+import java.util.UUID
 import org.json.JSONObject
 
 /** All storage and sensor callbacks run on one thread; an interrupted run never resumes itself. */
@@ -48,6 +49,10 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     private var lastCheckpoint = 0L
     private var lastWakeRenewal = 0L
     private var lastAcceleration = 0L
+    private var nextSampleSequence = 0L
+    private var recordingSource = WearProtocol.PHONE_SOURCE
+    private var allowLocation = true
+    private var syncPeers = true
     private val pending = ArrayList<RawSample>()
     private val warned = HashSet<String>()
     private var routeSpeech: TextToSpeech? = null
@@ -69,6 +74,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         locations = getSystemService(LOCATION_SERVICE) as LocationManager
         workerThread = HandlerThread("RunbackRecording").also { it.start() }
         worker = Handler(workerThread.looper)
+        activeService = this
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel(CHANNEL, "Laufaufzeichnung", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "GPS- und Sensoraufzeichnung während eines Laufs"
@@ -84,13 +90,22 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A remote pause/resume/finish is delivered to the already-running service. Do not
+        // recalculate this flag for those commands: doing so would silently turn off phone GPS
+        // when the run was started locally and the app has no background-location permission.
+        if (intent?.action == START || activeService == null) {
+            allowLocation = !(intent?.getBooleanExtra("remoteStart", false) ?: false) || hasBackgroundLocationPermission()
+        }
+        syncPeers = intent?.getBooleanExtra("syncPeers", true) ?: true
         // Meet the foreground-service deadline before any disk or sensor work is queued.
         try {
             val notification = notification("Aufzeichnung wird vorbereitet", false)
             if (Build.VERSION.SDK_INT >= 29) {
-                val serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
-                    if (Build.VERSION.SDK_INT >= 34 && hasHeartPermission()) ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH else 0
-                startForeground(NOTIFICATION_ID, notification, serviceTypes)
+                var serviceTypes = 0
+                if (allowLocation && hasLocationPermission()) serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                if (Build.VERSION.SDK_INT >= 34 && hasHeartPermission()) serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
+                if (serviceTypes == 0) startForeground(NOTIFICATION_ID, notification)
+                else startForeground(NOTIFICATION_ID, notification, serviceTypes)
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
@@ -111,35 +126,55 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                     shutdown()
                     return@post
                 }
+                intent.getStringExtra("source")?.let { recordingSource = it }
+                if (intent.action != START) {
+                    val active = store.active()
+                    activeId = active?.optString("id")?.takeIf { it.isNotBlank() }
+                    active?.optString("source")?.takeIf { it.isNotBlank() }?.let { recordingSource = it }
+                    val requestedRunId = intent.getStringExtra("runId")
+                    if (!requestedRunId.isNullOrBlank() && requestedRunId != activeId &&
+                        !(intent.action == FINISH && store.runStatus(requestedRunId) == "completed")) {
+                        Log.w(TAG, "Ignoriere Befehl für nicht aktiven Lauf: $requestedRunId")
+                        shutdown()
+                        return@post
+                    }
+                }
+                val commandId = intent.getStringExtra("commandId")?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
                 when (intent.action) {
                     START -> {
                         val purpose = intent.getStringExtra("purpose") ?: "easy"
                         val source = intent.getStringExtra("source") ?: "phone"
                         val sport = intent.getStringExtra("sport") ?: "running"
                         val routePlanId = intent.getStringExtra("routePlanId")
+                        recordingSource = source
+                        nextSampleSequence = 0L
                         val requestedTarget = RunTargetGuidance.parse(intent.getStringExtra("target"))
                         val session = if (routePlanId.isNullOrBlank()) {
-                            store.start(purpose, source, sport, requestedTarget?.targetObject())
+                            store.start(purpose, source, sport, requestedTarget?.targetObject(), intent.getStringExtra("runId"), commandId)
                         } else {
-                            store.startRoute(purpose, source, sport, routePlanId, requestedTarget?.targetObject())
+                            store.startRoute(purpose, source, sport, routePlanId, requestedTarget?.targetObject(), intent.getStringExtra("runId"), commandId)
                         }
                         activeId = session.getString("id")
                         recording = session.optString("status") == "recording"
                         loadRouteGuidance(intent.getStringExtra("routePlanId"), activeId)
                         loadTargetGuidance(session, resumed = false)
-                        if (recording) beginListening()
+                        if (recording) {
+                            if (listening) requestLocationProviders() else beginListening()
+                        }
                         updateNotification()
+                        activeId?.let { publishControl(START, it, commandId) }
                     }
                     PAUSE -> {
                         flush()
                         recording = false
                         endListening()
-                        store.pause()
+                        store.pause(commandId)
                         activeId?.let { store.checkpoint(it) }
                         updateNotification()
+                        activeId?.let { publishControl(PAUSE, it, commandId) }
                     }
                     RESUME -> {
-                        val session = store.resume()
+                        val session = store.resume(commandId)
                         if (session == null) {
                             shutdown()
                         } else {
@@ -149,6 +184,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                             loadTargetGuidance(session, resumed = true)
                             if (recording) beginListening()
                             updateNotification()
+                            activeId?.let { publishControl(RESUME, it, commandId) }
                         }
                     }
                     FINISH -> {
@@ -156,8 +192,9 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                         recording = false
                         endListening()
                         val finishedId = activeId
-                        store.finish()
+                        store.finish(commandId)
                         finishedId?.let { store.clearRouteAssignment(it) }
+                        finishedId?.let { publishControl(FINISH, it, commandId) }
                         shutdown()
                     }
                     else -> shutdown()
@@ -185,11 +222,18 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         if (hasHeartPermission()) {
             registerSensor(Sensor.TYPE_HEART_RATE, "Pulssensor")
         }
+        if (!allowLocation) warn("gps_background_permission", "Standort bleibt beim Fernstart aus. Die Aufzeichnung läuft mit den verfügbaren Uhr- oder Sensorsignalen.")
+        if (allowLocation && !hasLocationPermission()) warn("gps_permission", "Standortfreigabe fehlt. Die Aufzeichnung läuft ohne GPS-Punkte.")
+        val providerCount = requestLocationProviders()
+        if (providerCount == 0) warn("gps_disabled", "Standort ist ausgeschaltet. Die Aufzeichnung läuft ohne GPS-Punkte.")
+        worker.removeCallbacks(tick)
+        worker.postDelayed(tick, FLUSH_INTERVAL_MS)
+    }
+
+    private fun requestLocationProviders(): Int {
         val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!fine && !coarse) {
-            throw SecurityException("Standortberechtigung fehlt")
-        }
+        if (!allowLocation || (!fine && !coarse)) return 0
         var providerCount = 0
         for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
             if (provider == LocationManager.GPS_PROVIDER && !fine) continue
@@ -202,9 +246,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                 warn("location_$provider", "Standortquelle $provider nicht verfügbar: ${error.message.orEmpty()}")
             }
         }
-        if (providerCount == 0) warn("gps_disabled", "Standort ist ausgeschaltet. Die Aufzeichnung läuft ohne GPS-Punkte.")
-        worker.removeCallbacks(tick)
-        worker.postDelayed(tick, FLUSH_INTERVAL_MS)
+        return providerCount
     }
 
     private fun registerSensor(type: Int, label: String) {
@@ -276,7 +318,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
             }
             else -> return
         }
-        values.put("accuracy", event.accuracy)
+        values.put("accuracy", event.accuracy).put("source", recordingSource)
         // Sensor timestamps are monotonic nanoseconds, not Unix timestamps.
         val sampleTime = System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - event.timestamp) / 1_000_000L
         pending.add(RawSample(sampleTime, kind, values))
@@ -296,9 +338,12 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         if (location.hasAltitude()) values.put("altitudeM", location.altitude)
         if (location.hasSpeed()) values.put("speedMps", location.speed.toDouble())
         if (location.hasBearing()) values.put("bearingDeg", location.bearing.toDouble())
+        values.put("source", recordingSource)
+        val sample = RawSample(location.time, "gps", values)
         try {
             // GPS is appended immediately; a killed process loses at most the current sensor batch.
-            store.appendSamples(runId, listOf(RawSample(location.time, "gps", values)))
+            store.appendSamples(runId, listOf(sample))
+            publishSamples(runId, listOf(sample))
             val session = store.active()
             targetGuidance?.onLocation(
                 location.time,
@@ -595,8 +640,61 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     private fun flush() {
         val runId = activeId ?: return
         if (pending.isEmpty()) return
-        store.appendSamples(runId, pending.toList())
+        val samples = pending.toList()
+        store.appendSamples(runId, samples)
         pending.clear()
+        publishSamples(runId, samples)
+    }
+
+    private fun publishSamples(runId: String, samples: List<RawSample>) {
+        val sink = sampleSink ?: return
+        if (samples.isEmpty()) return
+        if (nextSampleSequence == 0L) nextSampleSequence = System.currentTimeMillis().coerceAtLeast(1L)
+        val sequence = nextSampleSequence++
+        runCatching { sink.publish(runId, sequence, samples) }
+            .onFailure { Log.w(TAG, "Wear-Sensorpaket konnte nicht versendet werden", it) }
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasBackgroundLocationPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun publishControl(action: String, runId: String, commandId: String) {
+        if (!syncPeers) return
+        runCatching { controlSink?.publish(action, runId, commandId) }
+            .onFailure { Log.w(TAG, "Wear-Steuerung konnte nicht vorgemerkt werden", it) }
+    }
+
+    private fun handleRemoteLocation(runId: String, sample: RawSample) {
+        if (!recording || activeId != runId || sample.kind != "gps") return
+        val values = sample.values
+        val latitude = values.optDouble("latitude", Double.NaN)
+        val longitude = values.optDouble("longitude", Double.NaN)
+        if (!latitude.isFinite() || !longitude.isFinite()) return
+        val location = Location("phone").apply {
+            this.latitude = latitude
+            this.longitude = longitude
+            time = sample.time
+            accuracy = values.optDouble("accuracyM", 0.0).toFloat().coerceAtLeast(0.1f)
+            if (values.has("altitudeM")) altitude = values.optDouble("altitudeM")
+            if (values.has("speedMps")) speed = values.optDouble("speedMps").toFloat().coerceAtLeast(0f)
+            if (values.has("bearingDeg")) bearing = values.optDouble("bearingDeg").toFloat()
+        }
+        val session = store.active()
+        targetGuidance?.onLocation(
+            sample.time,
+            latitude,
+            longitude,
+            location.accuracy.toDouble(),
+            session?.optLong("elapsedMs", 0L) ?: 0L,
+        )?.let(::deliverTargetCue)
+        val progress = routePlan?.let { routeProgress(location) }
+        maybeSpeakNavigation(progress)
+        maybeSpeakRoute(progress)
     }
 
     private fun renewWakeLock() {
@@ -708,6 +806,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                 workerThread.quitSafely()
             }
         }
+        activeService = null
         super.onDestroy()
     }
 
@@ -726,11 +825,24 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
 
         /** Anzeigename je Sportart; unbekannte Werte gelten als Lauf (siehe src/domain/sport.ts). */
         fun sportNoun(sport: String?): String = if (sport == "cycling") "Radfahrt" else "Lauf"
-        fun send(context: Context, action: String, purpose: String = "easy", source: String = "phone", sport: String = "running", routePlanId: String? = null, target: String? = null) {
+        @Volatile var sampleSink: RecordingSampleSink? = null
+        @Volatile var controlSink: RecordingControlSink? = null
+        @Volatile private var activeService: RecordingService? = null
+        fun hasLiveService(): Boolean = activeService != null
+        fun acceptRemoteLocation(runId: String, sample: RawSample) {
+            activeService?.worker?.post { activeService?.handleRemoteLocation(runId, sample) }
+        }
+        fun send(context: Context, action: String, purpose: String = "easy", source: String = "phone", sport: String = "running", routePlanId: String? = null, target: String? = null, runId: String? = null, remoteStart: Boolean = false, syncPeers: Boolean = true, commandId: String? = null, commandSequence: Long = 0L): String {
             require(action in setOf(START, PAUSE, RESUME, FINISH)) { "Unknown recording action: $action" }
-            context.startForegroundService(Intent(context, RecordingService::class.java)
+            val resolvedCommandId = commandId ?: UUID.randomUUID().toString()
+            val intent = Intent(context, RecordingService::class.java)
                 .setAction(action).putExtra("purpose", purpose).putExtra("source", source).putExtra("sport", sport)
-                .putExtra("routePlanId", routePlanId).putExtra("target", target))
+                .putExtra("routePlanId", routePlanId).putExtra("target", target).putExtra("runId", runId)
+                .putExtra("remoteStart", remoteStart).putExtra("syncPeers", syncPeers)
+                .putExtra("commandId", resolvedCommandId).putExtra("commandSequence", commandSequence)
+            if (action != START && activeService != null) context.startService(intent)
+            else context.startForegroundService(intent)
+            return resolvedCommandId
         }
     }
 }
