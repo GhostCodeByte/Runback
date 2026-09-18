@@ -83,22 +83,23 @@ class RunStore(context: Context) {
         }; result
     }
     fun active(): JSONObject? = locked { activeId()?.let { present(read(it)) } }
-    private fun newRun(purpose: String, source: String, sport: String): JSONObject {
+    private fun newRun(purpose: String, source: String, sport: String, target: JSONObject? = null): JSONObject {
         check(app.filesDir.usableSpace > 32L * 1024 * 1024) { "Zu wenig freier Speicher. Bitte zuerst Daten sichern und Speicher freigeben." }
         val now = System.currentTimeMillis()
         return JSONObject().put("id", UUID.randomUUID().toString()).put("startTime", now).put("endTime", now)
             .put("purpose", purpose).put("sport", sport).put("source", source).put("status", "recording").put("durationMs", 0L)
             .put("_tick", SystemClock.elapsedRealtime()).put("distanceMeters", 0.0).put("rawSampleCount", 0)
             .put("model_version", RunMath.MODEL_VERSION).put("sourceVersion", "raw-v1")
+            .also { if (target != null) it.put("target", JSONObject(target.toString())) }
     }
-    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running"): JSONObject = locked {
+    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running", target: JSONObject? = null): JSONObject = locked {
         activeId()?.let { return@locked present(read(it)) }
-        val run = newRun(purpose, source, sport)
-        transaction { write(run); addEvent(run.getString("id"), "start", JSONObject()) }
+        val run = newRun(purpose, source, sport, target)
+        transaction { write(run); addEvent(run.getString("id"), "start", JSONObject().also { if (target != null) it.put("target", target) }) }
         present(JSONObject(run.toString()))
     }
     /** Start a route run and bind its run id to the route in one SQLite lock/transaction. */
-    fun startRoute(purpose: String, source: String, sport: String, routePlanId: String): JSONObject = locked {
+    fun startRoute(purpose: String, source: String, sport: String, routePlanId: String, target: JSONObject? = null): JSONObject = locked {
         check(activeId() == null) { "Ein anderer Lauf ist bereits aktiv." }
         val planner = getDocument("route_planner") ?: error("Routenplaner ist nicht vorbereitet.")
         val routes = planner.optJSONArray("routes") ?: JSONArray()
@@ -108,7 +109,7 @@ class RunStore(context: Context) {
             ?: error("Die geplante Route wurde nicht gefunden.")
         check(route.optString("source") == "brouter") { "Nur verifizierte Straßenrouten können gestartet werden." }
         check(route.optString("activeRunId").isBlank()) { "Diese Route ist bereits einem Lauf zugeordnet." }
-        val run = newRun(purpose, source, sport)
+        val run = newRun(purpose, source, sport, target)
         val runId = run.getString("id")
         val updatedRoutes = JSONArray()
         for (index in 0 until routes.length()) {
@@ -118,7 +119,8 @@ class RunStore(context: Context) {
         }
         transaction {
             write(run)
-            addEvent(runId, "start", JSONObject().put("routePlanId", routePlanId))
+            addEvent(runId, "start", JSONObject().put("routePlanId", routePlanId)
+                .also { if (target != null) it.put("target", target) })
             planner.put("routes", updatedRoutes).put("activeRoutePlanId", routePlanId)
             putDocument("route_planner", planner)
         }
@@ -202,11 +204,24 @@ class RunStore(context: Context) {
                 }
                 if (sample.kind == "heartRate") {
                     val bpm = sample.values.optDouble("bpm")
-                    if (bpm.isFinite() && bpm in 30.0..240.0) run.put("lastHeartRate", bpm)
+                    if (bpm.isFinite() && bpm in 30.0..240.0) run.put("lastHeartRate", bpm).put("lastHeartRateAt", sample.time)
                 }
             }
             run.put("distanceMeters", distance).put("rawSampleCount", run.optInt("rawSampleCount") + samples.size); write(run)
         }
+    }
+    fun recentHeartRates(id: String, since: Long, limit: Int = 5): List<HeartSample> = locked {
+        val result = ArrayList<HeartSample>()
+        db.rawQuery(
+            "SELECT time,json FROM samples WHERE run_id=? AND kind='heartRate' AND time>=? ORDER BY time DESC,seq DESC LIMIT ?",
+            arrayOf(id, since.toString(), limit.coerceIn(1, 20).toString()),
+        ).use { rows ->
+            while (rows.moveToNext()) {
+                val bpm = JSONObject(rows.getString(1)).optDouble("bpm", Double.NaN)
+                if (bpm.isFinite() && bpm in 30.0..240.0) result.add(HeartSample(rows.getLong(0), bpm))
+            }
+        }
+        result
     }
     fun rawSamples(id: String): JSONArray = locked {
         val result = JSONArray()

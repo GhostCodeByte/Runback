@@ -58,6 +58,7 @@ import { PlanEditor } from './PlanEditor';
 import { PlanList } from './PlanList';
 import { BodyMap, type BodyMapMode } from './BodyMap';
 import { SorenessCapture } from './SorenessCapture';
+import { RunTargetScreen } from './RunTargetScreen';
 import {
   createTemplate,
   deleteTemplate,
@@ -112,6 +113,12 @@ import {
 } from '../domain/sport';
 import type { SorenessReport as CapturedSorenessReport } from '../domain/sorenessInput';
 import type { RegionId } from '../domain/regions';
+import {
+  NO_RUN_TARGET,
+  normalizeRunTarget,
+  runTargetLabel,
+  targetForPurpose,
+} from '../domain/runTarget';
 import {
   native,
   nativeCall,
@@ -220,7 +227,8 @@ type Page =
   | 'presets'
   | 'models'
   | 'development'
-  | 'chat';
+  | 'chat'
+  | 'run-target';
 
 /**
  * Eine erfasste Einheit ist ein Lauf oder ein Krafttraining. Beide stehen in
@@ -550,6 +558,7 @@ export function RunbackApp() {
   const purpose = settings.purpose || 'free';
   const sport = normalizeSport(settings.sport);
   const words = sportWords(sport);
+  const runTarget = normalizeRunTarget(settings.runTarget);
 
   const refresh = useCallback(async () => {
     const generation = stateGeneration.current;
@@ -973,6 +982,14 @@ export function RunbackApp() {
       'startRun',
       nextPurpose,
       nextSport,
+      JSON.stringify(
+        nextSport === 'running'
+          ? targetForPurpose(
+              normalizeRunTarget(stateRef.current.settings.runTarget),
+              nextPurpose,
+            )
+          : NO_RUN_TARGET,
+      ),
     );
     const active = started.recording?.id
       ? normalizeRun(started.recording)
@@ -1305,6 +1322,13 @@ export function RunbackApp() {
       void startScheduled(todaysScheduledRun).catch(e => setError(e.message));
     }
   };
+  const targetRow = (nextPurpose: RunPurpose) => (
+    <Row
+      title="Laufen nach"
+      subtitle={runTargetLabel(targetForPurpose(runTarget, nextPurpose))}
+      onPress={() => openPage('run-target')}
+    />
+  );
   const renderHome = () => (
     <>
       <Title>Heute</Title>
@@ -1324,6 +1348,7 @@ export function RunbackApp() {
             <Copy>
               {todaysScheduledRun.title} · {todaysScheduledRun.minutes} Min.
             </Copy>
+            {targetRow(todaysScheduledRun.purpose || 'free')}
             <Button
               title="Geplanten Lauf starten"
               onPress={startPlannedRun}
@@ -1339,7 +1364,7 @@ export function RunbackApp() {
           </>
         ) : (
           <>
-            <Field label="Art">
+            <Field label="Sportart">
               <ChipGroup
                 label="Sportart der Aufzeichnung"
                 options={SPORTS}
@@ -1360,6 +1385,7 @@ export function RunbackApp() {
                 disabled={busy}
               />
             </Field>
+            {sport === 'running' ? targetRow(purpose) : null}
             <Button
               title={`${words.noun} starten`}
               onPress={start}
@@ -1641,6 +1667,12 @@ export function RunbackApp() {
                   : 'Keine Daten'}
               </Copy>
             }
+          />
+        ) : null}
+        {recording.target && recording.target.kind !== 'none' ? (
+          <Row
+            title="Laufen nach"
+            subtitle={runTargetLabel(recording.target)}
           />
         ) : null}
         <Copy muted>
@@ -3471,6 +3503,19 @@ export function RunbackApp() {
     <TrainingChat onSettings={() => openPage('models')} />
   ) : page === 'profile' ? (
     renderProfile()
+  ) : page === 'run-target' ? (
+    <RunTargetScreen
+      value={runTarget}
+      purpose={
+        todaysScheduledRun && !freeRecording
+          ? todaysScheduledRun.purpose || 'free'
+          : purpose
+      }
+      onSave={async target => {
+        await persist({ runTarget: target });
+        setPage('main');
+      }}
+    />
   ) : page === 'devices' ? (
     renderDevices()
   ) : page === 'data' ? (

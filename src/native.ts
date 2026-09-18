@@ -16,6 +16,7 @@ import type {
 } from './domain/strength';
 import { summarize } from './domain/strength';
 import type { ScheduleState } from './domain/schedule';
+import { normalizeRunTarget, type RunTarget } from './domain/runTarget';
 import type {
   SorenessReport as CapturedSorenessReport,
   StructuredSorenessItem,
@@ -44,6 +45,8 @@ export interface Settings {
   sport?: Sport;
   trainingDays?: number[];
   cues?: boolean;
+  /** Explizit gewählte Begleitung für den nächsten Lauf. */
+  runTarget?: RunTarget;
   weather?: boolean;
   showHeartRate?: boolean;
   presets?: Preset[];
@@ -63,6 +66,7 @@ export interface Run extends RunSummary {
   note?: string;
   route?: RoutePoint[];
   events?: { type?: string; at?: number; message?: string }[];
+  target?: RunTarget;
 }
 export interface Capabilities {
   gps?: boolean;
@@ -149,6 +153,7 @@ export function normalizeRun(raw: any): Run {
     rpe: raw.rpe ?? feedback.rpe,
     note: raw.note ?? feedback.note,
     route: raw.route ?? raw.geometry,
+    target: raw.target ? normalizeRunTarget(raw.target) : undefined,
   };
 }
 export const native = {

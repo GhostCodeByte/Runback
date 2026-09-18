@@ -169,7 +169,12 @@ it('links a started planned run to its recording without claiming completion', a
   await act(async () => {
     await tree.root.findByType(PlanningScreen).props.onStartRun(session());
   });
-  expect(nativeCall).toHaveBeenCalledWith('startRun', 'easy', 'running');
+  expect(nativeCall).toHaveBeenCalledWith(
+    'startRun',
+    'easy',
+    'running',
+    '{"kind":"none","version":1}',
+  );
   expect(stored.settings.schedule?.sessions[0]).toMatchObject({
     activityId: 'recorded-run',
     status: 'planned',
@@ -225,7 +230,12 @@ it('keeps the plan unlinked if recording permission is denied', async () => {
     ).rejects.toThrow('Standortfreigabe');
   });
   expect(stored.settings.schedule?.sessions[0].activityId).toBeUndefined();
-  expect(nativeCall).not.toHaveBeenCalledWith('startRun', 'easy', 'running');
+  expect(nativeCall).not.toHaveBeenCalledWith(
+    'startRun',
+    'easy',
+    'running',
+    '{"kind":"none","version":1}',
+  );
 });
 
 it('opens development from planning using actual activity data', async () => {
@@ -342,9 +352,8 @@ it('uses the schedule goal as canonical and preserves its routine in profile sav
     tree.root.findByType(DevelopmentScreen).props.onEditGoal(),
   );
   expect(
-    tree.root.find(
-      node => node.props.accessibilityLabel === 'Dein Ziel',
-    ).props.value,
+    tree.root.find(node => node.props.accessibilityLabel === 'Dein Ziel').props
+      .value,
   ).toBe(scheduleGoal.name);
 
   const saveButton = tree.root.find(

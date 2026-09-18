@@ -182,7 +182,7 @@ export function ChipGroup<T extends string>({
   label,
   disabled = false,
 }: {
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; disabled?: boolean }[];
   value: T;
   onChange: (value: T) => void;
   label?: string;
@@ -196,17 +196,23 @@ export function ChipGroup<T extends string>({
     >
       {options.map(option => {
         const selected = option.value === value;
+        const optionDisabled = disabled || option.disabled;
         return (
           <Pressable
             key={option.value}
             accessibilityRole="radio"
             accessibilityLabel={option.label}
-            accessibilityState={{ selected, checked: selected, disabled }}
-            disabled={disabled}
+            accessibilityState={{
+              selected,
+              checked: selected,
+              disabled: optionDisabled,
+            }}
+            disabled={optionDisabled}
             onPress={() => onChange(option.value)}
             style={({ pressed }) => [
               s.chip,
               selected && s.chipSelected,
+              optionDisabled && s.disabled,
               pressed && s.pressed,
             ]}
           >
