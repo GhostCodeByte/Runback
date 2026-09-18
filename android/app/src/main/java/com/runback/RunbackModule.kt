@@ -9,10 +9,12 @@ import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import androidx.core.content.FileProvider
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
@@ -29,6 +31,7 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.Executors
 
 /** All raw sensor and archive processing stays on native worker threads. */
@@ -37,6 +40,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     private val worker = Executors.newSingleThreadExecutor()
     private val aiWorker = Executors.newSingleThreadExecutor()
     private val importWorker = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val importer = ActivityImporter(context, store)
     private val health = HealthConnectIntegration(context)
     private val prose = OpenRouterProse(context)
@@ -106,6 +110,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
             repeat(limit) { put(source.getJSONObject((it.toLong() * (source.length() - 1) / (limit - 1)).toInt())) }
         }
     }
+    @ReactMethod fun getRunTimeline(id: String, maxRows: Int, promise: Promise) = task(promise) { store.timeline(id, maxRows) }
     @ReactMethod fun updateRunFeedback(id: String, json: String, promise: Promise) = task(promise) { store.saveFeedback(id, JSONObject(json)); store.detail(id) }
     @ReactMethod fun saveRunContext(id: String, json: String, promise: Promise) = updateRunFeedback(id, json, promise)
     @ReactMethod fun deleteRun(id: String, promise: Promise) = task(promise) { store.deleteRun(id); state() }
@@ -400,6 +405,40 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
                 JSONObject().put("exported", true).put("format", extension)
                     .put("limitation", "Austauschformat; für den vollständigen App-Zustand ein Backup erstellen.")
             }
+        }
+    }
+
+    /**
+     * Teilt eine in JS erzeugte Textdatei (z. B. den Laufbericht) über das
+     * System-Share-Sheet. Die Datei liegt im Cache und wird nur per
+     * FileProvider freigegeben; nichts verlässt das Gerät ohne die Wahl des Nutzers.
+     */
+    @ReactMethod fun shareTextFile(fileName: String, mimeType: String, content: String, title: String, promise: Promise) {
+        worker.execute {
+            try {
+                val safeName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "-").take(120).ifBlank { "runback-export.txt" }
+                require(content.length <= 4_000_000) { "Der Bericht ist zu groß zum Teilen." }
+                val directory = File(context.cacheDir, "exports").apply { mkdirs() }
+                directory.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 24 * 60 * 60 * 1000L }?.forEach { it.delete() }
+                val file = File(directory, safeName)
+                file.writeText(content, Charsets.UTF_8)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = mimeType.ifBlank { "text/plain" }
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, title)
+                    clipData = android.content.ClipData.newRawUri(title, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(send, title)
+                mainHandler.post {
+                    try {
+                        val activity = context.currentActivity ?: error("Öffne die App, um den Bericht zu teilen.")
+                        activity.startActivity(chooser)
+                        promise.resolve(JSONObject().put("shared", true).put("fileName", safeName).toString())
+                    } catch (error: Exception) { promise.reject("SHARE_ERROR", error.message, error) }
+                }
+            } catch (error: Exception) { promise.reject("SHARE_ERROR", error.message, error) }
         }
     }
 

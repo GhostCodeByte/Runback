@@ -98,6 +98,7 @@ import type {
   Experiment,
   ExperimentStatus,
   Recommendation,
+  RunAnalysis,
   RunPurpose,
   Sport,
   StrengthRecommendation,
@@ -154,6 +155,11 @@ import {
   purposeLabel,
   runTitle,
 } from '../domain/runTitle';
+import {
+  buildRunReport,
+  runReportFileName,
+  type RunTimeline,
+} from '../domain/runReport';
 
 const purposes = RUN_PURPOSES;
 const number = (value: number, digits = 1) =>
@@ -655,6 +661,40 @@ export function RunbackApp() {
   const openCoMaps = useCallback(async (points: RouteCoordinate[]) => {
     await native.openRouteFile(points, 'comaps');
   }, []);
+  // Ein Bericht als Textdatei: alles, was die App über den Lauf weiß, zum
+  // Weitergeben (z. B. an ein Sprachmodell). Fehlt der Zeitverlauf, fehlt nur
+  // dieser Abschnitt — der Rest wird trotzdem geteilt.
+  const shareRun = (run: Run, analysis: RunAnalysis | null) => {
+    void action(async () => {
+      let timeline: RunTimeline | null = null;
+      try {
+        timeline = await native.runTimeline(run.id);
+      } catch {
+        timeline = null;
+      }
+      const current = stateRef.current;
+      const sameSport = current.runs.filter(
+        other => normalizeSport(other.sport) === normalizeSport(run.sport),
+      );
+      const content = buildRunReport({
+        run,
+        analysis,
+        timeline,
+        context: {
+          goal: current.settings.goal,
+          goalTargetDate: current.settings.goalTargetDate,
+          focus: current.settings.trainingFocus,
+          adherence: current.settings.adherence?.[run.id],
+          history: sameSport,
+        },
+      });
+      await native.shareTextFile(
+        runReportFileName(run),
+        content,
+        `${sportWords(run.sport).noun} teilen`,
+      );
+    });
+  };
 
   useEffect(() => {
     void refresh()
@@ -2671,6 +2711,18 @@ export function RunbackApp() {
             disabled={busy}
           />
         ) : null}
+        <Section title="Teilen">
+          <Button
+            secondary
+            title={`${selectedWords.noun} als Bericht teilen`}
+            onPress={() => shareRun(selected, snapshot)}
+            disabled={busy}
+          />
+          <Copy muted>
+            Eine Textdatei mit allen Werten, Abschnitten, Verlauf und
+            Auswertung — zum Beispiel für eine Auswertung mit ChatGPT.
+          </Copy>
+        </Section>
         <View style={styles.sectionGap}>
           <Button
             secondary
