@@ -23,6 +23,7 @@ import {
   type RouteRequest,
 } from '../domain/routes';
 import { requestRoutePlan } from '../services/routeProvider';
+import { normalizeRunTarget, targetForPurpose } from '../domain/runTarget';
 import {
   native,
   nativeCall,
@@ -431,6 +432,12 @@ export function RoutePlannerScreen({ onClose }: { onClose: () => void }) {
           route.id,
           'free',
           'running',
+          JSON.stringify(
+            targetForPurpose(
+              normalizeRunTarget(current.settings.runTarget),
+              'free',
+            ),
+          ),
         );
         started = result.recording ? normalizeRun(result.recording) : null;
       }

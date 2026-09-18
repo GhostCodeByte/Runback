@@ -69,6 +69,13 @@ async function tap(label: string) {
     node.props.onPress();
   });
 }
+async function tapText(label: string) {
+  const node = pressables().find(item => textContent(item).includes(label));
+  if (!node) throw new Error(`Kein antippbarer Text „${label}“.`);
+  await act(async () => {
+    node.props.onPress();
+  });
+}
 async function mount() {
   await act(async () => {
     tree = TestRenderer.create(<RunbackApp />);
@@ -153,7 +160,7 @@ describe('Freie Aufzeichnung auf Heute', () => {
   it('offers sport and purpose without any plan and starts with both', async () => {
     await mount();
     const text = screenText();
-    expect(text).toContain('Art');
+    expect(text).toContain('Sportart');
     expect(text).toContain('Laufen');
     expect(text).toContain('Radfahren');
     expect(text).toContain('Zweck');
@@ -167,7 +174,12 @@ describe('Freie Aufzeichnung auf Heute', () => {
 
     await tap('Intervalle');
     await tap('Radfahrt starten');
-    expect(nativeCall).toHaveBeenCalledWith('startRun', 'intervals', 'cycling');
+    expect(nativeCall).toHaveBeenCalledWith(
+      'startRun',
+      'intervals',
+      'cycling',
+      '{"kind":"none","version":1}',
+    );
     const live = screenText();
     expect(live).toContain('Radfahrt läuft');
     expect(live).toContain('Fahrzeit');
@@ -194,9 +206,40 @@ describe('Freie Aufzeichnung auf Heute', () => {
     expect(findPressable('Geplanten Lauf starten')).toBeTruthy();
 
     await tap('Lauf starten');
-    expect(nativeCall).toHaveBeenCalledWith('startRun', 'free', 'running');
+    expect(nativeCall).toHaveBeenCalledWith(
+      'startRun',
+      'free',
+      'running',
+      '{"kind":"none","version":1}',
+    );
     // Eine freie Aufzeichnung verknüpft sich nicht mit dem Termin.
     expect(stored.settings.schedule?.sessions[0].activityId).toBeUndefined();
+  });
+
+  it('keeps the start card calm and edits pace on a separate page', async () => {
+    await mount();
+    expect(screenText()).toContain('Laufen nach');
+    expect(screenText()).toContain('Ohne Ziel');
+    expect(screenText()).not.toContain('Minuten pro Kilometer');
+
+    await tapText('Laufen nach');
+    expect(screenText()).toContain('Wie möchtest du laufen?');
+    await tap('Tempo');
+    expect(screenText()).toContain('Minuten pro Kilometer');
+    await tap('Ziel übernehmen');
+    expect(stored.settings.runTarget).toMatchObject({
+      kind: 'pace',
+      secondsPerKm: 330,
+      mode: 'range',
+    });
+
+    await tap('Lauf starten');
+    expect(nativeCall).toHaveBeenCalledWith(
+      'startRun',
+      'free',
+      'running',
+      expect.stringContaining('"secondsPerKm":330'),
+    );
   });
 });
 

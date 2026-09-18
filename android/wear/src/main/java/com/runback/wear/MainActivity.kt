@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -39,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var scroll: ScrollView
     private var page = "home"
     private var purpose = "easy"
+    private var target = JSONObject().put("kind", "none").put("version", 1)
     private var lastState = ""
     private var timer: TextView? = null
     private var distance: TextView? = null
@@ -58,7 +60,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = RunStore(this)
-        purpose = store.settings().optString("wearPurpose", "easy")
+        val settings = store.settings()
+        purpose = settings.optString("wearPurpose", "easy")
+        target = settings.optJSONObject("wearTarget") ?: target
         window.statusBarColor = bg
         window.navigationBarColor = bg
         WearSync.schedule(this)
@@ -108,6 +112,7 @@ class MainActivity : Activity() {
         text("Ohne Handy aufzeichnen", 12, muted, margin = 3)
         button("Lauf starten", true, 12) { requestStart() }
         button("Zweck · ${purposeLabel(purpose)}", false, 6) { choosePurpose() }
+        button("Ziel · ${targetLabel()}", false, 6) { chooseTarget() }
         button("Läufe", false, 6) { page = "history"; render() }
         sync = text(WearSync.status, 11, muted, margin = 12)
         button("Übertragen", false, 8) {
@@ -211,11 +216,15 @@ class MainActivity : Activity() {
 
     private fun startRun() {
         page = "home"
-        command(RecordingService.START)
+        val selected = JSONObject(target.toString())
+        if (selected.optString("kind") == "pace") {
+            selected.put("mode", if (purpose in listOf("easy", "long")) "ceiling" else "range")
+        }
+        command(RecordingService.START, selected.toString())
     }
-    private fun command(action: String) {
+    private fun command(action: String, targetJson: String? = null) {
         try {
-            RecordingService.send(this, action, purpose, "wear_os")
+            RecordingService.send(this, action, purpose, "wear_os", target = targetJson)
             getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
             handler.postDelayed({ render() }, 250)
         } catch (e: Exception) {
@@ -240,6 +249,68 @@ class MainActivity : Activity() {
                 store.saveSettings(store.settings().put("wearPurpose", purpose))
                 render()
             }.show()
+    }
+    private fun chooseTarget() {
+        val labels = arrayOf("Ohne Ziel", "Tempo", "Pulsbereich")
+        AlertDialog.Builder(this).setTitle("Laufen nach")
+            .setItems(labels) { _, index ->
+                when (index) {
+                    0 -> saveTarget(JSONObject().put("kind", "none").put("version", 1))
+                    1 -> editPaceTarget()
+                    2 -> editHeartTarget()
+                }
+            }.show()
+    }
+    private fun editPaceTarget() {
+        val seconds = target.optDouble("secondsPerKm", 330.0).toInt()
+        val input = EditText(this).apply {
+            setText("${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}")
+            setSelectAllOnFocus(true)
+            hint = "5:30"
+        }
+        AlertDialog.Builder(this).setTitle("Tempo in min/km").setView(input)
+            .setNegativeButton("Zurück", null)
+            .setPositiveButton("Übernehmen") { _, _ ->
+                val match = Regex("^(\\d{1,2}):([0-5]\\d)$").matchEntire(input.text.toString().trim())
+                val value = match?.let { it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt() }
+                if (value != null && value in 120..1200) {
+                    saveTarget(JSONObject().put("kind", "pace").put("version", 1)
+                        .put("secondsPerKm", value).put("mode", "range").put("output", "both"))
+                } else invalidTarget("Gib das Tempo zum Beispiel als 5:30 ein.")
+            }.show()
+    }
+    private fun editHeartTarget() {
+        val input = EditText(this).apply {
+            setText("${target.optInt("minBpm", 130)}–${target.optInt("maxBpm", 150)}")
+            setSelectAllOnFocus(true)
+            hint = "130–150"
+        }
+        AlertDialog.Builder(this).setTitle("Pulsbereich in bpm").setView(input)
+            .setNegativeButton("Zurück", null)
+            .setPositiveButton("Übernehmen") { _, _ ->
+                val values = input.text.toString().trim().split(Regex("[–—-]")).mapNotNull { it.trim().toIntOrNull() }
+                if (values.size == 2 && values[0] >= 40 && values[1] <= 240 && values[1] - values[0] >= 5) {
+                    saveTarget(JSONObject().put("kind", "heart_rate").put("version", 1)
+                        .put("minBpm", values[0]).put("maxBpm", values[1]).put("output", "both"))
+                } else invalidTarget("Gib den Bereich zum Beispiel als 130–150 ein.")
+            }.show()
+    }
+    private fun saveTarget(next: JSONObject) {
+        target = next
+        store.saveSettings(store.settings().put("wearTarget", next))
+        render()
+    }
+    private fun invalidTarget(message: String) {
+        AlertDialog.Builder(this).setTitle("Nicht gespeichert").setMessage(message).setPositiveButton("OK", null).show()
+    }
+    private fun targetLabel() = when (target.optString("kind")) {
+        "pace" -> {
+            val seconds = target.optDouble("secondsPerKm", 330.0).toInt()
+            val prefix = if (purpose in listOf("easy", "long")) "max " else ""
+            "$prefix${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')} /km"
+        }
+        "heart_rate" -> "${target.optInt("minBpm")}–${target.optInt("maxBpm")} bpm"
+        else -> "Ohne Ziel"
     }
     private fun purposeLabel(value: String) = when (value) {
         "easy" -> "Locker"; "long" -> "Langer Lauf"; "quality", "interval" -> "Intervalle"; "race" -> "Wettkampf"; "free" -> "Freier Lauf"; else -> "Offen"

@@ -25,6 +25,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import java.util.Locale
@@ -57,6 +59,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     private var lastOffRouteCueAt = 0L
     private var offRouteAnnounced = false
     private var lastAnnouncedTurnIndex = -1
+    private var targetGuidance: RunTargetGuidance? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -114,14 +117,16 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                         val source = intent.getStringExtra("source") ?: "phone"
                         val sport = intent.getStringExtra("sport") ?: "running"
                         val routePlanId = intent.getStringExtra("routePlanId")
+                        val requestedTarget = RunTargetGuidance.parse(intent.getStringExtra("target"))
                         val session = if (routePlanId.isNullOrBlank()) {
-                            store.start(purpose, source, sport)
+                            store.start(purpose, source, sport, requestedTarget?.targetObject())
                         } else {
-                            store.startRoute(purpose, source, sport, routePlanId)
+                            store.startRoute(purpose, source, sport, routePlanId, requestedTarget?.targetObject())
                         }
                         activeId = session.getString("id")
                         recording = session.optString("status") == "recording"
                         loadRouteGuidance(intent.getStringExtra("routePlanId"), activeId)
+                        loadTargetGuidance(session, resumed = false)
                         if (recording) beginListening()
                         updateNotification()
                     }
@@ -141,6 +146,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                             activeId = session.getString("id")
                             recording = session.optString("status") == "recording"
                             loadRouteGuidance(null, activeId)
+                            loadTargetGuidance(session, resumed = true)
                             if (recording) beginListening()
                             updateNotification()
                         }
@@ -236,6 +242,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                     lastCheckpoint = now
                     updateNotification()
                 }
+                maybeGuideHeartRate()
                 if (now - lastWakeRenewal >= WAKE_RENEW_INTERVAL_MS) renewWakeLock()
                 worker.postDelayed(this, FLUSH_INTERVAL_MS)
             } catch (error: Exception) {
@@ -292,6 +299,14 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         try {
             // GPS is appended immediately; a killed process loses at most the current sensor batch.
             store.appendSamples(runId, listOf(RawSample(location.time, "gps", values)))
+            val session = store.active()
+            targetGuidance?.onLocation(
+                location.time,
+                location.latitude,
+                location.longitude,
+                location.accuracy.toDouble(),
+                session?.optLong("elapsedMs", 0L) ?: 0L,
+            )?.let(::deliverTargetCue)
             val progress = routePlan?.let { routeProgress(location) }
             maybeSpeakNavigation(progress)
             maybeSpeakRoute(progress)
@@ -333,6 +348,47 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
                 nextRouteCueDistance = intervalKm.coerceIn(0.25, 10.0) * 1_000.0
                 return
             }
+        }
+    }
+
+    private fun loadTargetGuidance(session: JSONObject, resumed: Boolean) {
+        targetGuidance = RunTargetGuidance.fromJson(session.optJSONObject("target"))
+        targetGuidance?.reset(session.optLong("elapsedMs", 0L), resumed)
+    }
+
+    private fun maybeGuideHeartRate() {
+        val guidance = targetGuidance ?: return
+        val runId = activeId ?: return
+        val session = store.active() ?: return
+        val now = System.currentTimeMillis()
+        guidance.onHeartRates(
+            now,
+            session.optLong("elapsedMs", 0L),
+            store.recentHeartRates(runId, now - 15_000L, 5),
+        )?.let(::deliverTargetCue)
+    }
+
+    private fun deliverTargetCue(cue: TargetCue) {
+        val guidance = targetGuidance ?: return
+        activeId?.let { runId ->
+            runCatching {
+                store.addEvent(runId, "target_cue", JSONObject()
+                    .put("code", cue.code).put("message", cue.message))
+            }
+        }
+        if (guidance.wantsVoice() && routeSpeechReady) {
+            mainHandler.post {
+                routeSpeech?.speak(cue.message, TextToSpeech.QUEUE_ADD, null, "runback-target-${cue.code}")
+            }
+        }
+        if (guidance.wantsVibration()) {
+            val vibrator = getSystemService(Vibrator::class.java)
+            val effect = if (cue.faster) {
+                VibrationEffect.createWaveform(longArrayOf(0, 120, 120, 120), -1)
+            } else {
+                VibrationEffect.createOneShot(450, VibrationEffect.DEFAULT_AMPLITUDE)
+            }
+            vibrator?.vibrate(effect)
         }
     }
 
@@ -670,11 +726,11 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
 
         /** Anzeigename je Sportart; unbekannte Werte gelten als Lauf (siehe src/domain/sport.ts). */
         fun sportNoun(sport: String?): String = if (sport == "cycling") "Radfahrt" else "Lauf"
-        fun send(context: Context, action: String, purpose: String = "easy", source: String = "phone", sport: String = "running", routePlanId: String? = null) {
+        fun send(context: Context, action: String, purpose: String = "easy", source: String = "phone", sport: String = "running", routePlanId: String? = null, target: String? = null) {
             require(action in setOf(START, PAUSE, RESUME, FINISH)) { "Unknown recording action: $action" }
             context.startForegroundService(Intent(context, RecordingService::class.java)
                 .setAction(action).putExtra("purpose", purpose).putExtra("source", source).putExtra("sport", sport)
-                .putExtra("routePlanId", routePlanId))
+                .putExtra("routePlanId", routePlanId).putExtra("target", target))
         }
     }
 }
