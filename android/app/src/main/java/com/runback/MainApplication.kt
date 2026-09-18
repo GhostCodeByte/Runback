@@ -9,6 +9,10 @@ import com.facebook.react.ReactNativeHost
 import com.facebook.react.ReactPackage
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
+import com.runback.core.RecordingControlSink
+import com.runback.core.RecordingSampleSink
+import com.runback.core.RecordingService
+import com.runback.core.RunStore
 
 class MainApplication : Application(), ReactApplication {
 
@@ -32,6 +36,22 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    RecordingService.sampleSink = RecordingSampleSink { runId, sequence, samples ->
+      WearController.publishPhoneSamples(this, runId, sequence, samples)
+    }
+    RecordingService.controlSink = RecordingControlSink { action, runId, commandId ->
+      val session = RunStore(this).active()
+      WearController.publishControl(
+        this,
+        action,
+        runId,
+        purpose = session?.optString("purpose").takeUnless { it.isNullOrBlank() } ?: "easy",
+        sport = session?.optString("sport").takeUnless { it.isNullOrBlank() } ?: "running",
+        commandId = commandId,
+        target = session?.optJSONObject("target")?.toString(),
+      )
+    }
+    WearController.retryPending(this)
     loadReactNative(this)
   }
 }

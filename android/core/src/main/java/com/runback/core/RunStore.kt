@@ -24,7 +24,7 @@ data class StrengthSet(val exercise: String, val setOrder: Int = 0, val weight: 
     val seconds: Double? = null, val rpe: Double? = null, val notes: String = "")
 
 /** One serialized SQLite owner per process. Raw rows are append-only, corrections are separate. */
-class RunStore(context: Context) {
+class RunStore(context: Context) : DocumentStore {
     private val app = context.applicationContext
     private val db: SQLiteDatabase
     init {
@@ -74,6 +74,7 @@ class RunStore(context: Context) {
         if (feedback.has("sport")) run.put("sport", feedback.getString("sport"))
         else if (!run.has("sport")) run.put("sport", "running")
         run.remove("_tick")
+        run.remove("_lastDistanceDeriveAt")
         return run
     }
     fun listRuns(limit: Int = 1000, offset: Int = 0): JSONArray = locked {
@@ -83,24 +84,61 @@ class RunStore(context: Context) {
         }; result
     }
     fun active(): JSONObject? = locked { activeId()?.let { present(read(it)) } }
-    private fun newRun(purpose: String, source: String, sport: String, target: JSONObject? = null): JSONObject {
+    private fun newRun(purpose: String, source: String, sport: String, target: JSONObject? = null, id: String? = null): JSONObject {
         check(app.filesDir.usableSpace > 32L * 1024 * 1024) { "Zu wenig freier Speicher. Bitte zuerst Daten sichern und Speicher freigeben." }
         val now = System.currentTimeMillis()
-        return JSONObject().put("id", UUID.randomUUID().toString()).put("startTime", now).put("endTime", now)
+        val runId = id ?: UUID.randomUUID().toString()
+        require(runId.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Ungültige Laufkennung" }
+        check(!runExists(runId)) { "Diese Laufkennung ist bereits gespeichert." }
+        return JSONObject().put("id", runId).put("startTime", now).put("endTime", now)
             .put("purpose", purpose).put("sport", sport).put("source", source).put("status", "recording").put("durationMs", 0L)
             .put("_tick", SystemClock.elapsedRealtime()).put("distanceMeters", 0.0).put("rawSampleCount", 0)
-            .put("model_version", RunMath.MODEL_VERSION).put("sourceVersion", "raw-v1")
+            .put("model_version", RunMath.MODEL_VERSION).put("sourceVersion", "raw-v2")
             .also { if (target != null) it.put("target", JSONObject(target.toString())) }
     }
-    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running", target: JSONObject? = null): JSONObject = locked {
-        activeId()?.let { return@locked present(read(it)) }
-        val run = newRun(purpose, source, sport, target)
-        transaction { write(run); addEvent(run.getString("id"), "start", JSONObject().also { if (target != null) it.put("target", target) }) }
+    fun start(purpose: String = "easy", source: String = "phone", sport: String = "running", target: JSONObject? = null, id: String? = null, commandId: String? = null): JSONObject = locked {
+        activeId()?.let {
+            check(id == null || id == it) { "Ein anderer Lauf ist bereits aktiv." }
+            val existing = read(it)
+            if (id == it && existing.optString("status") == "interrupted") {
+                transaction {
+                    existing.put("status", "recording").put("_tick", SystemClock.elapsedRealtime())
+                        .put("endTime", System.currentTimeMillis())
+                    write(existing)
+                    addEvent(it, "start", JSONObject().put("recovered", true).also {
+                        commandId?.let { value -> it.put("commandId", value) }
+                    })
+                }
+            }
+            return@locked present(read(it))
+        }
+        val run = newRun(purpose, source, sport, target, id)
+        transaction {
+            write(run)
+            addEvent(run.getString("id"), "start", JSONObject().also {
+                if (target != null) it.put("target", target)
+                commandId?.let { value -> it.put("commandId", value) }
+            })
+        }
         present(JSONObject(run.toString()))
     }
     /** Start a route run and bind its run id to the route in one SQLite lock/transaction. */
-    fun startRoute(purpose: String, source: String, sport: String, routePlanId: String, target: JSONObject? = null): JSONObject = locked {
-        check(activeId() == null) { "Ein anderer Lauf ist bereits aktiv." }
+    fun startRoute(purpose: String, source: String, sport: String, routePlanId: String, target: JSONObject? = null, id: String? = null, commandId: String? = null): JSONObject = locked {
+        activeId()?.let { existingId ->
+            check(id == existingId) { "Ein anderer Lauf ist bereits aktiv." }
+            val existing = read(existingId)
+            if (existing.optString("status") == "interrupted") {
+                transaction {
+                    existing.put("status", "recording").put("_tick", SystemClock.elapsedRealtime())
+                        .put("endTime", System.currentTimeMillis())
+                    write(existing)
+                    addEvent(existingId, "start", JSONObject().put("routePlanId", routePlanId).put("recovered", true).also {
+                        commandId?.let { value -> it.put("commandId", value) }
+                    })
+                }
+            }
+            return@locked present(read(existingId))
+        }
         val planner = getDocument("route_planner") ?: error("Routenplaner ist nicht vorbereitet.")
         val routes = planner.optJSONArray("routes") ?: JSONArray()
         val route = (0 until routes.length())
@@ -109,7 +147,7 @@ class RunStore(context: Context) {
             ?: error("Die geplante Route wurde nicht gefunden.")
         check(route.optString("source") == "brouter") { "Nur verifizierte Straßenrouten können gestartet werden." }
         check(route.optString("activeRunId").isBlank()) { "Diese Route ist bereits einem Lauf zugeordnet." }
-        val run = newRun(purpose, source, sport, target)
+        val run = newRun(purpose, source, sport, target, id)
         val runId = run.getString("id")
         val updatedRoutes = JSONArray()
         for (index in 0 until routes.length()) {
@@ -120,7 +158,10 @@ class RunStore(context: Context) {
         transaction {
             write(run)
             addEvent(runId, "start", JSONObject().put("routePlanId", routePlanId)
-                .also { if (target != null) it.put("target", target) })
+                .also {
+                    if (target != null) it.put("target", target)
+                    commandId?.let { value -> it.put("commandId", value) }
+                })
             planner.put("routes", updatedRoutes).put("activeRoutePlanId", routePlanId)
             putDocument("route_planner", planner)
         }
@@ -135,21 +176,24 @@ class RunStore(context: Context) {
         }
         write(run)
     }
-    fun pause(): JSONObject? = setStatus("paused", "pause")
-    fun finish(): JSONObject? = setStatus("completed", "finish")
-    private fun setStatus(status: String, event: String): JSONObject? = locked {
+    fun pause(commandId: String? = null): JSONObject? = setStatus("paused", "pause", commandId)
+    fun finish(commandId: String? = null): JSONObject? = setStatus("completed", "finish", commandId)
+    private fun setStatus(status: String, event: String, commandId: String? = null): JSONObject? = locked {
         val id = activeId() ?: return@locked null
         transaction {
             checkpoint(id); val run = read(id); run.put("status", status); run.remove("_tick"); write(run)
-            addEvent(id, event, JSONObject()); if (status == "completed") derive(id)
+            addEvent(id, event, JSONObject().also { commandId?.let { value -> it.put("commandId", value) } })
+            if (status == "completed") derive(id)
             present(read(id))
         }
     }
-    fun resume(): JSONObject? = locked {
+    fun resume(commandId: String? = null): JSONObject? = locked {
         val id = activeId() ?: return@locked null
         val run = read(id)
         if (run.optString("status") != "recording") {
-            transaction { addEvent(id, "resume", JSONObject().put("previousStatus", run.optString("status")))
+            transaction { addEvent(id, "resume", JSONObject().put("previousStatus", run.optString("status")).also {
+                commandId?.let { value -> it.put("commandId", value) }
+            })
                 run.put("status", "recording").put("_tick", SystemClock.elapsedRealtime()); write(run) }
         }; present(JSONObject(run.toString()))
     }
@@ -179,47 +223,90 @@ class RunStore(context: Context) {
         }
     }
     fun addEvent(id: String, type: String, data: JSONObject) = locked {
+        val run = read(id)
         db.insertOrThrow("events", null, ContentValues().apply { put("run_id", id); put("json", JSONObject()
-            .put("type", type).put("at", System.currentTimeMillis()).put("data", data).toString()) })
+            .put("type", type).put("at", System.currentTimeMillis())
+            .put("source", run.optString("source").takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+            .put("data", data).toString()) })
     }
     fun appendSamples(id: String, samples: List<RawSample>) = locked {
         if (samples.isEmpty()) return@locked
         transaction {
             val run = read(id)
-            var previous: JSONObject? = db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY seq DESC LIMIT 1", arrayOf(id)).use {
-                if (it.moveToFirst()) JSONObject(it.getString(1)).put("time", it.getLong(0)) else null }
-            val lastBoundary = db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq DESC LIMIT 1", arrayOf(id)).use {
-                if (it.moveToFirst()) JSONObject(it.getString(0)) else null }
-            if (lastBoundary?.optString("type") in listOf("pause", "resume", "interrupted") && (previous?.optLong("time") ?: 0) < lastBoundary!!.optLong("at")) previous = null
-            var distance = run.optDouble("distanceMeters", 0.0)
             samples.forEach { sample ->
                 require(sample.time > 0 && sample.kind.length <= 40) { "Ungültiger Messwert" }
                 db.insertOrThrow("samples", null, ContentValues().apply {
                     put("run_id", id); put("time", sample.time); put("kind", sample.kind); put("json", sample.values.toString()) })
-                if (sample.kind == "gps") {
-                    val v = sample.values
-                    previous?.let { p -> RunMath.acceptedDistance(p.optDouble("latitude"),p.optDouble("longitude"),p.optLong("time"),p.optDouble("accuracyM",0.0),
-                        v.optDouble("latitude"),v.optDouble("longitude"),sample.time,v.optDouble("accuracyM",0.0))?.let { distance += it } }
-                    previous = JSONObject(v.toString()).put("time", sample.time)
-                }
                 if (sample.kind == "heartRate") {
                     val bpm = sample.values.optDouble("bpm")
-                    if (bpm.isFinite() && bpm in 30.0..240.0) run.put("lastHeartRate", bpm).put("lastHeartRateAt", sample.time)
+                    if (bpm.isFinite() && bpm in 30.0..240.0 && sample.time >= run.optLong("lastHeartRateAt", 0L)) {
+                        run.put("lastHeartRate", bpm).put("lastHeartRateAt", sample.time)
+                    }
                 }
             }
-            run.put("distanceMeters", distance).put("rawSampleCount", run.optInt("rawSampleCount") + samples.size); write(run)
+            val hasGpsSamples = samples.any { it.kind == "gps" }
+            val hasSourceSamples = samples.any { it.kind == "gps" || it.kind == "heartRate" }
+            val now = SystemClock.elapsedRealtime()
+            // Keep the live card responsive without rescanning the complete track for
+            // every sensor batch. Finished runs are always derived exactly below.
+            val lastDerive = run.optLong("_lastDistanceDeriveAt", 0L)
+            if (hasSourceSamples && (lastDerive <= 0L || now < lastDerive || now - lastDerive >= 5_000L)) {
+                if (hasGpsSamples) run.put("distanceMeters", liveDistance(id))
+                run.put("sensorSources", sensorSources(id))
+                    .put("_lastDistanceDeriveAt", now)
+            }
+            run.put("rawSampleCount", run.optInt("rawSampleCount") + samples.size); write(run)
         }
+    }
+    private fun selectedSamples(id: String, kind: String): List<RawSample> {
+        val all = ArrayList<RawSample>()
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind=? ORDER BY time,seq", arrayOf(id, kind)).use { rows ->
+            while (rows.moveToNext()) all.add(RawSample(rows.getLong(0), kind, JSONObject(rows.getString(1))))
+        }
+        val boundaries = events(id)
+        return SensorSourceSelection.select(all.filterNot { isPausedAt(it.time, boundaries) }, kind)
+    }
+    private fun isPausedAt(time: Long, boundaries: JSONArray): Boolean {
+        var paused = false
+        for (index in 0 until boundaries.length()) {
+            val event = boundaries.optJSONObject(index) ?: continue
+            if (event.optLong("at") > time) break
+            when (event.optString("type")) {
+                "pause", "interrupted" -> paused = true
+                "start", "resume" -> paused = false
+            }
+        }
+        return paused
+    }
+    private fun liveDistance(id: String): Double {
+        val boundaries = events(id)
+        val cuts = (0 until boundaries.length()).mapNotNull { index ->
+            boundaries.optJSONObject(index)?.takeIf { it.optString("type") in listOf("pause", "resume", "interrupted") }?.optLong("at")
+        }
+        var previous: RawSample? = null
+        var distance = 0.0
+        selectedSamples(id, "gps").forEach { sample ->
+            val before = previous
+            if (before != null && cuts.none { it > before.time && it <= sample.time }) {
+                val first = before.values; val second = sample.values
+                RunMath.acceptedDistance(
+                    first.optDouble("latitude"), first.optDouble("longitude"), before.time, first.optDouble("accuracyM", 0.0),
+                    second.optDouble("latitude"), second.optDouble("longitude"), sample.time, second.optDouble("accuracyM", 0.0),
+                )?.let { distance += it }
+            }
+            previous = sample
+        }
+        return distance
+    }
+    private fun sensorSources(id: String): JSONObject = JSONObject().apply {
+        SensorSourceSelection.selectedSource(selectedSamples(id, "gps"), "gps")?.let { put("gps", it) }
+        SensorSourceSelection.selectedSource(selectedSamples(id, "heartRate"), "heartRate")?.let { put("heartRate", it) }
     }
     fun recentHeartRates(id: String, since: Long, limit: Int = 5): List<HeartSample> = locked {
         val result = ArrayList<HeartSample>()
-        db.rawQuery(
-            "SELECT time,json FROM samples WHERE run_id=? AND kind='heartRate' AND time>=? ORDER BY time DESC,seq DESC LIMIT ?",
-            arrayOf(id, since.toString(), limit.coerceIn(1, 20).toString()),
-        ).use { rows ->
-            while (rows.moveToNext()) {
-                val bpm = JSONObject(rows.getString(1)).optDouble("bpm", Double.NaN)
-                if (bpm.isFinite() && bpm in 30.0..240.0) result.add(HeartSample(rows.getLong(0), bpm))
-            }
+        selectedSamples(id, "heartRate").asReversed().asSequence().filter { it.time >= since }.take(limit.coerceIn(1, 20)).forEach { sample ->
+            val bpm = sample.values.optDouble("bpm", Double.NaN)
+            if (bpm.isFinite() && bpm in 30.0..240.0) result.add(HeartSample(sample.time, bpm))
         }
         result
     }
@@ -234,14 +321,11 @@ class RunStore(context: Context) {
         val points = ArrayList<JSONObject>()
         val bounded = limit.coerceIn(2, 512)
         val rawLimit = (bounded * 4).coerceAtMost(2048)
-        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY time DESC,seq DESC LIMIT ?", arrayOf(id, rawLimit.toString())).use {
-            while (it.moveToNext()) {
-                val value = JSONObject(it.getString(1))
-                points.add(JSONObject().put("latitude", value.optDouble("latitude"))
-                    .put("longitude", value.optDouble("longitude")).put("time", it.getLong(0)))
-            }
+        selectedSamples(id, "gps").takeLast(rawLimit).forEach { sample ->
+            val value = sample.values
+            points.add(JSONObject().put("latitude", value.optDouble("latitude"))
+                .put("longitude", value.optDouble("longitude")).put("time", sample.time))
         }
-        points.reverse()
         val boundaries = events(id)
         val cuts = (0 until boundaries.length()).mapNotNull { index ->
             boundaries.optJSONObject(index)?.takeIf { it.optString("type") in listOf("pause", "resume", "interrupted") }?.optLong("at")
@@ -265,15 +349,18 @@ class RunStore(context: Context) {
         present(read(id)).put("route", geometryForRun(id, limit))
     }
     private fun events(id: String): JSONArray {
-        val result = JSONArray(); db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq", arrayOf(id)).use {
-            while(it.moveToNext()) result.put(JSONObject(it.getString(0))) }; return result
+        val ordered = ArrayList<JSONObject>()
+        db.rawQuery("SELECT json FROM events WHERE run_id=? ORDER BY seq", arrayOf(id)).use {
+            while (it.moveToNext()) ordered.add(JSONObject(it.getString(0)))
+        }
+        ordered.sortWith(compareBy<JSONObject> { it.optLong("at") })
+        return JSONArray().apply { ordered.forEach(::put) }
     }
     /** Derive only from GPS rows, not high-frequency accelerometer history. */
     private fun derive(id: String): JSONObject {
         val geometry = JSONArray(); val segments = JSONArray(); val series = JSONArray()
         val points = ArrayList<JSONObject>()
-        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gps' ORDER BY time,seq", arrayOf(id)).use {
-            while(it.moveToNext()) points.add(JSONObject(it.getString(1)).put("time",it.getLong(0))) }
+        points.addAll(selectedSamples(id, "gps").map { JSONObject(it.values.toString()).put("time", it.time) })
         val boundaries = events(id); val cuts = (0 until boundaries.length()).map { boundaries.getJSONObject(it) }
             .filter { it.optString("type") in listOf("pause","resume","interrupted") }.map { it.optLong("at") }
         var distance = 0.0; var segmentDistance = 0.0; var segmentDuration = 0.0; var segmentRise = 0.0; var allAltitude = true
@@ -320,16 +407,20 @@ class RunStore(context: Context) {
         for ((kind,key,output,coverage) in listOf(
             listOf("heartRate","bpm","avgHeartRate","heartRateCoverage"), listOf("cadence","rpm","avgCadence","cadenceCoverage"))) {
             val times = ArrayList<Long>(); val values = ArrayList<Double>()
-            db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind=? ORDER BY time", arrayOf(id,kind)).use {
-                while(it.moveToNext()) { val v=JSONObject(it.getString(1)).optDouble(key)
-                    if(v.isFinite() && v>0 && v<=300) { times.add(it.getLong(0)); values.add(v); if(series.length()<256) series.put(JSONObject().put("time",it.getLong(0)).put("kind",kind).put("value",v)) } }
+            selectedSamples(id, kind).forEach { sample ->
+                val v = sample.values.optDouble(key)
+                if(v.isFinite() && v>0 && v<=300) { times.add(sample.time); values.add(v); if(series.length()<256) series.put(JSONObject().put("time",sample.time).put("kind",kind).put("value",v)) }
             }
-            RunMath.timeWeightedAverage(times, values)?.let { (mean, covered) ->
+            val breaks = times.indices.drop(1).filter { index ->
+                cuts.any { boundary -> boundary > times[index - 1] && boundary <= times[index] }
+            }.toSet()
+            RunMath.timeWeightedAverage(times, values, breaks = breaks)?.let { (mean, covered) ->
                 run.put(output, mean)
                 if (durationSeconds.isFinite() && durationSeconds > 0) run.put(coverage, (covered / durationSeconds).coerceIn(0.0, 1.0))
             }
         }
         run.put("segments",segments).put("gapCount",gaps).put("model_version",RunMath.MODEL_VERSION)
+            .put("sensorSources", sensorSources(id))
         run.put("dataRetention",JSONObject().put("originals","retained").put("recomputable",true))
         write(run)
         return JSONObject().put("geometry",geometry).put("series",series)
@@ -375,13 +466,13 @@ class RunStore(context: Context) {
             }
         })
     }
-    fun getDocument(key: String): JSONObject? = locked { db.rawQuery("SELECT json FROM documents WHERE key=?",arrayOf(key)).use {
+    override fun getDocument(key: String): JSONObject? = locked { db.rawQuery("SELECT json FROM documents WHERE key=?",arrayOf(key)).use {
         if(it.moveToFirst()) JSONObject(it.getString(0)) else null } }
-    fun putDocument(key: String, value: JSONObject) = locked {
+    override fun putDocument(key: String, value: JSONObject) = locked {
         require(key.length<=200)
         check(db.insertWithOnConflict("documents",null,ContentValues().apply { put("key",key);put("json",value.toString()) },SQLiteDatabase.CONFLICT_REPLACE) != -1L) { "Dokument konnte nicht gespeichert werden" }
     }
-    fun deleteDocument(key: String) = locked { db.delete("documents","key=?",arrayOf(key)); Unit }
+    override fun deleteDocument(key: String) = locked { db.delete("documents","key=?",arrayOf(key)); Unit }
     /** Finish or delete a strength session while serializing the index and payload update. */
     fun finishStrengthSession(session: JSONObject, summary: JSONObject) = locked {
         val id = session.optString("id").ifBlank { error("Einheit ohne Kennung kann nicht gespeichert werden.") }
@@ -688,14 +779,93 @@ class RunStore(context: Context) {
                 .put("samples",rawSamples(id)).put("events",events(id)).toString().toByteArray());zip.closeEntry()
         };file
     }
+    private fun runExists(id: String): Boolean = db.rawQuery("SELECT 1 FROM runs WHERE id=?", arrayOf(id)).use { it.moveToFirst() }
+    fun runStatus(id: String): String? = locked {
+        db.rawQuery("SELECT json FROM runs WHERE id=?", arrayOf(id)).use { if (it.moveToFirst()) JSONObject(it.getString(0)).optString("status") else null }
+    }
+    private fun mergeEvents(id: String, incoming: JSONArray): Int {
+        val existing = HashSet<String>()
+        val current = events(id)
+        for (index in 0 until current.length()) existing.add(eventMergeKey(current.getJSONObject(index)))
+        var merged = 0
+        for (index in 0 until incoming.length()) {
+            val event = incoming.optJSONObject(index) ?: continue
+            val type = event.optString("type")
+            val at = event.optLong("at")
+            if (type.isBlank() || at <= 0) continue
+            val normalized = JSONObject(event.toString()).put("type", type).put("at", at).toString()
+            if (!existing.add(eventMergeKey(JSONObject(normalized)))) continue
+            db.insertOrThrow("events", null, ContentValues().apply { put("run_id", id); put("json", normalized) })
+            merged++
+        }
+        return merged
+    }
+    private fun eventMergeKey(event: JSONObject): String {
+        val commandId = event.optJSONObject("data")?.optString("commandId")?.takeIf { it.isNotBlank() }
+        return if (commandId != null) "${event.optString("type")}|command:$commandId" else event.toString()
+    }
+    private fun mergeSessionMetadata(id: String, incoming: JSONObject): Boolean {
+        val existing = read(id)
+        var changed = false
+        val incomingStatus = incoming.optString("status")
+        if (incomingStatus == "completed" && existing.optString("status") != "completed") {
+            existing.put("status", "completed").remove("_tick")
+            changed = true
+        }
+        if (incomingStatus == "completed") {
+            val duration = incoming.optLong("durationMs", (incoming.optDouble("durationSeconds", 0.0) * 1000).toLong())
+            if (duration > existing.optLong("durationMs")) { existing.put("durationMs", duration); changed = true }
+            if (incoming.optLong("endTime") > existing.optLong("endTime")) {
+                existing.put("endTime", incoming.optLong("endTime")); changed = true
+            }
+        }
+        listOf("purpose", "sport", "target", "reportedDistanceMeters", "sourceActivityId", "sourceActivityType").forEach { key ->
+            if ((!existing.has(key) || existing.isNull(key)) && incoming.has(key) && !incoming.isNull(key)) {
+                existing.put(key, incoming.get(key)); changed = true
+            }
+        }
+        if (changed) write(existing)
+        return changed
+    }
+    private fun mergeSamples(id: String, samples: JSONArray): Int {
+        read(id)
+        val existing = HashSet<String>()
+        db.rawQuery("SELECT time,kind,json FROM samples WHERE run_id=?", arrayOf(id)).use { rows ->
+            while (rows.moveToNext()) existing.add("${rows.getLong(0)}|${rows.getString(1)}|${rows.getString(2)}")
+        }
+        val unique = ArrayList<RawSample>()
+        for (index in 0 until samples.length()) {
+            val item = samples.getJSONObject(index)
+            val time = item.getLong("time"); val kind = item.getString("kind"); val values = item.getJSONObject("values")
+            val key = "$time|$kind|${values}"
+            if (existing.add(key)) unique.add(RawSample(time, kind, values))
+        }
+        appendSamples(id, unique)
+        return unique.size
+    }
     fun importSession(file: File): String = locked {
         ZipInputStream(file.inputStream().buffered()).use { zip ->
             require(zip.nextEntry?.name=="session.json");val session=JSONObject(readEntry(zip,256L*1024*1024).toString(Charsets.UTF_8))
             require(session.getInt("schemaVersion")==1);val run=session.getJSONObject("run");val id=run.getString("id")
-            require(id.matches(Regex("[A-Za-z0-9_-]{1,100}")));val result=addImportedRun(run,session.getJSONArray("samples"),"wear:$id")
+            require(id.matches(Regex("[A-Za-z0-9_-]{1,100}")));val samples=session.getJSONArray("samples")
+            val result = if (runExists(id)) {
+                mergeSamples(id, samples)
+                mergeEvents(id, session.optJSONArray("events") ?: JSONArray())
+                mergeSessionMetadata(id, run)
+                derive(id)
+                JSONObject().put("status", "merged").put("id", id)
+            } else addImportedRun(run, samples, "wear:$id")
             require(result.optString("status")!="deleted"){"Der Lauf wurde auf dem Handy gelöscht"}
-            if(result.optString("status")=="imported")run.optJSONObject("feedback")?.let {saveFeedback(id,it)}
-            id
+            val storedId = result.optString("id").takeIf { it.isNotBlank() } ?: id
+            require(storedId == id) { "Die Übertragung enthält einen bereits vorhandenen anderen Lauf" }
+            mergeEvents(storedId, session.optJSONArray("events") ?: JSONArray())
+            mergeSessionMetadata(storedId, run)
+            if (result.optString("status") == "imported" || result.optString("status") == "merged") {
+                run.optJSONObject("feedback")?.let { saveFeedback(storedId, it) }
+                derive(storedId)
+            }
+            if (run.optString("status") == "completed") clearRouteAssignment(storedId)
+            storedId
         }
     }
     private fun readEntry(input:InputStream,limit:Long):ByteArray {val out=ByteArrayOutputStream();val buffer=ByteArray(32768);var total=0L

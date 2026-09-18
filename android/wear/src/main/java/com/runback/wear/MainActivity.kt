@@ -3,10 +3,14 @@ package com.runback.wear
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -22,12 +26,16 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.google.android.gms.wearable.Wearable
 import com.runback.core.RecordingService
 import com.runback.core.RunStore
+import com.runback.core.WearCommandGate
+import com.runback.core.WearProtocol
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 class MainActivity : Activity() {
     private val bg = Color.rgb(9, 13, 11)
@@ -47,6 +55,7 @@ class MainActivity : Activity() {
     private var heart: TextView? = null
     private var sync: TextView? = null
     private var pendingStart = false
+    private var permissionStage = 0
     private val tick = object : Runnable {
         override fun run() {
             val active = store.active()
@@ -67,11 +76,22 @@ class MainActivity : Activity() {
         window.navigationBarColor = bg
         WearSync.schedule(this)
         render()
+        handleRemoteRecordingIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            handleRemoteRecordingIntent(intent)
+        }
     }
 
     override fun onResume() {
         super.onResume()
         handler.post(tick)
+        // Opening the watch app is an explicit retry point for a queued counterpart command.
+        WearSync.retryControl(this, allowRemoteActivity = true)
         WearSync.retry(this)
     }
     override fun onPause() { handler.removeCallbacks(tick); super.onPause() }
@@ -184,33 +204,51 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Lokal aufzeichnen")
             .setMessage("Standort für die Strecke, Körpersensoren für den Puls. Ohne Freigabe bleiben diese Messwerte leer.")
             .setPositiveButton("Weiter") { _, _ ->
-                val permissions = mutableListOf(
+                pendingStart = true
+                val permissions = listOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION,
                     if (Build.VERSION.SDK_INT >= 36) "android.permission.health.READ_HEART_RATE" else Manifest.permission.BODY_SENSORS,
-                    Manifest.permission.ACTIVITY_RECOGNITION
+                    Manifest.permission.ACTIVITY_RECOGNITION,
+                    if (Build.VERSION.SDK_INT >= 33) Manifest.permission.POST_NOTIFICATIONS else null,
                 )
-                if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-                if (missing.isEmpty()) startRun() else { pendingStart = true; requestPermissions(missing.toTypedArray(), 42) }
+                    .filterNotNull()
+                permissionStage = 1
+                requestPermissionStage(permissions, 42) { requestBackgroundPermissions() }
             }.setNegativeButton("Zurück", null).show()
+    }
+
+    private fun requestBackgroundPermissions() {
+        if (!pendingStart) return
+        val permissions = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            if (Build.VERSION.SDK_INT >= 36) add("android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND")
+            else if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.BODY_SENSORS_BACKGROUND)
+        }
+        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) {
+            permissionStage = 0
+            pendingStart = false
+            startRun()
+        } else {
+            permissionStage = 2
+            requestPermissions(missing.toTypedArray(), 43)
+        }
+    }
+
+    private fun requestPermissionStage(permissions: List<String>, requestCode: Int, next: () -> Unit) {
+        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) next() else requestPermissions(missing.toTypedArray(), requestCode)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 42 && pendingStart) {
+        if (requestCode == 42 && pendingStart && permissionStage == 1) {
+            requestBackgroundPermissions()
+        } else if (requestCode == 43 && pendingStart && permissionStage == 2) {
+            permissionStage = 0
             pendingStart = false
-            val locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if (locationGranted) {
-                startRun()
-            } else {
-                AlertDialog.Builder(this)
-                    .setTitle("Standortfreigabe erforderlich")
-                    .setMessage("Runback kann ohne Standortfreigabe keine Strecke aufzeichnen. Erlaube den Standortzugriff und starte den Lauf erneut.")
-                    .setPositiveButton("OK", null)
-                    .show()
-            }
+            startRun()
         }
     }
 
@@ -222,14 +260,140 @@ class MainActivity : Activity() {
         }
         command(RecordingService.START, selected.toString())
     }
-    private fun command(action: String, targetJson: String? = null) {
+    private fun command(
+        action: String,
+        targetJson: String? = null,
+        runIdOverride: String? = null,
+        purposeOverride: String = purpose,
+        sport: String = "running",
+        routePlanId: String? = null,
+        syncPhone: Boolean = true,
+        commandIdOverride: String? = null,
+        commandSequence: Long = 0L,
+    ) {
         try {
-            RecordingService.send(this, action, purpose, "wear_os", target = targetJson)
+            val runId = runIdOverride
+                ?: store.active()?.optString("id")?.takeIf { it.isNotBlank() }
+                ?: UUID.randomUUID().toString()
+            RecordingService.send(
+                this, action, purposeOverride, "wear_os", sport, localRoutePlanId(routePlanId), targetJson, runId,
+                syncPeers = syncPhone,
+                commandId = commandIdOverride,
+                commandSequence = commandSequence,
+            )
             getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createOneShot(60, VibrationEffect.DEFAULT_AMPLITUDE))
             handler.postDelayed({ render() }, 250)
         } catch (e: Exception) {
             AlertDialog.Builder(this).setTitle("Nicht gestartet").setMessage(e.message ?: "Berechtigungen und verfügbaren Speicher prüfen.").setPositiveButton("OK", null).show()
         }
+    }
+
+    private fun handleRemoteRecordingIntent(intent: Intent?, permitAttempt: Int = 0) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != "runback" || uri.host != "recording") return
+        val action = uri.getQueryParameter("action") ?: return
+        if (action !in setOf(RecordingService.START, RecordingService.PAUSE, RecordingService.RESUME, RecordingService.FINISH)) return
+        val runId = uri.getQueryParameter("runId") ?: return
+        val commandId = uri.getQueryParameter("commandId").takeIf { !it.isNullOrBlank() }
+        val commandSequence = uri.getQueryParameter("sequence")?.toLongOrNull() ?: 0L
+        val purposeValue = uri.getQueryParameter("purpose").cleanRemoteValue() ?: purpose
+        val sport = uri.getQueryParameter("sport").cleanRemoteValue() ?: "running"
+        val routePlanId = uri.getQueryParameter("routePlanId").cleanRemoteValue()
+        val targetJson = uri.getQueryParameter("target").cleanRemoteValue()
+        val sourceNodeId = uri.getQueryParameter("sourceNodeId").cleanRemoteValue()
+        if (!WearCommandGate.hasPermit(store, action, runId, commandId, commandSequence, purposeValue, sport, routePlanId, targetJson, sourceNodeId)) {
+            if (permitAttempt < 20) handler.postDelayed({ handleRemoteRecordingIntent(intent, permitAttempt + 1) }, 100L)
+            return
+        }
+        val current = store.active()
+        if (action == RecordingService.START) {
+            if (current != null && current.optString("id") != runId) return
+            if (current?.optString("id") == runId && current.optString("status") in listOf("recording", "paused") &&
+                !RecordingService.hasLiveService()
+            ) return
+        } else {
+            if (current?.optString("id") != runId || current?.optString("status") !in listOf("recording", "paused")) return
+            if (!RecordingService.hasLiveService()) return
+        }
+        if (WearCommandGate.claim(store, runId, commandId, commandSequence) != WearCommandGate.Decision.ACCEPT) return
+        val alreadyApplied = when (action) {
+            RecordingService.START -> current?.optString("id") == runId && current.optString("status") in listOf("recording", "paused")
+            RecordingService.PAUSE -> current?.optString("id") == runId && current.optString("status") == "paused"
+            RecordingService.RESUME -> current?.optString("id") == runId && current.optString("status") == "recording"
+            else -> false
+        }
+        if (alreadyApplied) {
+            WearCommandGate.markApplied(store, runId, commandId, commandSequence)
+            sendRemoteAck(uri, action, runId, commandId, commandSequence, "accepted", "Aufzeichnungsbefehl bereits angewendet.")
+            return
+        }
+        try {
+            RecordingService.send(
+                this,
+                action,
+                purposeValue,
+                "wear_os",
+                sport,
+                localRoutePlanId(routePlanId),
+                targetJson,
+                runId,
+                syncPeers = false,
+                commandId = commandId,
+                commandSequence = commandSequence,
+            )
+            confirmRemoteCommand(uri, runId, action, commandId, commandSequence)
+        } catch (error: Exception) {
+            WearCommandGate.release(store, runId, commandId, commandSequence)
+            sendRemoteAck(uri, action, runId, commandId, commandSequence, "error", error.message ?: "Aufzeichnung konnte nicht synchronisiert werden.")
+        }
+    }
+
+    private fun confirmRemoteCommand(uri: Uri, runId: String, action: String, commandId: String?, sequence: Long, attempt: Int = 0) {
+        val current = RunStore(this).active()
+        val applied = when (action) {
+            RecordingService.PAUSE -> current?.optString("id") == runId && current.optString("status") == "paused"
+            RecordingService.FINISH -> current == null && RunStore(this).runStatus(runId) == "completed"
+            else -> current?.optString("id") == runId && current.optString("status") == "recording"
+        }
+        if (applied) {
+            WearCommandGate.markApplied(RunStore(this), runId, commandId, sequence)
+            sendRemoteAck(uri, action, runId, commandId, sequence, "accepted", "Aufzeichnung auf der Uhr synchronisiert.")
+        } else if (attempt < 100) {
+            handler.postDelayed({ confirmRemoteCommand(uri, runId, action, commandId, sequence, attempt + 1) }, 100L)
+        } else {
+            WearCommandGate.release(RunStore(this), runId, commandId, sequence)
+            sendRemoteAck(uri, action, runId, commandId, sequence, "error", "Die Uhr hat nicht rechtzeitig reagiert.")
+        }
+    }
+
+    private fun sendRemoteAck(uri: Uri, action: String, runId: String, commandId: String?, sequence: Long, status: String, message: String) {
+        val nodeId = uri.getQueryParameter("sourceNodeId")?.cleanRemoteValue() ?: return
+        val sensors = JSONObject().apply {
+            val manager = getSystemService(SensorManager::class.java)
+            put("gps", packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS))
+            put("gpsPermission", checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+            put("heartRate", manager?.getDefaultSensor(Sensor.TYPE_HEART_RATE) != null)
+        }
+        Wearable.getMessageClient(this).sendMessage(
+            nodeId,
+            WearProtocol.ACK_PATH,
+            WearProtocol.ack(action, runId, status, message, sensors, commandId, sequence),
+        ).addOnFailureListener { }
+    }
+
+    private fun String?.cleanRemoteValue(): String? = this?.takeIf { it.isNotBlank() && it != "null" }
+
+    private fun localRoutePlanId(requested: String?): String? {
+        if (requested.isNullOrBlank()) return null
+        val routes = store.getDocument("route_planner")?.optJSONArray("routes") ?: return null
+        for (index in 0 until routes.length()) {
+            val route = routes.optJSONObject(index) ?: continue
+            if (route.optString("id") == requested && route.optString("source") == "brouter" && route.optString("activeRunId").isBlank()) {
+                return requested
+            }
+        }
+        return null
     }
     private fun confirmFinish() {
         AlertDialog.Builder(this).setTitle("Lauf beenden?")
