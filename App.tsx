@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import { StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RunbackApp } from './src/ui/RunbackApp';
-import { Button, color, space } from './src/ui/components';
+import { color } from './src/ui/components';
 import { RoutePlannerScreen } from './src/ui/RoutePlannerScreen';
 
 function App() {
@@ -18,21 +18,14 @@ function App() {
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor="#101210" />
       <View style={styles.root}>
-        <RunbackApp />
-        {!routePlannerOpen ? (
-          <View pointerEvents="box-none" style={styles.launcher}>
-            <Button
-              small
-              title="Route planen"
-              onPress={() => setRoutePlannerOpen(true)}
-              label="Routenplaner öffnen"
-            />
-          </View>
-        ) : (
+        {/* Den Einstieg zeichnet RunbackApp, weil nur sie weiß, ob der
+            Routenplaner eingeschaltet ist. */}
+        <RunbackApp onOpenRoutePlanner={() => setRoutePlannerOpen(true)} />
+        {routePlannerOpen ? (
           <View style={styles.overlay}>
             <RoutePlannerScreen onClose={() => setRoutePlannerOpen(false)} />
           </View>
-        )}
+        ) : null}
       </View>
     </SafeAreaProvider>
   );
@@ -40,11 +33,6 @@ function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.bg },
-  launcher: {
-    position: 'absolute',
-    right: space.md,
-    bottom: 86,
-  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: color.bg,

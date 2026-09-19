@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runback · Plan: Funktionen optional und einstellbar machen</title>
+<style>
+  :root {
+    --bg: #0f1412;
+    --card: #171d1a;
+    --card2: #1d2521;
+    --line: #2a332e;
+    --ink: #e9f0ec;
+    --muted: #9aa8a0;
+    --green: #4fd18b;
+    --green-dim: #2b6a4a;
+    --amber: #e5b453;
+    --red: #e56b6b;
+    --blue: #6aa7e5;
+    --radius: 14px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f7f6; --card: #ffffff; --card2: #eef2f0; --line: #d9e0dc;
+      --ink: #14201a; --muted: #5d6b64; --green: #1f8a55; --green-dim: #cfeedd;
+      --amber: #a86f00; --red: #b83b3b; --blue: #2c6cb0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 2rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 1.45rem; margin: 48px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  p { margin: 8px 0; }
+  .lead { color: var(--muted); font-size: 1.05rem; max-width: 760px; }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+  nav.toc { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; margin: 20px 0 8px; }
+  nav.toc ol { margin: 6px 0 0; padding-left: 20px; columns: 2; gap: 32px; }
+  nav.toc li { margin: 3px 0; break-inside: avoid; }
+  a { color: var(--green); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 14px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+  .card h4 { margin: 0 0 6px; font-size: 1rem; }
+  .card p { margin: 4px 0; color: var(--muted); font-size: 0.95rem; }
+  .card .big { font-size: 2rem; font-weight: 700; color: var(--ink); line-height: 1.1; }
+
+  .feature { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; margin: 14px 0; }
+  .feature header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .feature header h4 { margin: 0; font-size: 1.08rem; }
+  .feature .why { color: var(--muted); margin: 4px 0 12px; }
+  .feature dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; margin: 0; font-size: 0.95rem; }
+  .feature dt { color: var(--muted); }
+  .feature dd { margin: 0; }
+  .feature code, td code, li code, p code { font-family: var(--mono); font-size: 0.85em; background: var(--card2); padding: 1px 6px; border-radius: 6px; }
+
+  .badge { display: inline-block; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.p1 { color: var(--green); border-color: var(--green); }
+  .badge.p2 { color: var(--amber); border-color: var(--amber); }
+  .badge.p3 { color: var(--blue); border-color: var(--blue); }
+  .badge.exists { color: var(--muted); background: var(--card2); }
+  .badge.new { color: var(--ink); background: var(--green-dim); border-color: transparent; }
+
+  .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--muted); }
+  .toggle .sw { width: 34px; height: 20px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+  .toggle .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+  .toggle .sw.on { background: var(--green); }
+  .toggle .sw.on::after { left: 17px; background: var(--ink); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 0.85rem; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+  .chip.sel { border-color: var(--green); color: var(--green); }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+
+  .callout { border-left: 3px solid var(--green); background: var(--card); padding: 12px 16px; border-radius: 0 var(--radius) var(--radius) 0; margin: 14px 0; }
+  .callout.warn { border-color: var(--amber); }
+  .callout.stop { border-color: var(--red); }
+  .callout strong { display: block; margin-bottom: 4px; }
+
+  .mock { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; max-width: 420px; font-size: 0.92rem; }
+  .mock .t { font-weight: 700; font-size: 1.05rem; margin-bottom: 8px; }
+  .mock .s { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; margin: 12px 0 4px; }
+  .mock .r { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .mock .r:last-child { border-bottom: none; }
+  .mock .r small { display: block; color: var(--muted); font-size: 0.8rem; }
+
+  .phase { display: grid; grid-template-columns: 56px 1fr; gap: 14px; margin: 16px 0; }
+  .phase .n { width: 48px; height: 48px; border-radius: 50%; background: var(--green-dim); color: var(--ink); display: grid; place-items: center; font-weight: 700; font-size: 1.1rem; }
+  .phase ul { margin: 6px 0 0; padding-left: 18px; }
+  .phase li { margin: 3px 0; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  ul.tight li { margin: 3px 0; }
+  pre { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; overflow: auto; font-family: var(--mono); font-size: 0.85rem; line-height: 1.5; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Funktionen optional und einstellbar machen</h1>
+<p class="lead">Runback hat viele Funktionen. Nicht jeder will alle. Dieser Plan zeigt, was sich sinnvoll abschalten oder anpassen lässt, wie das im Produkt aussehen soll und in welcher Reihenfolge es gebaut wird.</p>
+<p class="meta">Stand 18. September 2026 · Basis: Branch <code>t3code/f0e795a7</code> nach PR #21 · Analyse von <code>src/ui</code>, <code>src/domain</code>, <code>src/native.ts</code>, <code>docs/spec.md</code></p>
+<div class="callout">
+  <strong>Status: umgesetzt (19. September 2026)</strong>
+  Alle vier Phasen sind in einem PR gebaut. Die offenen Entscheidungen wurden wie vorgeschlagen getroffen: Muskelkater-Abfrage standardmäßig „Nach Krafttraining“, Heute-Blöcke einzeln, Onboarding-Schritt „Was möchtest du nutzen?“. Zwischenzeitlich hat PR #24 die Navigation auf Heute · Plan · Verlauf · Coach umgestellt; die Umsetzung folgt dieser Struktur: Einstieg ist <strong>Einstellungen (Zahnrad) → Funktionen</strong>, die Heute-Blöcke sind Wochenleiste, Empfehlung, Muskelkater melden und Zuletzt, „Nur auf Nachfrage“ heißt: nur im Coach. Die Kennzahlen der Startkarte und der Zeitbudget-Schalter sind entfallen, weil die neue Startkarte keine Kennzahlen mehr trägt und Zeit &amp; Rhythmus im Plan zusammengehören. Code: <code>src/domain/features.ts</code>, <code>src/ui/FeatureSettings.tsx</code>.
+</div>
+
+<nav class="toc">
+  <strong>Inhalt</strong>
+  <ol>
+    <li><a href="#warum">Warum das jetzt dran ist</a></li>
+    <li><a href="#heute">Was heute schon einstellbar ist</a></li>
+    <li><a href="#prinzipien">Vier Regeln für jede Option</a></li>
+    <li><a href="#katalog">Katalog: Was optional wird</a></li>
+    <li><a href="#seite">Die neue Seite „Funktionen“</a></li>
+    <li><a href="#nicht">Bewusst nicht einstellbar</a></li>
+    <li><a href="#technik">Technischer Aufbau</a></li>
+    <li><a href="#phasen">Umsetzung in vier Phasen</a></li>
+    <li><a href="#entscheidungen">Offene Entscheidungen</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="warum">1. Warum das jetzt dran ist</h2>
+
+<p>Die Spec verspricht es bereits, die App löst es aber nur teilweise ein:</p>
+<div class="callout">
+  <strong>docs/spec.md → Mentalität</strong>
+  „Alles ist optional. Aufzeichnen funktioniert ohne Ziel, Fokus, Plan, Einrichtung, Konto oder Internet. <em>Jede Funktion ist abwählbar und erzeugt abgewählt weder Hinweise noch leere Flächen.</em>“
+</div>
+
+<p>Konkret sieht ein Nutzer heute auf <strong>Heute</strong> immer neun Blöcke, egal ob er sie nutzt: Startkarte, Deine Planung, Krafttraining, Dein Fokus, Dein Ziel, Empfehlung, Dein Körper, Zuletzt, Laufvorlagen. Wer nur läuft, sieht trotzdem „Freies Training starten“. Wer keinen Muskelkater melden will, bekommt beim ersten Öffnen jeden Tages die Muskelkater-Abfrage als Vollbild (<code>RunbackApp.tsx:692–722</code>) — ohne Möglichkeit, das abzustellen.</p>
+
+<div class="grid">
+  <div class="card"><h4>Heute-Blöcke</h4><div class="big">9</div><p>immer sichtbar, 0 davon abschaltbar</p></div>
+  <div class="card"><h4>Auto-Abfragen</h4><div class="big">1</div><p>Muskelkater, täglich, kein Schalter</p></div>
+  <div class="card"><h4>Vorhandene Schalter</h4><div class="big">8</div><p>verteilt auf 4 Seiten, kein zentraler Ort</p></div>
+  <div class="card"><h4>Tabs</h4><div class="big">5</div><p>fest; Planung auch für Nicht-Planer</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="heute">2. Was heute schon einstellbar ist</h2>
+
+<table>
+  <thead><tr><th>Option</th><th>Wo</th><th>Gespeichert in</th><th>Bewertung</th></tr></thead>
+  <tbody>
+    <tr><td>Herzfrequenz beim Laufen anzeigen</td><td>Mehr → Einstellungen</td><td><code>settings.showHeartRate</code></td><td>Gut, bleibt. Zieht in die neue Seite um.</td></tr>
+    <tr><td>Wetter ergänzen (Open-Meteo)</td><td>Mehr → Geräte &amp; Verbindungen</td><td>Kotlin <code>weatherEnabled</code></td><td>Richtig platziert (externer Dienst).</td></tr>
+    <tr><td>OpenRouter verwenden + Schlüssel</td><td>Geräte &amp; Verbindungen → ProseSettings</td><td>Kotlin, verschlüsselt</td><td>Richtig platziert. Aber: „Trainingschat“ steht in Mehr auch ohne Schlüssel.</td></tr>
+    <tr><td>Aussagen kompakt darstellen</td><td>ProseSettings</td><td>Kotlin</td><td>Versteckt unter OpenRouter, gehört zur Darstellung.</td></tr>
+    <tr><td>Sprachansagen (an, Tempo, Distanz, Puls, Navigation, Intervall)</td><td>Routenplaner</td><td><code>RoutePlannerState.voice</code></td><td>Nur im Routenplaner erreichbar, gilt aber für jeden Lauf mit Route. Gehört zentral zu „Aufzeichnung“.</td></tr>
+    <tr><td>Laufen nach Tempo / Puls, Ausgabe Stimme/Vibration</td><td>Heute → „Laufen nach“</td><td><code>settings.runTarget</code></td><td>Gut. Wer das nie nutzt, sieht die Zeile trotzdem.</td></tr>
+    <tr><td>Zeitbudget, Lauftage, Standardzweck</td><td>Ziel &amp; Alltag / Onboarding</td><td><code>settings.minutes/trainingDays/purpose</code></td><td>Gut.</td></tr>
+    <tr><td>Bluetooth-Sensoren, Health Connect, Wear</td><td>Geräte &amp; Verbindungen</td><td>Kotlin</td><td>Gut.</td></tr>
+  </tbody>
+</table>
+
+<p>Dazu gibt es <strong>implizite</strong> Ausblendungen: Der Kraft-Fokus, das Kraft-Ziel und die Kraft-Empfehlung erscheinen nur, wenn <code>finishedSessions.length || settings.strengthFocus</code> wahr ist. Das ist eine Heuristik, keine Entscheidung des Nutzers — und sie greift nicht für den Block „Krafttraining“ auf Heute, für „Trainingspläne“ oder für die Kraft-Statistik.</p>
+
+<!-- ============================================================ -->
+<h2 id="prinzipien">3. Vier Regeln für jede Option</h2>
+
+<div class="grid">
+  <div class="card">
+    <h4>1 · Aus heißt weg</h4>
+    <p>Eine abgeschaltete Funktion verschwindet komplett: kein ausgegrauter Block, kein „aktiviere X, um …“, keine leere Sektion. Das ist die Spec-Regel und der Grund, warum es überhaupt Schalter braucht.</p>
+  </div>
+  <div class="card">
+    <h4>2 · Aus löscht nichts</h4>
+    <p>Daten bleiben (Grundregel 1 und 10). Muskelkater aus → keine Abfrage, keine Karte; alte Meldungen bleiben in der Datenbank und im Backup. Wieder an → alles ist wieder da.</p>
+  </div>
+  <div class="card">
+    <h4>3 · Standard = heutiges Verhalten</h4>
+    <p>Wer nichts anfasst, merkt nichts. Bestehende Nutzer sehen nach dem Update dieselbe App. Ausnahme nur nach expliziter Entscheidung (siehe <a href="#entscheidungen">Abschnitt 9</a>).</p>
+  </div>
+  <div class="card">
+    <h4>4 · Ein Ort, klare Sprache</h4>
+    <p>Alle Sichtbarkeits-Schalter auf einer Seite „Funktionen“. Verbindungen zu externen Diensten bleiben in „Geräte &amp; Verbindungen“, weil dort Datenschutz erklärt wird. Kein Schalter erzeugt eine Grundregel-Verletzung.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="katalog">4. Katalog: Was optional wird</h2>
+
+<p>Legende: <span class="badge p1">P1</span> zuerst bauen · <span class="badge p2">P2</span> danach · <span class="badge p3">P3</span> wenn Zeit ist · <span class="badge exists">vorhanden</span> Schalter existiert, zieht nur um · <span class="badge new">neu</span> neuer Schalter</p>
+
+<!-- ---------- A ---------- -->
+<h3>A · Körper &amp; Muskelkater</h3>
+
+<div class="feature">
+  <header><h4>Muskelkater-Tracking</h4><span class="badge p1">P1</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Der Auslöser für diesen Plan. Wer keinen Muskelkater melden will, soll die Funktion nirgends sehen.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.soreness.enabled</code> · Standard <strong>an</strong></dd>
+    <dt>Aus versteckt</dt><dd>Block „Dein Körper“ auf Heute · automatische Abfrage · Seite Muskelkarte · Muskelkater-Hinweise in Kraft-Empfehlungen („Schlaf, Muskelkater und Tagesform …“) · Mikrofon-Berechtigungsanfrage</dd>
+    <dt>Aus verändert</dt><dd>Frische je Region hat eine Quelle weniger → mehr Regionen bleiben „unbekannt“. Das ist erlaubt (Grundregel 7) und braucht keinen Hinweis.</dd>
+    <dt>Bleibt</dt><dd>Gespeicherte Meldungen, Backup-Inhalt, Import</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Wann Runback nach Muskelkater fragt</h4><span class="badge p1">P1</span><span class="badge new">neu</span></header>
+  <p class="why">Heute: Vollbild beim ersten App-Start des Tages, sofern heute noch nichts gemeldet ist. Das ist für viele zu oft — und für reine Läufer sinnlos.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.soreness.prompt</code></dd>
+    <dt>Optionen</dt><dd>
+      <div class="chips">
+        <span class="chip">Nie – nur selbst melden</span>
+        <span class="chip">Nach Krafttraining</span>
+        <span class="chip sel">Täglich beim ersten Öffnen</span>
+        <span class="chip">An Trainingstagen</span>
+        <span class="chip">Wöchentlich</span>
+      </div>
+    </dd>
+    <dt>Bedeutung</dt><dd>
+      <ul class="tight">
+        <li><strong>Nie</strong> — nur über „Muskelkater melden“ auf Heute.</li>
+        <li><strong>Nach Krafttraining</strong> — beim nächsten Öffnen 12–48 h nach einer abgeschlossenen Krafteinheit, einmal je Einheit. Fachlich der sinnvollste Zeitpunkt, weil Muskelkater verzögert kommt.</li>
+        <li><strong>Täglich</strong> — heutiges Verhalten.</li>
+        <li><strong>An Trainingstagen</strong> — nur an Tagen aus <code>settings.trainingDays</code> bzw. mit geplanter Einheit.</li>
+        <li><strong>Wöchentlich</strong> — einmal je Kalenderwoche, am ersten Öffnen.</li>
+      </ul>
+    </dd>
+    <dt>Standard</dt><dd>Siehe <a href="#entscheidungen">Entscheidung 1</a>: „Täglich“ (kein Verhaltenswechsel) oder „Nach Krafttraining“ (fachlich besser).</dd>
+    <dt>Aufwand</dt><dd>Klein. Die Logik in <code>RunbackApp.tsx:692–722</code> wird eine reine Funktion <code>shouldPromptSoreness(setting, reports, sessions, now)</code> in <code>src/domain/</code> mit Test.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Spracheingabe beim Melden</h4><span class="badge p3">P3</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Der Mikrofon-Knopf in der Muskelkater-Erfassung. Wer nur tippt, will keine Mikrofon-Freigabe angefragt bekommen.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.soreness.voice</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Mikrofon-Knopf und <code>requestSorenessVoicePermissions()</code></dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Muskelkarte</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Die Karte mit Frische und gemeldetem Muskelkater. Unabhängig vom Melden — wer meldet, will nicht zwingend die Karte.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.soreness.map</code> · Standard an · automatisch aus, wenn Tracking aus</dd>
+    <dt>Aus versteckt</dt><dd>Zeile „Muskelkarte“ auf Heute, Seite <code>muscle-map</code></dd>
+  </dl>
+</div>
+
+<!-- ---------- B ---------- -->
+<h3>B · Bereiche und Sportarten</h3>
+
+<div class="feature">
+  <header><h4>Krafttraining</h4><span class="badge p1">P1</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Die Spec sagt: „Wer nur einen Bereich nutzt, sieht vom anderen nichts.“ Heute sieht ein reiner Läufer trotzdem den Block Krafttraining, Trainingspläne und Kraftvorlagen.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.areas.strength</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Block „Krafttraining“ auf Heute · Kraft-Fokus, -Ziel, -Empfehlung (Heute und Mehr) · Seite Trainingspläne · „Kraftvorlagen verwalten“ in Planung · Kraft-Block in Statistik und Entwicklung · Filterchip „Krafttraining“ in Einheiten (Chip bleibt, wenn Krafteinheiten existieren) · Kraft-Schritt der Kopplungssperre läuft leer</dd>
+    <dt>Ersetzt</dt><dd>Die Heuristik <code>finishedSessions.length || settings.strengthFocus</code> an fünf Stellen durch einen expliziten Schalter</dd>
+    <dt>Schutz</dt><dd>Läuft eine aktive Krafteinheit oder Kraft-Empfehlung, fragt der Schalter vorher: „Aktive Empfehlung bleibt bestehen, wird aber nicht mehr angezeigt. Trotzdem ausblenden?“</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Laufen</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Spiegelbild für reine Kraftsportler. Weniger häufig, aber die Spec behandelt beide Bereiche gleich.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.areas.running</code> · Standard an · mindestens ein Bereich muss an bleiben</dd>
+    <dt>Aus versteckt</dt><dd>Startkarte wird zur Kraft-Startkarte · Lauf-Fokus, -Ziel, -Empfehlung · Laufvorlagen · „Laufen nach“ · Routenplaner · Lauf-Statistik (Krafttraining rückt nach oben) · Sportart-Chips</dd>
+    <dt>Aufwand</dt><dd>Mittel: die Startkarte auf Heute ist heute laufzentriert gebaut.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Radfahren in der Auswahl</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Der Chip „Radfahren“ steht in jeder Startkarte und jeder Detailseite, auch wenn nie jemand radelt.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.sports.cycling</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Chip in Startkarte und Detailseite · Filterchip in Einheiten (bleibt, wenn Radfahrten existieren) · Leerzustand „Noch keine Radfahrt“</dd>
+    <dt>Hinweis</dt><dd>Sportarten sind laut Spec ein offenes Feld. Der Schalter ist ein Set <code>enabledSports</code>, damit spätere Sportarten ohne Umbau dazukommen.</dd>
+  </dl>
+</div>
+
+<!-- ---------- C ---------- -->
+<h3>C · Heute aufräumen</h3>
+
+<div class="feature">
+  <header><h4>Blöcke auf Heute</h4><span class="badge p1">P1</span><span class="badge new">neu</span></header>
+  <p class="why">Heute ist die meistgesehene Seite. Jeder Block sollte einzeln abwählbar sein — unabhängig davon, ob die Funktion dahinter an ist. Beispiel: Ich nutze Fokus, will ihn aber nicht täglich sehen; er bleibt unter Mehr erreichbar.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.home.sections</code> — Set aus <code>planning · strength · focus · goal · recommendation · body · recent · presets</code></dd>
+    <dt>Standard</dt><dd>Alle an (heutiges Bild). Die Startkarte ist nicht abwählbar.</dd>
+    <dt>Regel</dt><dd>Ein Block, dessen Funktion aus ist (z. B. Krafttraining), erscheint in dieser Liste gar nicht erst.</dd>
+    <dt>Nicht bauen</dt><dd>Reihenfolge per Drag &amp; Drop. Die feste Reihenfolge ist Teil der Design Language (Handlung zuerst, Kontext danach).</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Kennzahlen in der Startkarte</h4><span class="badge p3">P3</span><span class="badge new">neu</span></header>
+  <p class="why">Heute fest: „Letzter Lauf“ und „km in 7 Tagen“. Manche wollen lieber Minuten oder Anzahl Einheiten.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.home.stats</code> — zwei aus <code>lastRun · weekKm · weekMinutes · weekCount · streakDays</code></dd>
+    <dt>Regel</dt><dd>Nur Größen, die es schon in <code>statistics.ts</code> gibt. Kein neues Modell, keine neue Kennzahl.</dd>
+  </dl>
+</div>
+
+<!-- ---------- D ---------- -->
+<h3>D · Empfehlungen, Fokus, Ziel</h3>
+
+<div class="feature">
+  <header><h4>Empfehlungen</h4><span class="badge p2">P2</span><span class="badge new">neu</span></header>
+  <p class="why">Das Kernversprechen der App — aber die Spec sagt trotzdem „alles ist optional“. Manche wollen nur aufzeichnen und Statistik sehen.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.recommendations.mode</code> je Bereich</dd>
+    <dt>Optionen</dt><dd>
+      <div class="chips">
+        <span class="chip sel">Vorschlagen</span>
+        <span class="chip">Nur auf Nachfrage</span>
+        <span class="chip">Aus</span>
+      </div>
+    </dd>
+    <dt>Bedeutung</dt><dd>
+      <ul class="tight">
+        <li><strong>Vorschlagen</strong> — heutiges Verhalten: Vorschlag erscheint auf Heute und nach dem Lauf.</li>
+        <li><strong>Nur auf Nachfrage</strong> — nichts auf Heute, nichts nach dem Lauf. Unter Mehr → „Empfehlung ansehen“ rechnet Runback auf Knopfdruck und zeigt Vorschlag oder „was fehlt“.</li>
+        <li><strong>Aus</strong> — keine Berechnung, kein Block, keine Frage „Hast du es ausprobiert?“, kein „Nächster Schritt“ in der Detailseite.</li>
+      </ul>
+    </dd>
+    <dt>Schutz</dt><dd>Eine laufende, angenommene Empfehlung wird durch „Aus“ nicht abgebrochen. Sie wird pausiert, und der Schalter sagt das vorher.</dd>
+    <dt>Grenze</dt><dd>Es gibt keine Option „mehr als eine Empfehlung“. Grundregel 15.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>„Danach vorgesehen“ anzeigen</h4><span class="badge p3">P3</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Die wartende zweite Empfehlung ist Kontext, keine Handlung. Wer nur die aktive sehen will, blendet die Zeile aus. Sie bleibt unter Details.</p>
+  <dl><dt>Schlüssel</dt><dd><code>features.recommendations.showQueued</code></dd></dl>
+</div>
+
+<div class="feature">
+  <header><h4>Fokus und Ziel</h4><span class="badge p2">P2</span></header>
+  <p class="why">Beides ist laut Spec bereits optional. Es fehlt nur die Konsequenz: Ist kein Fokus und kein Ziel gesetzt, steht auf Heute trotzdem „Kein Ziel gesetzt“ — eine leere Fläche.</p>
+  <dl>
+    <dt>Kein neuer Schalter</dt><dd>Regel: Blöcke „Dein Fokus“ / „Dein Ziel“ erscheinen auf Heute nur, wenn etwas gesetzt ist. Setzen weiterhin über Mehr → Einstellungen und Onboarding. Wer sie trotzdem als Einstieg will, aktiviert sie unter <a href="#katalog">Heute-Blöcke</a>.</dd>
+  </dl>
+</div>
+
+<!-- ---------- E ---------- -->
+<h3>E · Planung</h3>
+
+<div class="feature">
+  <header><h4>Planung als Tab</h4><span class="badge p1">P1</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Ein ganzer Tab mit Wochen-/Monatskalender, Zeitbudget, Wochenvorschlag. Wer frei trainiert, braucht davon nichts — und bekommt trotzdem „Deine Planung · Woche ansehen“ auf Heute.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.planning.enabled</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Tab Planung (App hat dann 4 Tabs) · Block „Deine Planung“ auf Heute · „Geplanten Lauf starten“ · Seite Entwicklung (Planstand) in Statistik · „Zeitraum deines Plans“ in Ziel &amp; Alltag</dd>
+    <dt>Bleibt</dt><dd>Geplante Einheiten in der Datenbank; Ziel mit Datum (gehört zum Bereich, nicht zur Planung)</dd>
+    <dt>Aufwand</dt><dd>Klein–mittel. <code>Tab</code>-Typ und Tab-Leiste in <code>RunbackApp.tsx</code> werden aus einer Liste gebaut statt fest.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Teile der Planung</h4><span class="badge p3">P3</span><span class="badge new">neu</span></header>
+  <dl>
+    <dt><code>planning.suggest</code></dt><dd>„Woche vorschlagen“ ein/aus — wer selbst plant, will keinen Vorschlagsknopf oben. Standard an.</dd>
+    <dt><code>planning.month</code></dt><dd>Monatsansicht ein/aus. Standard an.</dd>
+    <dt><code>planning.budget</code></dt><dd>Zeitbudget/Verfügbarkeit ein/aus. Aus → Wochenvorschlag nutzt nur Lauftage. Standard an.</dd>
+  </dl>
+</div>
+
+<!-- ---------- F ---------- -->
+<h3>F · Aufzeichnung (Laufen &amp; Radfahren)</h3>
+
+<div class="feature">
+  <header><h4>Anzeige während der Aufzeichnung</h4><span class="badge p2">P2</span><span class="badge exists">teils vorhanden</span></header>
+  <p class="why">Heute: Dauer groß, Kilometer, Tempo, optional Herzfrequenz. Wer nach Gefühl laufen will, will kein Tempo sehen. Wer Puls hat, will ihn vielleicht groß.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.recording.metrics</code> — Set aus <code>distance · pace · heartRate · target</code> plus <code>recording.primary</code> (was groß steht: <code>duration · distance · heartRate</code>)</dd>
+    <dt>Migration</dt><dd><code>settings.showHeartRate</code> → <code>metrics</code> enthält <code>heartRate</code>. Alter Schlüssel bleibt lesbar.</dd>
+    <dt>Regel</dt><dd>Dauer ist immer sichtbar. Herzfrequenz zeigt weiterhin „Keine Daten“ ohne Sensor — aber nur, wenn sie eingeschaltet ist.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Ansagen &amp; Vibration zentral</h4><span class="badge p1">P1</span><span class="badge exists">vorhanden</span></header>
+  <p class="why">Die Sprachansagen-Einstellung (an, Tempo, Distanz, Puls, Navigation, Intervall) liegt heute im Routenplaner und gilt dort nur mit aktiver Route. „Laufen nach“ hat separat Stimme/Vibration. Zwei Orte für dasselbe Thema.</p>
+  <dl>
+    <dt>Schritt 1</dt><dd>Beide Einstellungen auf der neuen Seite unter „Aufzeichnung → Ansagen“ verlinken bzw. anzeigen. Speicherort vorerst unverändert.</dd>
+    <dt>Schritt 2 (P3)</dt><dd><code>RoutePlannerState.voice</code> nach <code>features.recording.voice</code> ziehen, Routenplaner liest von dort. Kotlin-Sprachausgabe bleibt gleich.</dd>
+    <dt>Neu</dt><dd>Ansagen auch ohne Route: „Alle X km: Tempo/Distanz/Puls ansagen“. Kleine Erweiterung, weil die Sprachausgabe (<code>speakRoute</code>) schon existiert.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>„Laufen nach“ anbieten</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Die Zeile „Laufen nach · ohne Vorgabe“ steht in jeder Startkarte. Wer nie mit Tempo- oder Pulsvorgabe läuft, braucht sie nicht.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.recording.targets</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Zeile in Startkarte, Seite <code>run-target</code>, Zeile während der Aufzeichnung. Wear-App behält ihre eigene Auswahl (sie liest die Telefon-Einstellung nicht).</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Routenplaner</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.recording.routes</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Einstieg in den Routenplaner, Routenauswahl vor dem Lauf, Navigationsansagen. Karten in der Detailansicht bleiben (sie sind Teil der Aufzeichnung).</dd>
+    <dt>Datenschutz-Bonus</dt><dd>Aus → keine Anfragen an Karten-/Höhendienst außer für die Detailkarte.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Nachbereitung nach dem Beenden</h4><span class="badge p2">P2</span><span class="badge new">neu</span></header>
+  <p class="why">Nach „Beenden &amp; speichern“ öffnet sich immer die Detailseite mit Zweck, RPE Beine/Atmung, Notiz. Für manche ist das der wichtigste Moment, für andere Reibung.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.recording.afterRun</code></dd>
+    <dt>Optionen</dt><dd>
+      <div class="chips">
+        <span class="chip sel">Detailseite öffnen</span>
+        <span class="chip">Nur Gefühl abfragen</span>
+        <span class="chip">Direkt zurück zu Heute</span>
+      </div>
+    </dd>
+    <dt>Bedeutung</dt><dd>„Nur Gefühl“ zeigt ein kleines Blatt mit RPE und „Fertig“. „Direkt zurück“ zeigt eine Zeile „Lauf gespeichert · Gefühl nachtragen“ für 10 Sekunden. RPE bleibt in der Detailseite jederzeit nachtragbar.</dd>
+    <dt>Wirkung auf Modelle</dt><dd>Ohne RPE bleibt Belastung „unbekannt“. Das ist erlaubt und wird nirgends geschätzt.</dd>
+  </dl>
+</div>
+
+<!-- ---------- G ---------- -->
+<h3>G · Krafttraining</h3>
+
+<div class="feature">
+  <header><h4>Pausentimer</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Der Balken „Pause 1:30“ nach jedem Satz. Standardpause ist fest 120 s (<code>strength.ts:314, 350</code>) — nur je Satz im Plan änderbar.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.strength.restTimer</code> (an/aus) · <code>features.strength.defaultRestSeconds</code> (60 / 90 / 120 / 180 / eigener Wert)</dd>
+    <dt>Aus versteckt</dt><dd>Balken und Sekundentakt; <code>restStartedAt</code> wird weiter gespeichert (Original bleibt)</dd>
+    <dt>Standardpause</dt><dd>Gilt für neue Sätze in neuen Plänen und für freies Training. Bestehende Pläne behalten ihre Werte.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>„Wiederholungen im Tank“ (RIR)</h4><span class="badge p2">P2</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">Das Feld ist schon freiwillig, nimmt aber in jeder Satzzeile Platz. Anfänger kennen den Begriff nicht.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.strength.rir</code> · Standard an</dd>
+    <dt>Aus versteckt</dt><dd>Eingabefeld und Spaltenkopf „RIR“ im Workout-Screen. Gespeicherte Werte bleiben.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Tagesvorlage auf Heute</h4><span class="badge p3">P3</span><span class="badge new">neu</span><span class="toggle"><span class="sw on"></span>an</span></header>
+  <p class="why">„Heute vorgesehen: Oberkörper A“ kommt aus dem Wochentag der Vorlage. Wer Vorlagen frei wählt, will nur „Training starten“.</p>
+  <dl><dt>Schlüssel</dt><dd><code>features.strength.templateOfDay</code></dd></dl>
+</div>
+
+<!-- ---------- H ---------- -->
+<h3>H · Statistik</h3>
+
+<div class="feature">
+  <header><h4>Module unter „Tiefer schauen“</h4><span class="badge p2">P2</span><span class="badge new">neu</span></header>
+  <p class="why">Verteilung, Bestwerte, Konsistenz, Körperwerte. Vier aufklappbare Blöcke — wer Körperwerte nie einträgt, sieht dauerhaft einen leeren Block.</p>
+  <dl>
+    <dt>Schlüssel</dt><dd><code>features.statistics.modules</code> — Set aus <code>distribution · records · consistency · body</code></dd>
+    <dt>Standard</dt><dd>Alle an. „Körperwerte“ sind Ø Tempo, Ø Distanz, RPE-Mediane, Ø Puls und Schrittfrequenz.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Merken statt Standard</h4><span class="badge exists">vorhanden</span></header>
+  <dl>
+    <dt>Statistik</dt><dd>Zeitraum und Kennzahl werden bereits in <code>settings.statisticsView</code> gemerkt. Kein Handlungsbedarf.</dd>
+  </dl>
+</div>
+
+<!-- ---------- I ---------- -->
+<h3>I · Verstehen &amp; Verbindungen</h3>
+
+<div class="feature">
+  <header><h4>Trainingschat nur mit Zugang</h4><span class="badge p1">P1</span></header>
+  <p class="why">„Trainingschat“ steht unter Mehr → Verstehen, auch ohne OpenRouter-Schlüssel. Der Klick endet in „Dafür fehlt noch der OpenRouter-Zugang“. Das ist genau die leere Fläche, die die Spec verbietet.</p>
+  <dl>
+    <dt>Kein neuer Schalter</dt><dd>Regel: Zeile erscheint nur, wenn <code>openrouter.enabled &amp;&amp; hasKey</code>. Einstieg zum Einrichten bleibt in Geräte &amp; Verbindungen und auf „Wie Runback rechnet“.</dd>
+  </dl>
+</div>
+
+<div class="feature">
+  <header><h4>Wetter · OpenRouter · Health Connect · Wear · BLE</h4><span class="badge exists">vorhanden</span></header>
+  <dl>
+    <dt>Bleibt wo es ist</dt><dd>Externe Dienste bleiben in „Geräte &amp; Verbindungen“, weil dort steht, welche Daten das Gerät verlassen (Grundregel 9). Die neue Seite verlinkt nur dorthin.</dd>
+    <dt>Kleine Ergänzung</dt><dd>„Aussagen kompakt darstellen“ zieht von ProseSettings in die neue Seite unter „Darstellung“ — es hat mit OpenRouter nichts zu tun.</dd>
+  </dl>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="seite">5. Die neue Seite „Funktionen“</h2>
+
+<p>Einstieg: <strong>Mehr → Einstellungen → Funktionen</strong>, ganz oben. Untertitel: „Was Runback dir zeigt und wann es fragt“. Aufbau nach den Bereichen oben, jede Zeile ein Satz, Schalter rechts, Häufigkeiten als Chips. Keine Erklärtexte unter jeder Zeile — die Zeile selbst sagt, was passiert.</p>
+
+<div class="mock">
+  <div class="t">Funktionen</div>
+  <div class="s">Bereiche</div>
+  <div class="r"><span>Laufen<small>Startkarte, Empfehlung, Statistik</small></span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="r"><span>Krafttraining<small>Training, Pläne, Empfehlung, Statistik</small></span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="r"><span>Radfahren in der Auswahl</span><span class="toggle"><span class="sw"></span></span></div>
+  <div class="s">Muskelkater</div>
+  <div class="r"><span>Muskelkater melden<small>Block auf Heute, Muskelkarte</small></span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="r"><span>Danach fragen<small>Nach Krafttraining</small></span><span>›</span></div>
+  <div class="r"><span>Muskelkarte</span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="s">Heute</div>
+  <div class="r"><span>Blöcke auf Heute<small>6 von 8 sichtbar</small></span><span>›</span></div>
+  <div class="s">Planung</div>
+  <div class="r"><span>Planung als Tab<small>Woche, Monat, Zeitbudget</small></span><span class="toggle"><span class="sw"></span></span></div>
+  <div class="s">Empfehlungen</div>
+  <div class="r"><span>Laufen<small>Vorschlagen</small></span><span>›</span></div>
+  <div class="r"><span>Krafttraining<small>Nur auf Nachfrage</small></span><span>›</span></div>
+  <div class="s">Aufzeichnung</div>
+  <div class="r"><span>Anzeige während des Laufs<small>Dauer groß · Kilometer · Herzfrequenz</small></span><span>›</span></div>
+  <div class="r"><span>Ansagen &amp; Vibration<small>Alle 1 km · Tempo, Distanz</small></span><span>›</span></div>
+  <div class="r"><span>Laufen nach Tempo oder Puls</span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="r"><span>Routenplaner</span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="r"><span>Nach dem Beenden<small>Detailseite öffnen</small></span><span>›</span></div>
+  <div class="s">Krafttraining</div>
+  <div class="r"><span>Pausentimer<small>Standard 120 s</small></span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="r"><span>Wiederholungen im Tank</span><span class="toggle"><span class="sw on"></span></span></div>
+  <div class="s">Statistik</div>
+  <div class="r"><span>Tiefer schauen<small>Verteilung, Bestwerte, Konsistenz</small></span><span>›</span></div>
+  <div class="s">Verbindungen</div>
+  <div class="r"><span>Geräte &amp; Verbindungen<small>Uhr, Sensoren, Wetter, OpenRouter</small></span><span>›</span></div>
+</div>
+
+<h3>Sprache und Verhalten</h3>
+<ul class="tight">
+  <li>Zeilentitel benennen die Funktion, nicht den Schalter: „Muskelkater melden“, nicht „Muskelkater-Tracking aktivieren“.</li>
+  <li>Der Untertitel zeigt den aktuellen Wert („Nach Krafttraining“, „6 von 8 sichtbar“), nie eine Erklärung.</li>
+  <li>Abschalten wirkt sofort, ohne Speichern-Knopf. Speichern läuft über das bestehende <code>save()</code> mit Fehleranzeige.</li>
+  <li>Ein Schalter, der etwas Laufendes betrifft (aktive Empfehlung, aktives Training), fragt einmal nach — mit dem bestehenden <code>Alert</code>-Muster wie beim Beenden eines Laufs.</li>
+  <li>Kein Schalter zeigt einen „Empfohlen“-Hinweis. Runback rät hier nicht.</li>
+</ul>
+
+<h3>Onboarding: ein Schritt mehr</h3>
+<p>Zwischen „Ziel“ und „Import“ kommt der Schritt <strong>„Was möchtest du nutzen?“</strong> mit drei Kacheln: Laufen · Krafttraining · Radfahren (Mehrfachauswahl, Laufen vorausgewählt) und darunter der Schalter „Nach Muskelkater fragen“ mit der Häufigkeit. Alles überspringbar; Überspringen = alles an. Der Schritt schreibt nur <code>features</code>, sonst nichts.</p>
+
+<!-- ============================================================ -->
+<h2 id="nicht">6. Bewusst nicht einstellbar</h2>
+
+<p>Diese Liste ist genauso wichtig wie der Katalog. Sie schützt die Grundregeln vor „nur ein kleiner Schalter“.</p>
+
+<table>
+  <thead><tr><th>Nicht einstellbar</th><th>Warum</th></tr></thead>
+  <tbody>
+    <tr><td>Mehr als eine Empfehlung je Bereich</td><td>Grundregel 15. Es gibt keinen „Experten-Modus“.</td></tr>
+    <tr><td>Kopplungssperre aus</td><td>Grundregel 15. Sonst wird die laufende Prüfung verfälscht.</td></tr>
+    <tr><td>Unsicherheit ausblenden („noch nicht klar“ verstecken, Spannen weglassen)</td><td>Grundregel 5. Ehrlich vor beeindruckend.</td></tr>
+    <tr><td>Modellversion, Quellen, „Details“ ausblenden</td><td>Grundregel 2. Jede Zahl hat eine Spur.</td></tr>
+    <tr><td>Frische als „Bereitschaft“ oder Gesamtscore</td><td>Nicht bauen-Liste. Auch nicht als Option.</td></tr>
+    <tr><td>Gesperrte Modelle freischalten</td><td>Erst nach bestandener Validierung, nicht per Schalter.</td></tr>
+    <tr><td>Schätzwerte für fehlende RPE/RIR/Puls</td><td>Grundregel 5 und 7. Unbekannt bleibt unbekannt.</td></tr>
+    <tr><td>LLM-Empfehlungen oder Chat, der Daten schreibt</td><td>Grundregel 6.</td></tr>
+    <tr><td>Automatischer Planwechsel</td><td>Nicht bauen-Liste. Vorschläge bleiben Vorschau.</td></tr>
+    <tr><td>Reihenfolge der Heute-Blöcke</td><td>Design Language: Handlung zuerst. Sichtbarkeit ja, Sortierung nein.</td></tr>
+    <tr><td>Datenexport/Backup/Löschen ausblenden</td><td>Grundregel 10. Immer erreichbar.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="technik">7. Technischer Aufbau</h2>
+
+<h3>Ein Modul, eine Version</h3>
+<p>Neu: <code>src/domain/features.ts</code> — reine Logik, ohne UI, mit Jest-Test daneben. Es kennt die Standardwerte, normalisiert Rohdaten aus <code>settings.features</code> und beantwortet Fragen wie „soll jetzt nach Muskelkater gefragt werden?“.</p>
+
+<pre>// src/domain/features.ts
+export const FEATURES_VERSION = 1;
+
+export type SorenessPrompt =
+  | 'never' | 'after_strength' | 'daily' | 'training_days' | 'weekly';
+
+export type RecommendationMode = 'suggest' | 'on_request' | 'off';
+
+export interface FeatureSettings {
+  version: typeof FEATURES_VERSION;
+  areas: { running: boolean; strength: boolean };
+  sports: { cycling: boolean };
+  soreness: { enabled: boolean; prompt: SorenessPrompt; map: boolean; voice: boolean };
+  home: { sections: HomeSection[] };
+  planning: { enabled: boolean; suggest: boolean; month: boolean; budget: boolean };
+  recommendations: {
+    running: RecommendationMode; strength: RecommendationMode; showQueued: boolean;
+  };
+  recording: {
+    metrics: RecordingMetric[]; primary: 'duration' | 'distance' | 'heartRate';
+    targets: boolean; routes: boolean;
+    afterRun: 'detail' | 'feeling' | 'home';
+  };
+  strength: { restTimer: boolean; defaultRestSeconds: number; rir: boolean; templateOfDay: boolean };
+  statistics: { modules: StatsModule[] };
+}
+
+export const DEFAULT_FEATURES: FeatureSettings = { /* alles an = heutiges Verhalten */ };
+
+/** Unbekannte oder fehlende Felder → Standard. Ungültige Werte → Standard. Nie werfen. */
+export function normalizeFeatures(raw: unknown): FeatureSettings;
+
+/** Regel-Ableitungen, damit die UI nicht rechnet: */
+export function visibleHomeSections(f: FeatureSettings): HomeSection[];   // filtert Bereiche raus
+export function visibleTabs(f: FeatureSettings): Tab[];                    // 4 oder 5
+export function shouldPromptSoreness(
+  f: FeatureSettings, reports: SorenessReport[], sessions: StrengthSession[],
+  trainingDays: number[], now: number,
+): boolean;
+export function enabledSports(f: FeatureSettings): Sport[];</pre>
+
+<h3>Speicherort</h3>
+<ul class="tight">
+  <li><code>settings.features</code> in <code>Settings</code> (<code>src/native.ts</code>). Geht über <code>saveSettings</code> nach Kotlin, ist damit automatisch im Backup und in der Wiederherstellung. Kein neuer Native-Aufruf.</li>
+  <li><code>showHeartRate</code> bleibt als Feld bestehen und wird beim Normalisieren in <code>recording.metrics</code> übernommen, falls <code>features</code> fehlt. Danach schreibt die App nur noch <code>features</code>.</li>
+  <li><code>RoutePlannerState.voice</code> bleibt in Phase 1–3 unverändert; die neue Seite zeigt dieselben Werte und schreibt über <code>saveRoutePlannerState</code>. Zusammenführung erst in Phase 4.</li>
+  <li>Reine UI-Merker (letzter Statistik-Tab, letzter Filter) landen in <code>settings.ui</code>, werden aber nie ausgewertet.</li>
+</ul>
+
+<h3>Wo die Schalter greifen</h3>
+<table>
+  <thead><tr><th>Datei</th><th>Änderung</th></tr></thead>
+  <tbody>
+    <tr><td><code>src/ui/RunbackApp.tsx</code></td><td><code>const features = normalizeFeatures(settings.features)</code> einmal oben. <code>renderHome</code> baut aus <code>visibleHomeSections</code>. Tab-Leiste aus <code>visibleTabs</code>. Soreness-Effekt ruft <code>shouldPromptSoreness</code>. Fünf <code>finishedSessions.length ||</code>-Heuristiken → <code>features.areas.strength</code>. Neue Seite <code>page === 'features'</code>.</td></tr>
+    <tr><td><code>src/ui/FeatureSettings.tsx</code> (neu)</td><td>Die Seite. Nur Bausteine aus <code>components.tsx</code> (Row, Section, ChipGroup, Switch-Helfer). Bekommt <code>features</code> und <code>onChange(patch)</code>.</td></tr>
+    <tr><td><code>src/ui/WorkoutScreen.tsx</code></td><td>Props <code>showRir</code>, <code>showRestTimer</code>. Sonst nichts.</td></tr>
+    <tr><td><code>src/domain/strength.ts</code></td><td><code>defaultRestSeconds</code> als Parameter statt Konstante 120 an den zwei Stellen.</td></tr>
+    <tr><td><code>src/ui/Statistics.tsx</code></td><td>Prop <code>modules</code>, Kraft-Block nur mit <code>areas.strength</code>.</td></tr>
+    <tr><td><code>src/ui/PlanningScreen.tsx</code></td><td>Props <code>showSuggest</code>, <code>showMonth</code>, <code>showBudget</code>, <code>showStrength</code>.</td></tr>
+    <tr><td><code>src/ui/Onboarding.tsx</code></td><td>Neuer Schritt <code>'features'</code> in <code>STEPS</code>.</td></tr>
+    <tr><td><code>src/ui/RoutePlannerScreen.tsx</code></td><td>Unverändert bis Phase 4.</td></tr>
+    <tr><td>Kotlin</td><td>Keine Änderung. Alles läuft über das bestehende <code>settings</code>-JSON.</td></tr>
+  </tbody>
+</table>
+
+<h3>Tests</h3>
+<ul class="tight">
+  <li><code>__tests__/features.test.ts</code> — Standardwerte, Normalisierung kaputter Eingaben, <code>shouldPromptSoreness</code> für alle fünf Modi mit Zeitgrenzen, <code>visibleTabs</code>, „mindestens ein Bereich bleibt an“.</li>
+  <li><code>__tests__/runbackApp.test.tsx</code> — erweitern: Krafttraining aus → kein Block, kein Tab-Inhalt, keine Kraft-Empfehlung; Muskelkater aus → keine Auto-Abfrage; Planung aus → vier Tabs.</li>
+  <li><code>__tests__/onboarding.test.tsx</code> — neuer Schritt, Überspringen = Standard.</li>
+  <li>Vor Abschluss jeder Phase: <code>npm run typecheck</code>, <code>npm test -- --runInBand</code>.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="phasen">8. Umsetzung in vier Phasen</h2>
+
+<p>Jede Phase ist ein eigener PR und für sich nützlich. Die Reihenfolge folgt dem Nutzen: zuerst das, was heute wirklich stört.</p>
+
+<div class="phase">
+  <div class="n">1</div>
+  <div>
+    <strong>Fundament + Muskelkater + Bereiche</strong> <span class="badge p1">P1</span>
+    <ul>
+      <li><code>features.ts</code> mit Version, Standardwerten, Normalisierung, Tests</li>
+      <li>Seite „Funktionen“ unter Mehr → Einstellungen (zunächst nur die Zeilen dieser Phase)</li>
+      <li>Muskelkater an/aus + Häufigkeit (fünf Modi); Auto-Abfrage nutzt <code>shouldPromptSoreness</code></li>
+      <li>Krafttraining an/aus; ersetzt alle Heuristiken</li>
+      <li>Planung als Tab an/aus; Tab-Leiste aus Liste</li>
+      <li>Trainingschat-Zeile nur mit Schlüssel</li>
+      <li>Ansagen &amp; Vibration als Verlinkung auf der neuen Seite</li>
+    </ul>
+    <p class="why">Ergebnis: Ein reiner Läufer ohne Muskelkater und ohne Planung sieht eine App mit vier Tabs und fünf Blöcken auf Heute statt neun.</p>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="n">2</div>
+  <div>
+    <strong>Heute aufräumen + Empfehlungsmodus</strong> <span class="badge p1">P1</span> <span class="badge p2">P2</span>
+    <ul>
+      <li>Heute-Blöcke einzeln abwählbar (Unterseite mit Schaltern)</li>
+      <li>Fokus/Ziel-Blöcke nur, wenn gesetzt</li>
+      <li>Empfehlungen je Bereich: Vorschlagen / Nur auf Nachfrage / Aus, inkl. Pausieren einer laufenden Empfehlung mit Rückfrage</li>
+      <li>Laufen an/aus (Kraft-Startkarte), Radfahren an/aus</li>
+      <li>Onboarding-Schritt „Was möchtest du nutzen?“</li>
+    </ul>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="n">3</div>
+  <div>
+    <strong>Aufzeichnung, Kraft, Statistik</strong> <span class="badge p2">P2</span>
+    <ul>
+      <li>Anzeige während des Laufs (Set + Hauptwert), Migration von <code>showHeartRate</code></li>
+      <li>„Laufen nach“ an/aus, Routenplaner an/aus</li>
+      <li>Nachbereitung: Detail / nur Gefühl / direkt zurück</li>
+      <li>Pausentimer an/aus + Standardpause, RIR an/aus</li>
+      <li>Statistik-Module, Kraft-Block nach Bereich</li>
+    </ul>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="n">4</div>
+  <div>
+    <strong>Feinschliff</strong> <span class="badge p3">P3</span>
+    <ul>
+      <li>Ansagen zentral speichern (<code>RoutePlannerState.voice</code> → <code>features.recording.voice</code>), Ansagen auch ohne Route</li>
+      <li>Kennzahlen der Startkarte wählbar</li>
+      <li>Planung: Vorschlag / Monat / Zeitbudget einzeln</li>
+      <li>Muskelkater-Spracheingabe an/aus, „Danach vorgesehen“ an/aus, Tagesvorlage an/aus</li>
+      <li>Merker für Statistik-Kennzahl, Zeitraum und Einheiten-Filter</li>
+      <li>„Aussagen kompakt darstellen“ aus ProseSettings in „Darstellung“ verschieben</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout warn">
+  <strong>Was dieser Plan nicht enthält</strong>
+  Neue Funktionen. Alles hier macht Vorhandenes abwählbar oder einstellbar. Die einzige Ausnahme ist „Ansagen ohne Route“ in Phase 4, weil dieselbe Sprachausgabe schon existiert und der zentrale Schalter sonst nur mit Route etwas täte. Die Wear-App bleibt unverändert; sie liest die Telefon-Einstellungen nicht und braucht dafür keinen eigenen Schalter.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="entscheidungen">9. Offene Entscheidungen</h2>
+
+<p>Drei Punkte, bei denen es nicht nur eine richtige Antwort gibt. Alles andere im Plan ist so vorgeschlagen, dass es ohne Rückfrage gebaut werden kann.</p>
+
+<table>
+  <thead><tr><th>#</th><th>Frage</th><th>Optionen</th><th>Vorschlag</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>Standard für „Wann nach Muskelkater fragen?“</td>
+      <td><strong>a)</strong> Täglich — kein Verhaltenswechsel für bestehende Nutzer.<br><strong>b)</strong> Nach Krafttraining — fachlich passender, seltener, und reine Läufer werden nie gefragt.</td>
+      <td><strong>b</strong>. Die tägliche Abfrage ist die häufigste Reibung. Wer sie will, schaltet zurück; die neue Seite ist beim ersten Start nach dem Update über eine einmalige Zeile auf Heute erreichbar („Neu: Du kannst wählen, was Runback zeigt“).</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Heute-Blöcke: einzeln oder gebündelt?</td>
+      <td><strong>a)</strong> Acht einzelne Schalter.<br><strong>b)</strong> Drei Bündel: „Kontext“ (Fokus, Ziel, Empfehlung), „Körper“, „Verlauf“ (Zuletzt, Vorlagen).</td>
+      <td><strong>a</strong>. Acht Zeilen auf einer Unterseite sind übersichtlich genug, und Bündel erzwingen Kompromisse („ich will Empfehlung, aber nicht Ziel“).</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Onboarding-Schritt „Was möchtest du nutzen?“ — ja oder nein?</td>
+      <td><strong>a)</strong> Ja, ein Schritt mehr, überspringbar.<br><strong>b)</strong> Nein, alles an; Nutzer findet die Seite unter Mehr.</td>
+      <td><strong>a</strong>. Ein Kraftsportler, der als Erstes eine Lauf-Startkarte sieht, ist verloren, bevor er „Mehr“ findet. Der Schritt ist eine Frage, keine Einrichtung.</td>
+    </tr>
+  </tbody>
+</table>
+
+<footer>
+  Runback · Plan zur Konfigurierbarkeit · Dieses Dokument beschreibt Richtung und Umfang. Die Umsetzung folgt AGENTS.md: Domain-Logik mit Tests, UI nur aus <code>components.tsx</code>, Deutsch, kurz, im Imperativ.
+</footer>
+
+</main>
+</body>
+</html>

@@ -8,10 +8,17 @@ import {
   View,
 } from 'react-native';
 import type { RunPurpose } from '../domain/types';
+import {
+  SORENESS_PROMPTS,
+  SORENESS_PROMPT_LABELS,
+  normalizeFeatures,
+  withArea,
+  type FeatureSettings,
+} from '../domain/features';
 import { nativeCall, type Settings } from '../native';
 import { Button, Copy, Section, color } from './components';
 
-const STEPS = ['welcome', 'goal', 'import', 'ready'] as const;
+const STEPS = ['welcome', 'goal', 'features', 'import', 'ready'] as const;
 type Step = (typeof STEPS)[number];
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const PURPOSES: { value: RunPurpose; label: string }[] = [
@@ -58,6 +65,12 @@ export function Onboarding({
   const [purpose, setPurpose] = useState<RunPurpose>(
     settings.purpose || 'free',
   );
+  // Was der Nutzer nutzen will. Überspringen heißt: alles an.
+  const [features, setFeatures] = useState<FeatureSettings>(() =>
+    normalizeFeatures(settings.features, {
+      showHeartRate: settings.showHeartRate,
+    }),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [permissionBusy, setPermissionBusy] = useState(false);
@@ -69,6 +82,7 @@ export function Onboarding({
       ...(value === undefined ? {} : { minutes: value }),
       trainingDays: [...days].sort(),
       purpose,
+      features,
     };
   };
   const saveAnd = async (next: Step) => {
@@ -262,6 +276,111 @@ export function Onboarding({
             onPress={next}
             disabled={saving || busy || !validMinutes}
           />
+        </>
+      ) : null}
+      {step === 'features' ? (
+        <>
+          <Text style={styles.title}>Was möchtest du nutzen?</Text>
+          <Copy muted>
+            Abgewähltes verschwindet aus der App. Unter Mehr → Funktionen
+            änderst du das jederzeit.
+          </Copy>
+          <Section title="Bereiche">
+            {(
+              [
+                { key: 'running', label: 'Laufen' },
+                { key: 'strength', label: 'Krafttraining' },
+              ] as const
+            ).map(option => {
+              const checked = features.areas[option.key];
+              return (
+                <Pressable
+                  key={option.key}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={option.label}
+                  accessibilityState={{ checked }}
+                  onPress={() =>
+                    setFeatures(current =>
+                      withArea(current, option.key, !checked),
+                    )
+                  }
+                  style={styles.choice}
+                >
+                  <Text style={styles.choiceText}>{option.label}</Text>
+                  <Text style={styles.check}>{checked ? '✓' : ''}</Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel="Radfahren"
+              accessibilityState={{ checked: features.sports.cycling }}
+              onPress={() =>
+                setFeatures(current => ({
+                  ...current,
+                  sports: { cycling: !current.sports.cycling },
+                }))
+              }
+              style={styles.choice}
+            >
+              <Text style={styles.choiceText}>Radfahren</Text>
+              <Text style={styles.check}>
+                {features.sports.cycling ? '✓' : ''}
+              </Text>
+            </Pressable>
+          </Section>
+          <Section title="Muskelkater">
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel="Muskelkater melden"
+              accessibilityState={{ checked: features.soreness.enabled }}
+              onPress={() =>
+                setFeatures(current => ({
+                  ...current,
+                  soreness: {
+                    ...current.soreness,
+                    enabled: !current.soreness.enabled,
+                  },
+                }))
+              }
+              style={styles.choice}
+            >
+              <Text style={styles.choiceText}>Muskelkater melden</Text>
+              <Text style={styles.check}>
+                {features.soreness.enabled ? '✓' : ''}
+              </Text>
+            </Pressable>
+            {features.soreness.enabled ? (
+              <>
+                <Copy muted>Wann Runback fragt</Copy>
+                {SORENESS_PROMPTS.map(prompt => (
+                  <Pressable
+                    key={prompt}
+                    accessibilityRole="radio"
+                    accessibilityLabel={SORENESS_PROMPT_LABELS[prompt]}
+                    accessibilityState={{
+                      checked: features.soreness.prompt === prompt,
+                    }}
+                    onPress={() =>
+                      setFeatures(current => ({
+                        ...current,
+                        soreness: { ...current.soreness, prompt },
+                      }))
+                    }
+                    style={styles.choice}
+                  >
+                    <Text style={styles.choiceText}>
+                      {SORENESS_PROMPT_LABELS[prompt]}
+                    </Text>
+                    <Text style={styles.check}>
+                      {features.soreness.prompt === prompt ? '✓' : ''}
+                    </Text>
+                  </Pressable>
+                ))}
+              </>
+            ) : null}
+          </Section>
+          <Button title="Weiter" onPress={next} disabled={saving || busy} />
         </>
       ) : null}
       {step === 'import' ? (

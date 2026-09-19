@@ -293,11 +293,15 @@ export function skipSet(
   );
 }
 
+/** Pause nach einem Satz, wenn der Nutzer nichts anderes eingestellt hat. */
+export const DEFAULT_REST_SECONDS = 120;
+
 /** Hängt einen Satz an, vorbelegt aus dem letzten Satz derselben Übung. */
 export function addSet(
   session: StrengthSession,
   exerciseIndex: number,
   now: number,
+  defaultRestSeconds = DEFAULT_REST_SECONDS,
 ): StrengthSession {
   const exercise = session.exercises[exerciseIndex];
   if (!exercise) {
@@ -311,7 +315,12 @@ export function addSet(
         weightKg: last.actualWeightKg ?? last.planned.weightKg,
         seconds: last.actualSeconds ?? last.planned.seconds,
       }
-    : { kind: 'normal', loadKind: 'kg', reps: 8, restSeconds: 120 };
+    : {
+        kind: 'normal',
+        loadKind: 'kg',
+        reps: 8,
+        restSeconds: defaultRestSeconds,
+      };
   return replaceExercise(session, exerciseIndex, {
     ...exercise,
     sets: [
@@ -342,12 +351,13 @@ export function addExercise(
   exercise: Exercise,
   now: number,
   sets = 3,
+  defaultRestSeconds = DEFAULT_REST_SECONDS,
 ): StrengthSession {
   const planned: PlannedSet = {
     kind: 'normal',
     loadKind: exercise.equipment === 'bodyweight' ? 'bodyweight' : 'kg',
     reps: 8,
-    restSeconds: 120,
+    restSeconds: defaultRestSeconds,
   };
   const next: SessionExercise = {
     exerciseId: exercise.id,
