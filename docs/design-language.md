@@ -2,7 +2,8 @@
 
 Gestaltungsregeln für alle Runback-Oberflächen. Token (`color`, `space`,
 `radius`, `type`) und Bausteine (`Button`, `Card`, `Section`, `Row`,
-`ChipGroup`, `Stat`, `Field`, `Notice`, `EmptyState`) leben ausschließlich in
+`ChipGroup`, `Segmented`, `Stat`, `Field`, `Notice`, `EmptyState`, `Badge`,
+`Progress`, `Disclosure`, `Sheet`) leben ausschließlich in
 `src/ui/components.tsx`. Kein Bildschirm erfindet eigene Farben, Größen oder
 Varianten — wer etwas Neues braucht, ergänzt es dort.
 
@@ -30,16 +31,32 @@ Varianten — wer etwas Neues braucht, ergänzt es dort.
   `tabular-nums`.
 - Mindestens 48 dp Berührungsfläche, 54 dp für die primäre Aktion.
 
+## Navigation
+
+Vier Tabs, je eine Frage: **Heute** (Was mache ich jetzt?), **Plan** (Was
+mache ich diese Woche?), **Verlauf** (Was habe ich gemacht?), **Coach** (Woran
+arbeite ich?). Einstellungen sind kein Tab, sondern eine Seite hinter dem
+Zahnrad im Kopf. Jedes Thema hat genau einen Ort: Fokus, Ziel und Empfehlung
+im Coach; Vorlagen im Plan; Geräte und Daten in den Einstellungen.
+
+Wo Laufen und Krafttraining beide vorkommen (Coach, Statistik), wählt ein
+`Segmented` oben den Bereich — nicht jede Sektion zweimal.
+
 ## Seitengerüst
 
-1. **Kopf** — Marke oder „‹ Zurück“, rechts der Status.
+1. **Kopf** — Marke oder „‹ Zurück“, rechts das Zahnrad oder der Status.
 2. **Titel** — einer. Kein Datum, keine Begrüßung, kein Untertitel.
-3. **Empfehlung** — die eine Sache, die der Nutzer hier tun kann.
-4. **Kontext** — Werte und Listen, die sie stützen.
-5. **Nebenwege** — Verwaltung, Details, Löschen; unten, sekundär.
+3. **Empfehlung** — die eine Sache, die der Nutzer hier tun kann: eine Karte
+   mit einem Button.
+4. **Kontext** — Werte und Listen, die sie stützen; kompakte Zeilen.
+5. **Nebenwege** — Verwaltung, Details, Löschen; unten, eingeklappt
+   (`Disclosure`).
 
 Höchstens eine primäre Aktion je Bildschirm. Drei sekundäre Buttons
-untereinander sind eine Liste (`Row`).
+untereinander sind eine Liste (`Row`). Entscheidungen, die nur im Moment einer
+Handlung zählen (Sportart, Zweck, Vorlage beim Start), stehen nicht dauerhaft
+auf der Seite, sondern in einem `Sheet`, das sich beim Antippen öffnet — mit
+der letzten Wahl als Vorgabe.
 
 ## Text
 
@@ -50,9 +67,10 @@ untereinander sind eine Liste (`Row`).
   Modellversion, Unsicherheit.
 - Unsicherheit in Worten („ziemlich sicher“, „eher ein Eindruck“, „noch nicht
   klar“), Intervalle nur unter „Details“.
-- Zustände als sichtbare Labels: Vorschlag · Angenommen · Aktiv · Pausiert ·
-  Abgeschlossen · Abgebrochen. Der Fokus hat kein Label, weil er nicht bewertet
-  wird.
+- Zustände als sichtbare Labels (`Badge`): Vorschlag · Aktiv · Pausiert ·
+  Abgeschlossen · Abgebrochen. Fortschritt einer Prüfung als Zahl und
+  `Progress` („3 von 5 Läufen“), nicht als Prosa. Der Fokus hat kein Label,
+  weil er nicht bewertet wird.
 - Urteile in Alltagssprache: „Noch nicht klar“, „Zu wenig vergleichbare
   Läufe“, „Du hast es bisher nicht probiert“.
 - Prüfsatz für jeden Text: **Würde ein Laufkumpel das so sagen?** „Dein Puls
@@ -72,6 +90,7 @@ untereinander sind eine Liste (`Row`).
 | `⌄` | klappt Inhalt an Ort und Stelle auf |
 | `‹ Zurück` | eine Ebene zurück, im Kopf links |
 | `✓` | ausgewählt |
+| Zahnrad | öffnet die Einstellungen, im Kopf rechts |
 
 Eine Auswahl, die einen Dialog öffnet, trägt kein `⌄`. Was wie Text aussieht,
 ist nicht antippbar. Nichtinteraktive Werte haben keinen Rahmen und keine

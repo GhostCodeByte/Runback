@@ -11,16 +11,22 @@ normales Ergebnis.
 
 ## Was du in der App siehst
 
-- **Heute** — Lauf, Radfahrt oder Krafttraining starten, geplante Einheit
-  ansehen, Muskelkater melden, Muskelkarte, Trainingspläne.
-- **Planung** — Wochen- und Monatskalender, Zeitbudget, Routine, Ziel mit
-  optionalem Datum.
-- **Einheiten** — alle Läufe, Radfahrten und Krafteinheiten in einer Liste;
-  Detailansicht mit Karte, Abschnitten, RPE und Zweck.
-- **Statistik** — die letzten acht Wochen, Tempo, RPE, Entwicklung.
-- **Mehr** — Dein Fokus, Ziel & Alltag, Laufvorlagen, Geräte & Verbindungen
-  (Uhr, BLE, Health Connect, Wetter), Deine Daten (Import, Backup, Löschen),
-  Trainingschat, Wie Runback rechnet.
+- **Heute** — Was mache ich jetzt? Wochenleiste, die heutige Einheit als
+  Karte mit einem Start-Button (Sportart, Zweck, Vorlage und Tempo-/Pulsziel
+  im Start-Sheet), die laufende Empfehlung kompakt, Muskelkater melden, die
+  letzten Einheiten.
+- **Plan** — Was mache ich diese Woche? Wochenkalender, Einheit hinzufügen,
+  Woche vorschlagen lassen, Monat als Sprungmarke; darunter Zeit & Rhythmus,
+  Vorlagen (Kraft und Lauf) und Entwicklung.
+- **Verlauf** — Was habe ich gemacht? Einheiten nach Wochen gruppiert mit
+  Summe, Statistik mit Zeitraum, Kennzahlen und Diagramm, Muskelkarte.
+  Detailansicht mit Karte, Kennzahlen, nächstem Schritt, Gefühl, Abschnitten.
+- **Coach** — Woran arbeite ich? Die Empfehlung je Bereich mit Zustand und
+  Fortschritt, darunter Fokus und Ziel, Trainingschat, frühere Empfehlungen,
+  Wie Runback rechnet.
+- **Einstellungen** (Zahnrad im Kopf) — Geräte & Verbindungen (Uhr, BLE,
+  Health Connect, Wetter), Herzfrequenz, Deine Daten (Import, Backup,
+  Löschen), KI-Formulierung, Einrichtung.
 
 Nach einem Lauf zeigt Runback drei Dinge: wie der Lauf zu seinem Zweck passt,
 wo die aktuelle Empfehlung steht und was du als Nächstes tun kannst — auch

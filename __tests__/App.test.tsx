@@ -132,6 +132,13 @@ function pressText(
       target = target.parent;
     if (target) return target.props.onPress;
   }
+  // Symbole ohne Text (Zahnrad) tragen ihren Namen als accessibilityLabel.
+  const labelled = renderer.root.findAll(
+    node =>
+      node.props.accessibilityLabel === value &&
+      typeof node.props.onPress === 'function',
+  );
+  if (labelled.length) return labelled[0].props.onPress;
   throw new Error(`No pressable text found: ${value}`);
 }
 async function tap(
@@ -150,17 +157,20 @@ function alertButton(label: string) {
   expect(button).toBeDefined();
   return button;
 }
+/** Daten liegen in den Einstellungen hinter dem Zahnrad im Kopf. */
 async function openData(renderer: ReactTestRenderer.ReactTestRenderer) {
-  await tap(renderer, 'Mehr');
+  await tap(renderer, 'Heute');
+  await tap(renderer, 'Einstellungen');
   await tap(renderer, 'Importieren, sichern & löschen');
 }
-/** Krafteinheiten stehen seit dem Umbau gemeinsam mit den Läufen im Tab
- *  „Einheiten“, nicht mehr unter Mehr → Kraft-Historie. */
+/** Krafteinheiten stehen gemeinsam mit den Läufen im Tab „Verlauf“. */
 async function openHistory(renderer: ReactTestRenderer.ReactTestRenderer) {
-  await tap(renderer, 'Einheiten');
+  await tap(renderer, 'Verlauf');
 }
+/** Die Muskelkarte gehört zum Rückblick: Verlauf → Statistik. */
 async function openMuscleMap(renderer: ReactTestRenderer.ReactTestRenderer) {
-  await tap(renderer, 'Heute');
+  await tap(renderer, 'Verlauf');
+  await tap(renderer, 'Statistik');
   await tap(renderer, 'Muskelkarte');
 }
 
