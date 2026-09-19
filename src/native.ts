@@ -185,6 +185,27 @@ export const native = {
       rows: Array.isArray(raw?.rows) ? raw.rows : [],
     };
   },
+  /**
+   * Schreibt die 5-s-Zeitreihe nativ als CSV in den Export-Cache. Die Zeilen
+   * bleiben in Kotlin; zurück kommt nur der Dateiname.
+   */
+  async writeRunTimeseries(
+    id: string,
+    fileName: string,
+  ): Promise<{ fileName: string; rows: number }> {
+    const raw = await nativeCall<any>('writeRunTimeseries', id, fileName);
+    return { fileName: String(raw?.fileName || fileName), rows: Number(raw?.rows) || 0 };
+  },
+  /**
+   * Teilt mehrere Dateien auf einmal. Einträge ohne `content` müssen bereits
+   * im Export-Cache liegen (siehe writeRunTimeseries).
+   */
+  async shareFiles(
+    files: { fileName: string; mimeType: string; content?: string }[],
+    title: string,
+  ) {
+    await nativeCall('shareFiles', JSON.stringify(files), title);
+  },
   /** Übergibt eine Textdatei an das System-Share-Sheet. */
   async shareTextFile(
     fileName: string,

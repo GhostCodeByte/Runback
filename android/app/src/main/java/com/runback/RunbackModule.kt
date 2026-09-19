@@ -436,6 +436,28 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         }
     }
 
+    private fun exportDirectory(): File = File(context.cacheDir, "exports").apply {
+        mkdirs()
+        listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 24 * 60 * 60 * 1000L }?.forEach { it.delete() }
+    }
+    private fun safeExportName(fileName: String, fallback: String) =
+        fileName.replace(Regex("[^A-Za-z0-9._-]"), "-").take(120).ifBlank { fallback }
+    private fun shareUris(uris: List<Uri>, mimeType: String, title: String, promise: Promise) {
+        val send = if (uris.size == 1) Intent(Intent.ACTION_SEND).apply { putExtra(Intent.EXTRA_STREAM, uris.single()) }
+            else Intent(Intent.ACTION_SEND_MULTIPLE).apply { putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris)) }
+        send.type = mimeType
+        send.putExtra(Intent.EXTRA_SUBJECT, title)
+        send.clipData = android.content.ClipData.newRawUri(title, uris.first()).also { clip -> uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) } }
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val chooser = Intent.createChooser(send, title)
+        mainHandler.post {
+            try {
+                val activity = context.currentActivity ?: error("Öffne die App, um den Bericht zu teilen.")
+                activity.startActivity(chooser)
+                promise.resolve(JSONObject().put("shared", true).put("files", uris.size).toString())
+            } catch (error: Exception) { promise.reject("SHARE_ERROR", error.message, error) }
+        }
+    }
     /**
      * Teilt eine in JS erzeugte Textdatei (z. B. den Laufbericht) über das
      * System-Share-Sheet. Die Datei liegt im Cache und wird nur per
@@ -444,28 +466,49 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
     @ReactMethod fun shareTextFile(fileName: String, mimeType: String, content: String, title: String, promise: Promise) {
         worker.execute {
             try {
-                val safeName = fileName.replace(Regex("[^A-Za-z0-9._-]"), "-").take(120).ifBlank { "runback-export.txt" }
                 require(content.length <= 4_000_000) { "Der Bericht ist zu groß zum Teilen." }
-                val directory = File(context.cacheDir, "exports").apply { mkdirs() }
-                directory.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 24 * 60 * 60 * 1000L }?.forEach { it.delete() }
-                val file = File(directory, safeName)
+                val file = File(exportDirectory(), safeExportName(fileName, "runback-export.txt"))
                 file.writeText(content, Charsets.UTF_8)
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = mimeType.ifBlank { "text/plain" }
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, title)
-                    clipData = android.content.ClipData.newRawUri(title, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                shareUris(listOf(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)), mimeType.ifBlank { "text/plain" }, title, promise)
+            } catch (error: Exception) { promise.reject("SHARE_ERROR", error.message, error) }
+        }
+    }
+    /**
+     * Schreibt die 5-s-Zeitreihe eines Laufs als CSV in den Export-Cache. Die
+     * Zeilen bleiben nativ (Grundregel 8); JS bekommt nur den Dateinamen.
+     */
+    @ReactMethod fun writeRunTimeseries(id: String, fileName: String, promise: Promise) = task(promise) {
+        val csv = store.timeseriesCsv(id)
+        val file = File(exportDirectory(), safeExportName(fileName, "runback-timeseries.csv"))
+        file.writeText(csv, Charsets.UTF_8)
+        JSONObject().put("fileName", file.name).put("rows", (csv.count { it == '\n' } - 1).coerceAtLeast(0))
+    }
+    /**
+     * Teilt mehrere Dateien auf einmal (ACTION_SEND_MULTIPLE). `files` ist ein
+     * JSON-Array aus {fileName, mimeType, content?}; ohne `content` muss die
+     * Datei bereits im Export-Cache liegen (z. B. aus writeRunTimeseries).
+     */
+    @ReactMethod fun shareFiles(filesJson: String, title: String, promise: Promise) {
+        worker.execute {
+            try {
+                val files = JSONArray(filesJson)
+                require(files.length() in 1..8) { "Nichts zu teilen." }
+                val directory = exportDirectory()
+                val uris = ArrayList<Uri>()
+                val mimeTypes = HashSet<String>()
+                for (index in 0 until files.length()) {
+                    val entry = files.getJSONObject(index)
+                    val file = File(directory, safeExportName(entry.optString("fileName"), "runback-export-$index.txt"))
+                    if (entry.has("content")) {
+                        val content = entry.getString("content")
+                        require(content.length <= 4_000_000) { "Der Bericht ist zu groß zum Teilen." }
+                        file.writeText(content, Charsets.UTF_8)
+                    }
+                    check(file.isFile) { "Die Datei ${file.name} fehlt." }
+                    mimeTypes.add(entry.optString("mimeType").ifBlank { "text/plain" })
+                    uris.add(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file))
                 }
-                val chooser = Intent.createChooser(send, title)
-                mainHandler.post {
-                    try {
-                        val activity = context.currentActivity ?: error("Öffne die App, um den Bericht zu teilen.")
-                        activity.startActivity(chooser)
-                        promise.resolve(JSONObject().put("shared", true).put("fileName", safeName).toString())
-                    } catch (error: Exception) { promise.reject("SHARE_ERROR", error.message, error) }
-                }
+                shareUris(uris, if (mimeTypes.size == 1) mimeTypes.single() else "*/*", title, promise)
             } catch (error: Exception) { promise.reject("SHARE_ERROR", error.message, error) }
         }
     }

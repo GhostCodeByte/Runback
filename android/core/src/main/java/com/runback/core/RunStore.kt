@@ -356,75 +356,207 @@ class RunStore(context: Context) : DocumentStore {
         ordered.sortWith(compareBy<JSONObject> { it.optLong("at") })
         return JSONArray().apply { ordered.forEach(::put) }
     }
-    /** Derive only from GPS rows, not high-frequency accelerometer history. */
+    /** Alle Ereigniszeiten, an denen die Distanzzählung neu ansetzt (Pause, Weiter, Unterbrechung). */
+    private fun cuts(id: String): List<Long> {
+        val boundaries = events(id)
+        return (0 until boundaries.length()).mapNotNull { index ->
+            boundaries.optJSONObject(index)?.takeIf { it.optString("type") in listOf("pause", "resume", "interrupted") }?.optLong("at")
+        }
+    }
+    private fun pauseIntervals(id: String, endTime: Long): List<LongRange> {
+        val boundaries = events(id)
+        val events = (0 until boundaries.length()).mapNotNull { index ->
+            boundaries.optJSONObject(index)?.let { Pair(it.optString("type"), it.optLong("at")) }
+        }
+        return RunPhases.pauseIntervals(events, endTime)
+    }
+
+    /**
+     * Aggregierte Reihen (Raster 5 s, lückenlos) samt Höhe und Phasen. Rohsamples
+     * bleiben hier; nach außen gehen Aggregate, Phasen und die CSV-Zeitreihe.
+     */
+    private class DerivedSeries(val start: Long, val end: Long, val timeline: RunTimeline.Result,
+                                val elevation: RunElevation.Outcome, val phases: RunPhases.Result)
+    private fun deriveSeries(id: String, run: JSONObject): DerivedSeries {
+        val start = run.optLong("startTime"); val recordedEnd = run.optLong("endTime", start)
+        val gps = ArrayList<RunTimeline.GpsPoint>(); val gpsAltitude = ArrayList<RunElevation.GpsAltitude>()
+        selectedSamples(id, "gps").forEach { sample ->
+            val v = sample.values
+            val lat = v.optDouble("latitude", Double.NaN); val lon = v.optDouble("longitude", Double.NaN)
+            if (!lat.isFinite() || !lon.isFinite()) return@forEach
+            val altitude = v.optDouble("altitudeM", Double.NaN).takeIf { it.isFinite() }
+            gps.add(RunTimeline.GpsPoint(sample.time, lat, lon, v.optDouble("accuracyM", 0.0), altitude))
+            if (altitude != null) gpsAltitude.add(RunElevation.GpsAltitude(sample.time, altitude,
+                v.optDouble("verticalAccuracyM", Double.NaN).takeIf { it.isFinite() }))
+        }
+        fun readings(kind: String, key: String) = selectedSamples(id, kind).mapNotNull { sample ->
+            sample.values.optDouble(key, Double.NaN).takeIf { it.isFinite() }?.let { RunTimeline.Reading(sample.time, it) }
+        }
+        val heart = readings("heartRate", "bpm"); val cadence = readings("cadence", "rpm")
+        val pressure = readings("pressure", "hPa").map { RunElevation.Pressure(it.time, it.value) }
+        val lastSample = listOf(gps.lastOrNull()?.time, heart.lastOrNull()?.time, cadence.lastOrNull()?.time).filterNotNull().maxOrNull() ?: start
+        val end = maxOf(recordedEnd, lastSample, start)
+        val cuts = cuts(id)
+        val timeline = RunTimeline.build(start, end, gps, heart, cadence, cuts, fixedStepSeconds = RunPhases.GRID_SECONDS, keepEmpty = true)
+        val bins = timeline.rows.size
+        val acceleration = ArrayList<RunPhases.Acceleration>()
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='accelerometer' ORDER BY time,seq", arrayOf(id)).use {
+            while (it.moveToNext()) {
+                val v = JSONObject(it.getString(1))
+                acceleration.add(RunPhases.Acceleration(it.getLong(0), v.optDouble("x"), v.optDouble("y"), v.optDouble("z")))
+            }
+        }
+        val still = RunPhases.stillness(start, bins, acceleration)
+        val elevation = RunElevation.build(start, end, pressure, gpsAltitude)
+        val grid = (elevation as? RunElevation.Outcome.Available)?.result?.grid
+        val phases = RunPhases.build(start, end, timeline.rows, pauseIntervals(id, end), still, grid)
+        return DerivedSeries(start, end, timeline, elevation, phases)
+    }
+
+    /**
+     * Ableitung aus Rohdaten: Distanz, Kilometer-Abschnitte, Höhe, Phasen, Zeitbudget.
+     * 3.0: GPS-Lücken beenden keinen Abschnitt mehr; Abschnitte enden nur am
+     * vollen Kilometer oder an einer Pause. Steigung und Höhenmeter kommen aus
+     * RunElevation, nie aus zwei Nachbarpunkten.
+     */
     private fun derive(id: String): JSONObject {
-        val geometry = JSONArray(); val segments = JSONArray(); val series = JSONArray()
+        val geometry = JSONArray(); val segments = JSONArray(); val series = JSONArray(); val gapList = JSONArray()
+        val run = read(id)
+        val startTime = run.optLong("startTime")
         val points = ArrayList<JSONObject>()
         points.addAll(selectedSamples(id, "gps").map { JSONObject(it.values.toString()).put("time", it.time) })
-        val boundaries = events(id); val cuts = (0 until boundaries.length()).map { boundaries.getJSONObject(it) }
-            .filter { it.optString("type") in listOf("pause","resume","interrupted") }.map { it.optLong("at") }
-        var distance = 0.0; var segmentDistance = 0.0; var segmentDuration = 0.0; var segmentRise = 0.0; var allAltitude = true
-        var elevation = RunMath.ElevationAccumulator()
+        val cuts = cuts(id)
+        val derived = deriveSeries(id, run)
+        val elevationGrid = (derived.elevation as? RunElevation.Outcome.Available)?.result?.grid
+        val gridMs = RunPhases.GRID_SECONDS * 1000L
+        fun altitudeAt(time: Long): Double? = elevationGrid?.getOrNull(((time - startTime) / gridMs).toInt())
+        var distance = 0.0; var segmentDistance = 0.0; var segmentDuration = 0.0; var segmentGap = 0.0
+        var segmentStart: Long? = null; var segmentEnd: Long? = null
         var gaps = 0; var previous: JSONObject? = null
         // Anker: Distanz zählt erst, wenn die Verschiebung den GPS-Rauschboden übersteigt.
         var anchor: JSONObject? = null
         fun split() {
-            if (segmentDistance > 0) {
-                val s = JSONObject().put("id", "${id}:${segments.length()}").put("distanceMeters",segmentDistance)
-                    .put("durationSeconds",segmentDuration).put("sourceVersion",RunMath.MODEL_VERSION)
-                if (allAltitude) s.put("gradePercent",100 * segmentRise / segmentDistance)
-                    .put("ascentMeters", elevation.ascent).put("descentMeters", elevation.descent)
+            val from = segmentStart; val to = segmentEnd
+            if (segmentDistance > 0 && from != null && to != null) {
+                val s = JSONObject().put("id", "${id}:${segments.length()}").put("distanceMeters", segmentDistance)
+                    .put("durationSeconds", segmentDuration).put("sourceVersion", RunMath.MODEL_VERSION)
+                    .put("startElapsedSeconds", (from - startTime) / 1000.0).put("endElapsedSeconds", (to - startTime) / 1000.0)
+                if (segmentGap > 0) s.put("gapSeconds", segmentGap)
+                val fromRow = ((from - startTime) / gridMs).toInt(); val toRow = ((to - startTime) / gridMs).toInt()
+                val moving = (fromRow..toRow).mapNotNull { derived.phases.rows.getOrNull(it) }
+                    .count { it.state == RunPhases.State.RUN || it.state == RunPhases.State.WALK } * RunPhases.GRID_SECONDS
+                s.put("movingSeconds", minOf(moving.toDouble(), segmentDuration))
+                if (elevationGrid != null) {
+                    val fromBin = ((from - startTime) / gridMs).toInt(); val toBin = ((to - startTime) / gridMs).toInt()
+                    val accumulator = RunMath.ElevationAccumulator((derived.elevation as RunElevation.Outcome.Available).result.hysteresisMeters)
+                    for (bin in fromBin..toBin) elevationGrid.getOrNull(bin)?.let(accumulator::add)
+                    s.put("ascentMeters", accumulator.ascent).put("descentMeters", accumulator.descent)
+                    val startAltitude = altitudeAt(from); val endAltitude = altitudeAt(to)
+                    if (startAltitude != null && endAltitude != null && segmentDistance >= 50.0)
+                        s.put("gradePercent", 100 * (endAltitude - startAltitude) / segmentDistance)
+                }
                 segments.put(s)
-            }; segmentDistance=0.0;segmentDuration=0.0;segmentRise=0.0;allAltitude=true;elevation=RunMath.ElevationAccumulator();anchor=null
+            }
+            segmentDistance = 0.0; segmentDuration = 0.0; segmentGap = 0.0; segmentStart = null; segmentEnd = null; anchor = null
         }
         points.forEachIndexed { index, p ->
             var gap = false
             previous?.let { before ->
                 val crossing = cuts.any { it > before.optLong("time") && it <= p.optLong("time") }
-                val d = if(crossing) null else RunMath.acceptedDistance(before.optDouble("latitude"),before.optDouble("longitude"),before.optLong("time"),before.optDouble("accuracyM",0.0),
-                    p.optDouble("latitude"),p.optDouble("longitude"),p.optLong("time"),p.optDouble("accuracyM",0.0))
-                if(d == null) { gap=true; gaps++; split() } else {
-                    segmentDuration += (p.optLong("time")-before.optLong("time"))/1000.0
-                    val base = anchor ?: before
-                    val step = RunMath.anchoredDistance(base.optDouble("latitude"),base.optDouble("longitude"),base.optDouble("accuracyM",0.0),
-                        p.optDouble("latitude"),p.optDouble("longitude"),p.optDouble("accuracyM",0.0))
-                    if (step != null) { distance += step; segmentDistance += step; anchor = p } else if (anchor == null) anchor = base
-                    if(before.has("altitudeM") && p.has("altitudeM")) {
-                        segmentRise += p.optDouble("altitudeM")-before.optDouble("altitudeM")
-                        elevation.add(before.optDouble("altitudeM")); elevation.add(p.optDouble("altitudeM"))
-                    } else allAltitude=false
-                    if(segmentDistance >= 1000) split()
+                if (crossing) { split() } else {
+                    val reason = RunMath.rejectionReason(before.optDouble("latitude"), before.optDouble("longitude"), before.optLong("time"), before.optDouble("accuracyM", 0.0),
+                        p.optDouble("latitude"), p.optDouble("longitude"), p.optLong("time"), p.optDouble("accuracyM", 0.0))
+                    val seconds = (p.optLong("time") - before.optLong("time")) / 1000.0
+                    if (reason != null) {
+                        gap = true; gaps++; anchor = null
+                        if (seconds > 0) { segmentGap += seconds; segmentDuration += seconds }
+                        if (gapList.length() < 512) gapList.put(JSONObject().put("fromElapsedSeconds", (before.optLong("time") - startTime) / 1000.0)
+                            .put("toElapsedSeconds", (p.optLong("time") - startTime) / 1000.0).put("reason", reason))
+                    } else {
+                        segmentDuration += seconds
+                        val base = anchor ?: before
+                        val step = RunMath.anchoredDistance(base.optDouble("latitude"), base.optDouble("longitude"), base.optDouble("accuracyM", 0.0),
+                            p.optDouble("latitude"), p.optDouble("longitude"), p.optDouble("accuracyM", 0.0))
+                        if (step != null) { distance += step; segmentDistance += step; anchor = p } else if (anchor == null) anchor = base
+                    }
                 }
             }
-            if (gap || index == 0 || index == points.lastIndex || index % maxOf(1, (points.size+399)/400) == 0) {
-                if(geometry.length()<512) geometry.put(JSONObject().put("latitude",p.optDouble("latitude")).put("longitude",p.optDouble("longitude")).put("time",p.optLong("time")).put("gap",gap))
-            }; previous=p
+            if (segmentStart == null) segmentStart = p.optLong("time")
+            segmentEnd = p.optLong("time")
+            // Der Kilometerpunkt schließt den Abschnitt und eröffnet zugleich den nächsten.
+            if (segmentDistance >= 1000) { split(); segmentStart = p.optLong("time"); segmentEnd = segmentStart }
+            if (gap || index == 0 || index == points.lastIndex || index % maxOf(1, (points.size + 399) / 400) == 0) {
+                if (geometry.length() < 512) geometry.put(JSONObject().put("latitude", p.optDouble("latitude")).put("longitude", p.optDouble("longitude")).put("time", p.optLong("time")).put("gap", gap))
+            }; previous = p
         }; split()
-        val run = read(id)
-        if(points.size>1) run.put("distanceMeters",distance)
+        if (points.size > 1) run.put("distanceMeters", distance)
         // Zeitgewichtet statt nach Sample-Anzahl: unregelmäßige Aufzeichnung verzerrt sonst das Mittel.
         val durationSeconds = run.optDouble("durationSeconds", Double.NaN)
-        for ((kind,key,output,coverage) in listOf(
-            listOf("heartRate","bpm","avgHeartRate","heartRateCoverage"), listOf("cadence","rpm","avgCadence","cadenceCoverage"))) {
+        for ((kind, key, output, coverage) in listOf(
+            listOf("heartRate", "bpm", "avgHeartRate", "heartRateCoverage"), listOf("cadence", "rpm", "avgCadence", "cadenceCoverage"))) {
             val times = ArrayList<Long>(); val values = ArrayList<Double>()
             selectedSamples(id, kind).forEach { sample ->
                 val v = sample.values.optDouble(key)
-                if(v.isFinite() && v>0 && v<=300) { times.add(sample.time); values.add(v); if(series.length()<256) series.put(JSONObject().put("time",sample.time).put("kind",kind).put("value",v)) }
+                if (v.isFinite() && v > 0 && v <= 300) { times.add(sample.time); values.add(v); if (series.length() < 256) series.put(JSONObject().put("time", sample.time).put("kind", kind).put("value", v)) }
             }
             val breaks = times.indices.drop(1).filter { index ->
                 cuts.any { boundary -> boundary > times[index - 1] && boundary <= times[index] }
             }.toSet()
+            run.remove("${output}Max"); run.remove("${output}Min")
             RunMath.timeWeightedAverage(times, values, breaks = breaks)?.let { (mean, covered) ->
                 run.put(output, mean)
                 if (durationSeconds.isFinite() && durationSeconds > 0) run.put(coverage, (covered / durationSeconds).coerceIn(0.0, 1.0))
+                values.maxOrNull()?.let { run.put("${output}Max", it) }
+                values.minOrNull()?.let { run.put("${output}Min", it) }
             }
         }
-        run.put("segments",segments).put("gapCount",gaps).put("model_version",RunMath.MODEL_VERSION)
+        run.put("segments", segments).put("gapCount", gaps).put("gaps", gapList).put("model_version", RunMath.MODEL_VERSION)
             .put("sensorSources", sensorSources(id))
-        run.put("dataRetention",JSONObject().put("originals","retained").put("recomputable",true))
+        run.put("dataRetention", JSONObject().put("originals", "retained").put("recomputable", true))
+        // Ohne Spur (Import, Zusammenfassung) gibt es keine Phasen und kein Zeitbudget —
+        // die Aufzeichnungszeit wäre sonst als „unbekannte Bewegung“ verkleidet.
+        if (points.size < 2) {
+            run.remove("time"); run.remove("phases"); run.remove("phaseMetrics"); run.remove("elevation"); run.remove("gaps")
+            write(run)
+            return JSONObject().put("geometry", geometry).put("series", series)
+        }
+        val budget = derived.phases.budget
+        run.put("time", JSONObject().put("model_version", RunPhases.VERSION)
+            .put("elapsedSeconds", budget.elapsedSeconds).put("pausedSeconds", budget.pausedSeconds)
+            .put("activeSeconds", budget.activeSeconds).put("movingSeconds", budget.movingSeconds)
+            .put("runningSeconds", budget.runningSeconds).put("walkingSeconds", budget.walkingSeconds)
+            .put("stoppedSeconds", budget.stoppedSeconds).put("unknownSeconds", budget.unknownSeconds))
+        run.put("phases", JSONArray().apply {
+            derived.phases.phases.forEach { phase ->
+                put(JSONObject().put("state", phase.state.name).put("startElapsedSeconds", phase.startElapsedSeconds)
+                    .put("endElapsedSeconds", phase.endElapsedSeconds).put("distanceMeters", phase.distanceMeters).apply {
+                        phase.avgHeartRate?.let { put("avgHeartRate", it) }; phase.avgCadence?.let { put("avgCadence", it) }
+                    })
+            }
+        })
+        val m = derived.phases.metrics
+        fun summary(value: RunPhases.StateSummary) = JSONObject().put("seconds", value.seconds).put("meters", value.meters).apply {
+            value.avgHeartRate?.let { put("avgHeartRate", it) }; value.avgCadence?.let { put("avgCadence", it) }
+        }
+        run.put("phaseMetrics", JSONObject().put("model_version", RunPhases.VERSION)
+            .put("runWalkTransitions", m.runWalkTransitions).put("trailingIdleSeconds", m.trailingIdleSeconds)
+            .put("running", summary(m.running)).put("walking", summary(m.walking)).put("stopped", summary(m.stopped)).apply {
+                m.longestRunSeconds?.let { put("longestRunSeconds", it) }; m.longestRunMeters?.let { put("longestRunMeters", it) }
+                m.longestMovingSeconds?.let { put("longestMovingSeconds", it) }
+                m.fastestSustained300sSecondsPerKm?.let { put("fastestSustained300sSecondsPerKm", it) }
+            })
+        run.put("elevation", when (val outcome = derived.elevation) {
+            is RunElevation.Outcome.Available -> JSONObject().put("model_version", RunElevation.VERSION).put("available", true)
+                .put("source", outcome.result.source).put("reference", outcome.result.reference)
+                .put("ascentMeters", outcome.result.ascentMeters).put("descentMeters", outcome.result.descentMeters)
+                .put("rejectedSamples", outcome.result.rejectedSamples).put("hysteresisMeters", outcome.result.hysteresisMeters)
+            is RunElevation.Outcome.Unavailable -> JSONObject().put("model_version", RunElevation.VERSION).put("available", false).put("reason", outcome.reason)
+        })
         write(run)
-        return JSONObject().put("geometry",geometry).put("series",series)
+        return JSONObject().put("geometry", geometry).put("series", series)
     }
+    /** Zeitreihe im 5-s-Raster als CSV; wird nativ in eine Datei geschrieben, nie über die Brücke gereicht. */
+    fun timeseriesCsv(id: String): String = locked { RunPhases.csv(deriveSeries(id, read(id)).phases.rows) }
     fun detail(id: String): JSONObject = locked {
         val derived = derive(id)
         present(read(id)).put("geometry",derived.getJSONArray("geometry")).put("series",derived.getJSONArray("series")).put("events",events(id))
@@ -449,16 +581,13 @@ class RunStore(context: Context) : DocumentStore {
             }
             return result
         }
-        val boundaries = events(id)
-        val cuts = (0 until boundaries.length()).mapNotNull { index ->
-            boundaries.optJSONObject(index)?.takeIf { it.optString("type") in listOf("pause", "resume", "interrupted") }?.optLong("at")
-        }
+        val cuts = cuts(id)
         val start = run.optLong("startTime"); val end = run.optLong("endTime", start)
         val result = RunTimeline.build(start, end, gps, readings("heartRate", "bpm"), readings("cadence", "rpm"), cuts, maxRows.coerceIn(10, 240))
         JSONObject().put("version", RunTimeline.VERSION).put("stepSeconds", result.stepSeconds).put("rows", JSONArray().apply {
             result.rows.forEach { row ->
                 put(JSONObject().put("elapsedSeconds", row.elapsedSeconds).put("distanceMeters", row.distanceMeters)
-                    .put("stepDistanceMeters", row.stepDistanceMeters).put("movingSeconds", row.movingSeconds).apply {
+                    .put("stepDistanceMeters", row.stepDistanceMeters).put("gpsCoveredSeconds", row.gpsCoveredSeconds).apply {
                         row.avgHeartRate?.let { put("avgHeartRate", it) }
                         row.avgCadence?.let { put("avgCadence", it) }
                         row.altitudeM?.let { put("altitudeM", it) }

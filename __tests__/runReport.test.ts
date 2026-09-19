@@ -1,11 +1,15 @@
 import {
+  buildRunAnalysisExport,
   buildRunReport,
+  dataQualityFor,
+  runExportFileNames,
   runReportFileName,
+  RUN_ANALYSIS_EXPORT_VERSION,
   RUN_REPORT_VERSION,
   type ReportRun,
   type RunTimeline,
 } from '../src/domain/runReport';
-import { analyzeRun } from '../src/domain/analysis';
+import { analyzeRun, QUALITY_VERSION } from '../src/domain/analysis';
 
 const start = new Date(2024, 4, 12, 7, 30).getTime();
 const run: ReportRun = {
@@ -74,7 +78,7 @@ const timeline: RunTimeline = {
       elapsedSeconds: 60,
       distanceMeters: 190,
       stepDistanceMeters: 190,
-      movingSeconds: 59,
+      gpsCoveredSeconds: 59,
       avgHeartRate: 131.2,
       avgCadence: 168,
       altitudeM: 41.3,
@@ -83,7 +87,7 @@ const timeline: RunTimeline = {
       elapsedSeconds: 120,
       distanceMeters: 380,
       stepDistanceMeters: 190,
-      movingSeconds: 60,
+      gpsCoveredSeconds: 60,
       avgHeartRate: 142.8,
       altitudeM: 42.1,
     },
@@ -91,7 +95,7 @@ const timeline: RunTimeline = {
       elapsedSeconds: 1260,
       distanceMeters: 3800,
       stepDistanceMeters: 0,
-      movingSeconds: 0,
+      gpsCoveredSeconds: 0,
       avgHeartRate: 120,
     },
   ],
@@ -140,10 +144,12 @@ describe('buildRunReport', () => {
 
   it('lists the key figures in German format with units', () => {
     expect(report).toContain('| Distanz | 8,52 km |');
-    expect(report).toContain('| Bewegungszeit | 45:00 |');
-    expect(report).toContain('| Ø Tempo | 5:16 /km |');
+    // Ohne Phasenerkennung gibt es nur die Aufzeichnungszeit — sie heißt nicht Bewegungszeit.
+    expect(report).toContain('| Aufzeichnungszeit (ohne Pausen) | 45:00 |');
+    expect(report).not.toContain('Bewegungszeit (Laufen + Gehen)');
+    expect(report).toContain('| Ø Tempo über die Aufzeichnungszeit | 5:16 /km |');
     expect(report).toContain(
-      '| Ø Puls | 148 bpm (Abdeckung 96 % der Bewegungszeit) |',
+      '| Ø Puls | 148 bpm (Abdeckung 96 % der Aufzeichnungszeit) |',
     );
     expect(report).toContain('| Ø Schrittfrequenz | 172 /min |');
     expect(report).toContain('| Pausen gesamt | 1:00 |');
@@ -156,7 +162,8 @@ describe('buildRunReport', () => {
   });
 
   it('renders the kilometre splits with cumulative distance and pace', () => {
-    expect(report).toContain('## Abschnitte');
+    expect(report).toContain('## Kilometer-Abschnitte');
+    expect(report).not.toContain('GPS-Lücke;');
     expect(report).toContain(
       '| 1 | 1,00 | 1,00 km | 5:15 | 5:15 /km | 0,4 % | +6 / −4 m |',
     );
@@ -201,29 +208,25 @@ describe('buildRunReport', () => {
     );
   });
 
-  it('describes the route and appends the full data as JSON', () => {
+  it('describes the route and appends a summary as JSON without the raw series', () => {
     expect(report).toContain('## Strecke');
     expect(report).toContain('- Start: 52,52001, 13,40495');
     const json = report.split('```json\n')[1].split('\n```')[0];
     const data = JSON.parse(json);
     expect(data.reportVersion).toBe(RUN_REPORT_VERSION);
     expect(data.run.distanceMeters).toBe(8520);
+    expect(data.run.validity).toBe('valid');
     expect(data.run.startTime).toBe(new Date(start).toISOString());
     expect(data.segments).toHaveLength(9);
-    expect(data.timeline.rows).toHaveLength(3);
-    expect(data.route).toHaveLength(3);
-    expect(data.route[0]).toEqual([
-      52.52001,
-      13.40495,
-      new Date(start).toISOString(),
-    ]);
-    expect(data.events.map((e: { type: string }) => e.type)).toEqual([
-      'start',
-      'pause',
-      'resume',
-      'target_cue',
-    ]);
+    expect(data.time.activeSeconds).toBe(2700);
+    expect(data.time.movingSeconds).toBeUndefined();
+    expect(data.pace.activeSecondsPerKm).toBe(317);
+    // Zeitreihe und Koordinaten gehören in die anderen Dateien.
+    expect(data.timeline).toBeUndefined();
+    expect(data.route).toBeUndefined();
+    expect(data.dataQuality.model_version).toBe(QUALITY_VERSION);
     expect(data.context.focus).toBe('Ausdauer aufbauen');
+    expect(data.context.history.last7Days.sessions).toBe(1);
   });
 
   it('leaves out what it does not know instead of inventing values', () => {
@@ -239,7 +242,7 @@ describe('buildRunReport', () => {
         status: 'completed',
       },
     });
-    expect(sparse).toContain('| Ø Tempo | – |');
+    expect(sparse).toContain('| Ø Tempo über die Aufzeichnungszeit | – |');
     expect(sparse).not.toContain('Ø Puls');
     expect(sparse).not.toContain('## Abschnitte');
     expect(sparse).not.toContain('## Zeitverlauf');
@@ -253,7 +256,9 @@ describe('buildRunReport', () => {
       run: { ...run, sport: 'cycling', segments: undefined, events: undefined },
     });
     expect(ride).toContain('Radfahrt vom');
-    expect(ride).toContain('| Ø Geschwindigkeit | 11,4 km/h |');
+    expect(ride).toContain(
+      '| Ø Geschwindigkeit über die Aufzeichnungszeit | 11,4 km/h |',
+    );
     expect(ride).toContain('Ø Trittfrequenz');
   });
 });
@@ -266,5 +271,176 @@ describe('runReportFileName', () => {
     expect(
       runReportFileName({ ...run, name: 'Über die Brücke & zurück!' }),
     ).toBe('runback_2024-05-12_07-30_ueber-die-bruecke-zurueck.md');
+  });
+});
+
+const phased: ReportRun = {
+  ...run,
+  id: 'run-3',
+  events: undefined,
+  route: undefined,
+  time: {
+    model_version: 'runback-phases-1',
+    elapsedSeconds: 3027,
+    pausedSeconds: 0,
+    activeSeconds: 3027,
+    movingSeconds: 2005,
+    runningSeconds: 1234,
+    walkingSeconds: 771,
+    stoppedSeconds: 1000,
+    unknownSeconds: 22,
+  },
+  phases: [
+    { state: 'RUN', startElapsedSeconds: 0, endElapsedSeconds: 380, distanceMeters: 1310, avgHeartRate: 151 },
+    { state: 'WALK', startElapsedSeconds: 380, endElapsedSeconds: 585, distanceMeters: 310 },
+    { state: 'STOPPED', startElapsedSeconds: 585, endElapsedSeconds: 1585, distanceMeters: 0 },
+  ],
+  phaseMetrics: {
+    model_version: 'runback-phases-1',
+    longestRunSeconds: 380,
+    longestRunMeters: 1310,
+    longestMovingSeconds: 585,
+    runWalkTransitions: 1,
+    trailingIdleSeconds: 1000,
+    fastestSustained300sSecondsPerKm: 287,
+    running: { seconds: 1234, meters: 4200, avgHeartRate: 155 },
+    walking: { seconds: 771, meters: 1100 },
+    stopped: { seconds: 1000, meters: 0 },
+  },
+  elevation: {
+    model_version: 'runback-elevation-1',
+    available: false,
+    reason: 'NO_VERTICAL_ACCURACY',
+  },
+  gaps: [
+    { fromElapsedSeconds: 100, toElapsedSeconds: 140, reason: 'timeout' },
+    { fromElapsedSeconds: 900, toElapsedSeconds: 905, reason: 'accuracy' },
+  ],
+  gapCount: 2,
+  sensorSources: { gps: 'phone', heartRate: 'wear' },
+  segments: [
+    { id: 'run-3:0', distanceMeters: 1000, durationSeconds: 300, movingSeconds: 290, gapSeconds: 40, startElapsedSeconds: 0, endElapsedSeconds: 300 },
+    { id: 'run-3:1', distanceMeters: 1000, durationSeconds: 400, movingSeconds: 360, startElapsedSeconds: 300, endElapsedSeconds: 700 },
+  ],
+};
+
+describe('buildRunReport with movement phases', () => {
+  const report = buildRunReport({ run: phased, now: start + 86400_000 });
+
+  it('separates elapsed, active, moving, running, walking and stopped time', () => {
+    expect(report).toContain('| Gesamtzeit (Start bis Ende) | 50:27 |');
+    expect(report).toContain('| Aufzeichnungszeit (ohne Pausen) | 50:27 |');
+    expect(report).toContain(
+      '| Bewegungszeit (Laufen + Gehen) | 33:25 (Laufen 20:34 · Gehen 12:51) |',
+    );
+    expect(report).toContain('| Stillstand | 16:40 |');
+    expect(report).toContain('| Ohne Bewegungsdaten | 0:22 |');
+    expect(report).toContain('| Ø Tempo über die Aufzeichnungszeit | 5:55 /km |');
+    expect(report).toContain('| Ø Tempo in Bewegung | 3:55 /km |');
+    expect(report).toMatch(/Ø Tempo beim Laufen \| 4:53 \/km \(nur RUN-Phasen/);
+  });
+
+  it('lists phases, phase metrics and the trailing idle hint', () => {
+    expect(report).toContain('## Bewegungsphasen');
+    expect(report).toContain('| Laufen | 0:00 | 6:20 | 6:20 | 1,31 km | 4:50 /km | 151 bpm |');
+    expect(report).toContain('| Stillstand | 9:45 | 26:25 | 16:40 | – | – | – |');
+    expect(report).toContain('- Längste Laufphase am Stück: 1,31 km in 6:20');
+    expect(report).toContain('- Wechsel zwischen Laufen und Gehen: 1');
+    expect(report).toContain('- Schnellste 5 Minuten am Stück: 4:47 /km');
+    expect(report).toContain('Am Ende 16:40 ohne Bewegung');
+  });
+
+  it('keeps GPS gaps inside the split instead of cutting it', () => {
+    expect(report).toContain('| 1 | 1,00 | 1,00 km | 5:00 | 4:50 | 5:00 /km | 0:40 |');
+    expect(report).toContain('| 2 | 2,00 | 1,00 km | 6:40 | 6:00 | 6:40 /km | – |');
+  });
+
+  it('says why elevation is missing instead of summing noise', () => {
+    expect(report).toContain(
+      '| Anstieg / Abstieg | nicht bestimmbar (GPS-Höhe ohne Genauigkeitsangabe) |',
+    );
+  });
+
+  it('exports measured coverage, not an invented score', () => {
+    const quality = dataQualityFor(phased, analyzeRun(phased));
+    expect(quality.gps.coverage).toBeCloseTo(1 - 45 / 3027, 4);
+    expect(quality.gps.gaps).toBe(2);
+    expect(quality.heartRate.source).toBe('wear');
+    expect(quality.elevation).toEqual({
+      available: false,
+      usable: false,
+      reason: 'NO_VERTICAL_ACCURACY',
+    });
+    expect(quality).not.toHaveProperty('overall');
+    // Der Abschnitt mit 40 s Lücke ist nicht für Pacing geeignet — mit Zeitbereich.
+    const gap = quality.issues.find(issue => issue.code === 'gap');
+    expect(gap?.count).toBe(1);
+    expect(gap?.ranges).toEqual([[0, 300]]);
+  });
+});
+
+describe('buildRunAnalysisExport', () => {
+  const accidental = {
+    ...run,
+    id: 'run-oops',
+    startTime: start - 3 * 86400_000,
+    endTime: start - 3 * 86400_000 + 6000,
+    durationSeconds: 6,
+    distanceMeters: 0,
+  };
+  const data = buildRunAnalysisExport({
+    run: phased,
+    analysis: analyzeRun(phased),
+    context: { goal: 'Halbmarathon', history: [...history, accidental] },
+    now: start + 86400_000,
+  });
+
+  it('carries the time budget that adds up, all paces with their definition, and phases', () => {
+    expect(data.exportVersion).toBe(RUN_ANALYSIS_EXPORT_VERSION);
+    const t = data.time as unknown as Record<string, number>;
+    expect(
+      t.pausedSeconds + t.runningSeconds + t.walkingSeconds + t.stoppedSeconds + t.unknownSeconds,
+    ).toBe(t.elapsedSeconds);
+    expect(data.pace).toEqual({
+      activeSecondsPerKm: 355,
+      movingSecondsPerKm: 235,
+      runningSecondsPerKm: 294,
+      note: expect.stringContaining('keine Easy Pace'),
+    });
+    expect(data.phases).toHaveLength(3);
+    expect(data.phases?.[0]).toMatchObject({ state: 'RUN', seconds: 380, distanceMeters: 1310 });
+    expect(data.phaseMetrics?.running.secondsPerKm).toBe(294);
+    expect(data.gaps).toHaveLength(2);
+    expect(data.heartRate).toMatchObject({ available: true, source: 'wear', zones: null });
+    expect(data.elevation).toEqual({
+      model_version: 'runback-elevation-1',
+      available: false,
+      reason: 'NO_VERTICAL_ACCURACY',
+    });
+  });
+
+  it('excludes accidental starts from the training history but keeps them stored', () => {
+    expect(data.run.validity).toBe('valid');
+    expect(data.context.history.last7Days).toEqual({
+      sessions: 1,
+      distanceMeters: 6000,
+      durationSeconds: 1900,
+    });
+    const own = buildRunAnalysisExport({ run: accidental });
+    expect(own.run.validity).toBe('accidental');
+    const report = buildRunReport({
+      run: phased,
+      context: { history: [accidental] },
+    });
+    expect(report).toContain('- Nicht mitgezählt: 1 Fehlstart (unter 60 s und unter 100 m)');
+    expect(report).not.toContain('Vorher in den letzten 7 Tagen');
+  });
+
+  it('names the three export files consistently', () => {
+    expect(runExportFileNames(run)).toEqual({
+      markdown: 'runback_2024-05-12_07-30_feierabendrunde.md',
+      analysis: 'runback_2024-05-12_07-30_feierabendrunde_analysis.json',
+      timeseries: 'runback_2024-05-12_07-30_feierabendrunde_timeseries.csv',
+    });
   });
 });

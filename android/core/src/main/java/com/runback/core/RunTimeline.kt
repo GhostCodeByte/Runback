@@ -5,13 +5,18 @@ package com.runback.core
  *
  * Fasst die Rohsamples in gleich lange Zeitfenster seit dem Start zusammen
  * (Uhrzeit, Pausen eingeschlossen). Je Fenster: zurückgelegte Strecke nach
- * derselben Regel wie die Distanzableitung, Bewegungssekunden, Mittel von
- * Puls, Kadenz und Höhe. Fenster ohne einen einzigen Messwert fehlen, statt
- * mit Nullen aufzufüllen. Die Fensterlänge wächst mit der Dauer, damit die
- * Zeilenzahl begrenzt bleibt.
+ * derselben Regel wie die Distanzableitung, Sekunden mit gültigen
+ * GPS-Schritten, Mittel von Puls, Kadenz, Höhe und GPS-Genauigkeit. Fenster
+ * ohne einen einzigen Messwert fehlen, statt mit Nullen aufzufüllen — außer
+ * `keepEmpty` verlangt ein lückenloses Raster (Phasenerkennung, CSV). Die
+ * Fensterlänge wächst mit der Dauer, damit die Zeilenzahl begrenzt bleibt,
+ * sofern kein festes Raster vorgegeben ist.
+ *
+ * `gpsCoveredSeconds` ist keine Bewegungszeit: Stillstand mit gutem Empfang
+ * zählt hier voll. Bewegung entscheidet RunPhases.
  */
 object RunTimeline {
-    const val VERSION = "runback-timeline-1"
+    const val VERSION = "runback-timeline-2"
     val STEP_CHOICES_SECONDS = listOf(30, 60, 120, 300, 600, 900)
 
     data class GpsPoint(val time: Long, val latitude: Double, val longitude: Double,
@@ -21,10 +26,13 @@ object RunTimeline {
         val elapsedSeconds: Int,
         val distanceMeters: Double,
         val stepDistanceMeters: Double,
-        val movingSeconds: Double,
+        val gpsCoveredSeconds: Double,
         val avgHeartRate: Double?,
         val avgCadence: Double?,
         val altitudeM: Double?,
+        val avgAccuracyM: Double? = null,
+        /** Fenster ohne einen einzigen Messwert (nur bei `keepEmpty`). */
+        val empty: Boolean = false,
     )
     data class Result(val stepSeconds: Int, val rows: List<Row>)
 
@@ -42,11 +50,13 @@ object RunTimeline {
         cadence: List<Reading>,
         cuts: List<Long>,
         maxRows: Int = 120,
+        fixedStepSeconds: Int? = null,
+        keepEmpty: Boolean = false,
     ): Result {
         val lastSample = listOf(gps.lastOrNull()?.time, heartRate.lastOrNull()?.time, cadence.lastOrNull()?.time)
             .filterNotNull().maxOrNull() ?: startTime
         val end = maxOf(endTime, lastSample, startTime)
-        val step = stepSeconds((end - startTime) / 1000.0, maxRows)
+        val step = fixedStepSeconds?.coerceAtLeast(1) ?: stepSeconds((end - startTime) / 1000.0, maxRows)
         if (end <= startTime) return Result(step, emptyList())
         val stepMs = step * 1000L
         val bucketCount = (((end - startTime) + stepMs - 1) / stepMs).toInt().coerceAtLeast(1)
@@ -57,6 +67,7 @@ object RunTimeline {
         val touched = BooleanArray(bucketCount)
         val hasGps = BooleanArray(bucketCount)
         val altitudeSum = DoubleArray(bucketCount); val altitudeCount = IntArray(bucketCount)
+        val accuracySum = DoubleArray(bucketCount); val accuracyCount = IntArray(bucketCount)
         val heartSum = DoubleArray(bucketCount); val heartCount = IntArray(bucketCount)
         val cadenceSum = DoubleArray(bucketCount); val cadenceCount = IntArray(bucketCount)
 
@@ -75,6 +86,7 @@ object RunTimeline {
             if (bucket != null) {
                 touched[bucket] = true; hasGps[bucket] = true
                 point.altitudeM?.takeIf { it.isFinite() }?.let { altitudeSum[bucket] += it; altitudeCount[bucket]++ }
+                if (point.accuracyM.isFinite() && point.accuracyM > 0) { accuracySum[bucket] += point.accuracyM; accuracyCount[bucket]++ }
             }
             val before = previous
             if (before != null) {
@@ -117,16 +129,18 @@ object RunTimeline {
         for (bucket in 0 until bucketCount) {
             // Ohne GPS im Fenster gilt die Strecke vom letzten Fenster weiter.
             if (hasGps[bucket]) carried = distanceAtEnd[bucket]
-            if (!touched[bucket]) continue
+            if (!touched[bucket] && !keepEmpty) continue
             val elapsedEnd = minOf(((bucket + 1) * stepMs), end - startTime)
             rows.add(Row(
                 elapsedSeconds = (elapsedEnd / 1000L).toInt(),
                 distanceMeters = carried,
                 stepDistanceMeters = stepDistance[bucket],
-                movingSeconds = moving[bucket],
+                gpsCoveredSeconds = moving[bucket],
                 avgHeartRate = if (heartCount[bucket] > 0) heartSum[bucket] / heartCount[bucket] else null,
                 avgCadence = if (cadenceCount[bucket] > 0) cadenceSum[bucket] / cadenceCount[bucket] else null,
                 altitudeM = if (altitudeCount[bucket] > 0) altitudeSum[bucket] / altitudeCount[bucket] else null,
+                avgAccuracyM = if (accuracyCount[bucket] > 0) accuracySum[bucket] / accuracyCount[bucket] else null,
+                empty = !touched[bucket],
             ))
         }
         return Result(step, rows)

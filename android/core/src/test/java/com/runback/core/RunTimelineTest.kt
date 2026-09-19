@@ -29,7 +29,7 @@ class RunTimelineTest {
         assertEquals(30, first.elapsedSeconds)
         assertEquals(140.0, first.avgHeartRate!!, 0.01)
         assertEquals(170.0, first.avgCadence!!, 0.01)
-        assertEquals(29.0, first.movingSeconds, 0.01)
+        assertEquals(29.0, first.gpsCoveredSeconds, 0.01)
         assertTrue(first.stepDistanceMeters in 300.0..340.0)
         assertEquals(first.stepDistanceMeters, first.distanceMeters, 0.01)
 
@@ -55,7 +55,7 @@ class RunTimelineTest {
         val beforePause = result.rows[1]
         val afterPause = result.rows[2]
         // Der Sprung über die Pause zählt weder als Strecke noch als Bewegung.
-        assertEquals(29.0, afterPause.movingSeconds, 0.01)
+        assertEquals(29.0, afterPause.gpsCoveredSeconds, 0.01)
         assertTrue(afterPause.distanceMeters - beforePause.distanceMeters < 340.0)
         assertNull(afterPause.avgHeartRate)
     }

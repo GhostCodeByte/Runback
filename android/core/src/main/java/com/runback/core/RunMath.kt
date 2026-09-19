@@ -9,11 +9,20 @@ import kotlin.math.*
  * addierte sonst echte Meter), Auf- und Abstieg werden getrennt mit
  * Hysterese summiert, Puls und Kadenz werden zeitgewichtet gemittelt.
  * Überlappende Telefon- und Wear-Sensorwerte werden pro Quelle zusammengeführt.
+ * 3.0: GPS-Lücken beenden keinen Abschnitt mehr, sondern werden als Lücke im
+ * Abschnitt gezählt; Steigung und Höhenmeter kommen aus RunElevation statt
+ * aus rohen Nachbarpunkten. Ältere Ableitungen behalten ihre Version.
  */
 object RunMath {
-    const val MODEL_VERSION = "runback-distance-2.1"
-    /** Höhenänderung, die ein Aufzeichnungsrauschen von ±1–2 m sicher übersteigt. */
+    const val MODEL_VERSION = "runback-distance-3.0"
+    /** Höhenänderung, die ein Barometer-Rauschen von ±1–2 m sicher übersteigt. */
     const val ELEVATION_HYSTERESIS_METERS = 3.0
+    /** GPS-Höhe rauscht ±5–15 m; darunter ist keine Änderung nachweisbar. */
+    const val GPS_ELEVATION_HYSTERESIS_METERS = 10.0
+    /** Längste Lücke zwischen zwei GPS-Punkten, die noch als ein Schritt zählt. */
+    const val MAX_STEP_SECONDS = 30.0
+    const val MAX_ACCURACY_METERS = 50.0
+    const val MAX_SPEED_MPS = 12.0
     /** Längere Lücken zwischen Sensorwerten zählen nicht als abgedeckte Zeit. */
     const val SENSOR_MAX_GAP_SECONDS = 10.0
 
@@ -25,13 +34,34 @@ object RunMath {
 
     /** Gültigkeit eines Schritts: Zeit, Genauigkeit, Plausibilität. null heißt Lücke. */
     fun acceptedDistance(lat1: Double, lon1: Double, time1: Long, accuracy1: Double,
-                         lat2: Double, lon2: Double, time2: Long, accuracy2: Double): Double? {
-        if (!listOf(lat1, lon1, lat2, lon2, accuracy1, accuracy2).all { it.isFinite() }) return null
-        if (abs(lat1) > 90 || abs(lat2) > 90 || abs(lon1) > 180 || abs(lon2) > 180) return null
+                         lat2: Double, lon2: Double, time2: Long, accuracy2: Double): Double? =
+        if (rejectionReason(lat1, lon1, time1, accuracy1, lat2, lon2, time2, accuracy2) == null)
+            distanceMeters(lat1, lon1, lat2, lon2) else null
+
+    /**
+     * Warum ein Schritt nicht zählt: `invalid` (Koordinaten), `timeout` (zu
+     * lange ohne Fix), `accuracy` (zu ungenau) oder `speed` (unplausibler
+     * Sprung). null heißt: der Schritt zählt.
+     */
+    fun rejectionReason(lat1: Double, lon1: Double, time1: Long, accuracy1: Double,
+                        lat2: Double, lon2: Double, time2: Long, accuracy2: Double): String? {
+        if (!listOf(lat1, lon1, lat2, lon2, accuracy1, accuracy2).all { it.isFinite() }) return "invalid"
+        if (abs(lat1) > 90 || abs(lat2) > 90 || abs(lon1) > 180 || abs(lon2) > 180) return "invalid"
         val seconds = (time2 - time1) / 1000.0
-        if (seconds <= 0 || seconds > 30 || accuracy1 > 50 || accuracy2 > 50) return null
+        if (seconds <= 0 || seconds > MAX_STEP_SECONDS) return "timeout"
+        if (accuracy1 > MAX_ACCURACY_METERS || accuracy2 > MAX_ACCURACY_METERS) return "accuracy"
         val distance = distanceMeters(lat1, lon1, lat2, lon2)
-        return distance.takeIf { it / seconds <= 12.0 }
+        return if (distance / seconds <= MAX_SPEED_MPS) null else "speed"
+    }
+
+    /**
+     * Barometrische Höhenformel (Standardatmosphäre). Absolut ist der Wert nur
+     * bei Normaldruck richtig; Differenzen zwischen zwei Messungen derselben
+     * Aufzeichnung sind davon unabhängig und auf ±1–2 m genau.
+     */
+    fun pressureToAltitudeMeters(hPa: Double): Double? {
+        if (!hPa.isFinite() || hPa <= 0) return null
+        return 44330.0 * (1 - (hPa / 1013.25).pow(1 / 5.255))
     }
 
     /** Unter diesem Abstand ist eine Verschiebung von Messrauschen nicht zu unterscheiden. */

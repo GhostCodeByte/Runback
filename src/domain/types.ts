@@ -21,16 +21,87 @@ export type Area = 'running' | 'strength';
 export interface SegmentAggregate {
   id?: string;
   distanceMeters: number;
+  /** Zeitspanne des Abschnitts ohne Pausen; GPS-Lücken sind enthalten (siehe gapSeconds). */
   durationSeconds: number;
+  /** Sekunden in RUN- oder WALK-Phasen innerhalb des Abschnitts (ab Distanzmodell 3.0). */
+  movingSeconds?: number;
+  startElapsedSeconds?: number;
+  endElapsedSeconds?: number;
   avgHeartRate?: number;
   avgCadence?: number;
+  /** Nur ab 50 m Strecke und aus geglätteter Höhe (RunElevation). */
   gradePercent?: number;
   /** Summe der Anstiege bzw. Abstiege im Abschnitt (mit Hysterese), in m. */
   ascentMeters?: number;
   descentMeters?: number;
+  /** Sekunden ohne gültige GPS-Schritte im Abschnitt; ab 5 s nicht für Pacing geeignet. */
   gapSeconds?: number;
   phase?: 'warmup' | 'work' | 'recovery' | 'cooldown' | 'pause';
   sourceVersion?: string;
+}
+export type MovementState = 'RUN' | 'WALK' | 'STOPPED' | 'PAUSED' | 'UNKNOWN';
+/**
+ * Zeitbudget einer Aufzeichnung (RunPhases). Geht ohne Rest auf:
+ * elapsed = paused + running + walking + stopped + unknown.
+ * `activeSeconds` ist die Aufzeichnungszeit ohne Pausen, `movingSeconds`
+ * die Bewegungszeit (RUN + WALK). Fehlt das Objekt (Altdaten, Importe),
+ * gibt es nur `durationSeconds` — und die ist keine Bewegungszeit.
+ */
+export interface TimeBudget {
+  model_version: string;
+  elapsedSeconds: number;
+  pausedSeconds: number;
+  activeSeconds: number;
+  movingSeconds: number;
+  runningSeconds: number;
+  walkingSeconds: number;
+  stoppedSeconds: number;
+  unknownSeconds: number;
+}
+export interface MovementPhase {
+  state: MovementState;
+  startElapsedSeconds: number;
+  endElapsedSeconds: number;
+  distanceMeters: number;
+  avgHeartRate?: number;
+  avgCadence?: number;
+}
+export interface StateSummary {
+  seconds: number;
+  meters: number;
+  avgHeartRate?: number;
+  avgCadence?: number;
+}
+export interface PhaseMetrics {
+  model_version: string;
+  longestRunSeconds?: number;
+  longestRunMeters?: number;
+  longestMovingSeconds?: number;
+  runWalkTransitions: number;
+  /** STOPPED/UNKNOWN am Ende; ab 5 min vermutlich nicht gestoppt. */
+  trailingIdleSeconds: number;
+  fastestSustained300sSecondsPerKm?: number;
+  running: StateSummary;
+  walking: StateSummary;
+  stopped: StateSummary;
+}
+/** Höhenmeter aus RunElevation; ohne belastbare Quelle nur `available: false` mit Grund. */
+export type ElevationSummary =
+  | {
+      model_version: string;
+      available: true;
+      source: 'barometer' | 'gps';
+      reference: 'absolute' | 'start';
+      ascentMeters: number;
+      descentMeters: number;
+      rejectedSamples: number;
+      hysteresisMeters: number;
+    }
+  | { model_version: string; available: false; reason: string };
+export interface GpsGap {
+  fromElapsedSeconds: number;
+  toElapsedSeconds: number;
+  reason: 'timeout' | 'accuracy' | 'speed' | 'invalid' | string;
 }
 export interface RunSummary {
   id: string;
@@ -53,6 +124,19 @@ export interface RunSummary {
   calories?: number;
   steps?: number;
   elevationGainMeters?: number;
+  avgHeartRateMax?: number;
+  avgHeartRateMin?: number;
+  avgCadenceMax?: number;
+  avgCadenceMin?: number;
+  time?: TimeBudget;
+  phases?: MovementPhase[];
+  phaseMetrics?: PhaseMetrics;
+  elevation?: ElevationSummary;
+  gaps?: GpsGap[];
+  gapCount?: number;
+  /** Version des nativen Distanzmodells, mit dem Abschnitte und Distanz abgeleitet wurden. */
+  model_version?: string;
+  sensorSources?: { gps?: string; heartRate?: string };
   sourceActivityId?: string;
   sourceActivityType?: string;
   importVersion?: string;

@@ -1,6 +1,8 @@
 import {
   SPORTS,
+  isAccidentalRun,
   isRun,
+  runValidity,
   normalizeSport,
   speedKmh,
   sportLabel,
@@ -82,5 +84,18 @@ describe('titles by sport', () => {
     expect(
       runTitle({ startTime: at(6), purpose: 'intervals', sport: 'cycling' }),
     ).toBe('Intervalle');
+  });
+});
+
+describe('isAccidentalRun', () => {
+  it('marks only recordings that are both under 60 s and under 100 m', () => {
+    expect(isAccidentalRun({ durationSeconds: 6, distanceMeters: 0 })).toBe(true);
+    expect(isAccidentalRun({ durationSeconds: 59, distanceMeters: 99 })).toBe(true);
+    // Ein kurzer Sprint oder eine Minute Stehen sind kein Fehlstart.
+    expect(isAccidentalRun({ durationSeconds: 20, distanceMeters: 120 })).toBe(false);
+    expect(isAccidentalRun({ durationSeconds: 60, distanceMeters: 0 })).toBe(false);
+    expect(isAccidentalRun({ durationSeconds: Number.NaN, distanceMeters: 0 })).toBe(false);
+    expect(runValidity({ durationSeconds: 6, distanceMeters: 0 })).toBe('accidental');
+    expect(runValidity({ durationSeconds: 1800, distanceMeters: 5000 })).toBe('valid');
   });
 });
