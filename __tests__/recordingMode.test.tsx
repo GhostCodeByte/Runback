@@ -157,23 +157,27 @@ afterEach(async () => {
 });
 
 describe('Freie Aufzeichnung auf Heute', () => {
-  it('offers sport and purpose without any plan and starts with both', async () => {
+  it('keeps the start card to one button and asks sport and purpose in the sheet', async () => {
     await mount();
-    const text = screenText();
-    expect(text).toContain('Sportart');
-    expect(text).toContain('Laufen');
-    expect(text).toContain('Radfahren');
-    expect(text).toContain('Zweck');
+    const home = screenText();
+    // Die Startseite verlangt keine Entscheidung: kein Chip, kein Plan.
+    expect(home).not.toContain('Sportart');
+    expect(home).not.toContain('Zweck');
     expect(findPressable('Lauf starten')).toBeTruthy();
-    // Kein Plan nötig: Die Karte verlangt weder Termin noch Vorlage.
-    expect(text).not.toContain('Geplanten Lauf starten');
+    expect(findPressable('Los')).toBeUndefined();
+
+    await tap('Lauf starten');
+    const sheet = screenText();
+    expect(sheet).toContain('Laufen');
+    expect(sheet).toContain('Radfahren');
+    expect(sheet).toContain('Krafttraining');
+    expect(sheet).toContain('Zweck');
 
     await tap('Radfahren');
     expect(stored.settings.sport).toBe('cycling');
-    expect(findPressable('Radfahrt starten')).toBeTruthy();
 
     await tap('Intervalle');
-    await tap('Radfahrt starten');
+    await tap('Los');
     expect(nativeCall).toHaveBeenCalledWith(
       'startRun',
       'intervals',
@@ -188,24 +192,22 @@ describe('Freie Aufzeichnung auf Heute', () => {
     expect(findPressable('Radfahrt beenden')).toBeTruthy();
   });
 
-  it('keeps the free recording one tap away when a run is planned today', async () => {
+  it('puts the planned run first and keeps a free recording one tap away', async () => {
     stored.settings.schedule = {
       ...normalizeSchedule(),
       sessions: [plannedRun()],
     };
     await mount();
-    expect(findPressable('Geplanten Lauf starten')).toBeTruthy();
-    expect(findPressable('Stattdessen frei aufzeichnen')).toBeTruthy();
+    expect(screenText()).toContain('Locker 30');
+    expect(findPressable('Lauf starten')).toBeTruthy();
+    expect(findPressable('Stattdessen etwas anderes starten')).toBeTruthy();
     expect(screenText()).not.toContain('Radfahren');
 
-    await tap('Stattdessen frei aufzeichnen');
-    const text = screenText();
-    expect(text).toContain('Radfahren');
-    expect(findPressable('Lauf starten')).toBeTruthy();
-    // Der Plan bleibt erreichbar, aber nachrangig.
-    expect(findPressable('Geplanten Lauf starten')).toBeTruthy();
+    await tap('Stattdessen etwas anderes starten');
+    expect(screenText()).toContain('Radfahren');
+    expect(findPressable('Los')).toBeTruthy();
 
-    await tap('Lauf starten');
+    await tap('Los');
     expect(nativeCall).toHaveBeenCalledWith(
       'startRun',
       'free',
@@ -216,14 +218,18 @@ describe('Freie Aufzeichnung auf Heute', () => {
     expect(stored.settings.schedule?.sessions[0].activityId).toBeUndefined();
   });
 
-  it('keeps the start card calm and edits pace on a separate page', async () => {
+  it('edits the pace target on its own page and returns to the sheet', async () => {
     await mount();
+    expect(screenText()).not.toContain('Laufen nach');
+
+    await tap('Lauf starten');
     expect(screenText()).toContain('Laufen nach');
     expect(screenText()).toContain('Ohne Ziel');
     expect(screenText()).not.toContain('Minuten pro Kilometer');
 
     await tapText('Laufen nach');
     expect(screenText()).toContain('Wie möchtest du laufen?');
+    expect(findPressable('Los')).toBeUndefined();
     await tap('Tempo');
     expect(screenText()).toContain('Minuten pro Kilometer');
     await tap('Ziel übernehmen');
@@ -233,7 +239,9 @@ describe('Freie Aufzeichnung auf Heute', () => {
       mode: 'range',
     });
 
-    await tap('Lauf starten');
+    // Zurück auf Heute steht das Sheet wieder offen, wo man es verlassen hat.
+    expect(findPressable('Los')).toBeTruthy();
+    await tap('Los');
     expect(nativeCall).toHaveBeenCalledWith(
       'startRun',
       'free',
@@ -257,15 +265,15 @@ describe('Radfahrten in Einheiten und Detail', () => {
 
   it('lists rides with their own label and speed, filtered separately', async () => {
     await mount();
-    // Die Startkarte zählt nur Laufkilometer: 10, nicht 10 + 30.
-    expect(screenText()).toContain('10,0 km in 7 Tagen');
-    expect(screenText()).not.toContain('40,0');
-
-    await tap('Einheiten');
+    await tap('Verlauf');
     let text = screenText();
     expect(text).toContain('Radfahrt');
     expect(text).toContain('30,0 km/h');
     expect(text).toContain('1 Lauf · 1 Radfahrt');
+    // Der Wochenkopf zählt nur Laufkilometer: 10, nicht 10 + 30.
+    expect(text).toContain('Diese Woche');
+    expect(text).toContain('10,0 km');
+    expect(text).not.toContain('40,0');
 
     await tap('Radfahren');
     text = screenText();
@@ -280,7 +288,7 @@ describe('Radfahrten in Einheiten und Detail', () => {
 
   it('shows a ride without the running analysis but with a correctable sport', async () => {
     await mount();
-    await tap('Einheiten');
+    await tap('Verlauf');
     const row = pressables().find(node =>
       (node.props.accessibilityLabel || '').startsWith('Radfahrt:'),
     );
@@ -291,11 +299,14 @@ describe('Radfahrten in Einheiten und Detail', () => {
     const text = screenText();
     expect(text).toContain('Fahrzeit');
     expect(text).toContain('Ø km/h');
-    expect(text).toContain('Art');
     expect(text).toContain('Fahrgefühl');
     expect(text).not.toContain('Nächster Schritt');
     expect(text).not.toContain('Tempoindex');
+    // Art und Zweck ändern ist eine Ausnahme und liegt eingeklappt unten.
+    expect(findPressable('Laufen')).toBeUndefined();
 
+    await tap('Bearbeiten & verwalten');
+    expect(screenText()).toContain('Art');
     await tap('Laufen');
     expect(native.feedback).toHaveBeenCalledWith('ride', { sport: 'running' });
   });

@@ -1,7 +1,15 @@
-import React, { memo, type PropsWithChildren, type ReactNode } from 'react';
+import React, {
+  memo,
+  useState,
+  type PropsWithChildren,
+  type ReactNode,
+} from 'react';
 import {
   Image as NativeImage,
+  KeyboardAvoidingView,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -327,6 +335,169 @@ export function Stat({
   );
 }
 
+/**
+ * Umschalter zwischen zwei oder drei gleichwertigen Ansichten derselben Seite
+ * (Einheiten · Statistik, Laufen · Krafttraining). Anders als `ChipGroup` steht
+ * er für Ansichten, nicht für Eingaben, und füllt die ganze Breite.
+ */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label?: string;
+}) {
+  return (
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel={label}
+      style={s.segmented}
+    >
+      {options.map(option => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected, checked: selected }}
+            onPress={() => onChange(option.value)}
+            style={({ pressed }) => [
+              s.segment,
+              selected && s.segmentSelected,
+              pressed && s.pressed,
+            ]}
+          >
+            <Text style={[s.segmentText, selected && s.segmentTextSelected]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Sichtbarer Zustand als kleines Etikett: Vorschlag · Aktiv · Pausiert. */
+export function Badge({
+  children,
+  muted = false,
+}: PropsWithChildren<{ muted?: boolean }>) {
+  return (
+    <View style={[s.badge, muted && s.badgeMuted]}>
+      <Text style={[s.badgeText, muted && s.badgeTextMuted]}>{children}</Text>
+    </View>
+  );
+}
+
+/** Fortschritt einer Prüfung als Balken. `value` zwischen 0 und 1. */
+export function Progress({ value, label }: { value: number; label: string }) {
+  const clamped = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel={label}
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped * 100) }}
+      style={s.progress}
+    >
+      <View style={[s.progressFill, { width: `${clamped * 100}%` }]} />
+    </View>
+  );
+}
+
+/**
+ * Klappt Inhalt an Ort und Stelle auf (Symbol `⌄`). Für Nebenwege, die auf der
+ * Seite bleiben sollen: Details, Verwalten, weitere Kennzahlen.
+ */
+export function Disclosure({
+  title,
+  subtitle,
+  children,
+  defaultOpen = false,
+  open: controlledOpen,
+  onToggle,
+}: PropsWithChildren<{
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  open?: boolean;
+  onToggle?: (open: boolean) => void;
+}>) {
+  const [localOpen, setLocalOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? localOpen;
+  const toggle = () => {
+    setLocalOpen(!open);
+    onToggle?.(!open);
+  };
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityState={{ expanded: open }}
+        onPress={toggle}
+        style={({ pressed }) => [s.row, pressed && s.pressed]}
+      >
+        <View style={s.rowText}>
+          <Text style={s.rowTitle}>{title}</Text>
+          {subtitle ? <Text style={s.rowSubtitle}>{subtitle}</Text> : null}
+        </View>
+        <Text style={[s.chevron, open && s.chevronOpen]}>⌄</Text>
+      </Pressable>
+      {open ? <View style={s.disclosureBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+/**
+ * Bottom-Sheet für Entscheidungen im Moment des Tuns: Start einer Einheit,
+ * Bearbeiten einer Einheit. Die Seite darunter bleibt sichtbar, damit klar
+ * ist, wohin man zurückkehrt.
+ */
+export function Sheet({
+  visible,
+  title,
+  onClose,
+  children,
+}: PropsWithChildren<{
+  visible: boolean;
+  title: string;
+  onClose: () => void;
+}>) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView behavior="height" style={s.sheetBackdrop}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${title} schließen`}
+          onPress={onClose}
+          style={s.sheetScrim}
+        />
+        <ScrollView
+          style={s.sheetScroll}
+          contentContainerStyle={s.sheetCard}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={s.sheetGrip} />
+          <Text accessibilityRole="header" style={s.sheetTitle}>
+            {title}
+          </Text>
+          {children}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 export function Icon({
   name,
   selected = false,
@@ -336,11 +507,12 @@ export function Icon({
 }) {
   const paths: Record<string, string> = {
     Heute: 'M4 12L12 5L20 12M6 10V21H18V10M10 21V15H14V21',
-    Planung:
-      'M8 2V6M16 2V6M3 10H21M5 4H19A2 2 0 0 1 21 6V20A2 2 0 0 1 19 22H5A2 2 0 0 1 3 20V6A2 2 0 0 1 5 4M8 14H8.01M12 14H12.01M16 14H16.01M8 18H8.01M12 18H12.01',
-    Einheiten: 'M4 7H7M4 12H7M4 17H7M11 7H20M11 12H20M11 17H20',
-    Statistik: 'M4 20V13M10 20V7M16 20V10M3 20H21',
-
+    Plan: 'M8 2V6M16 2V6M3 10H21M5 4H19A2 2 0 0 1 21 6V20A2 2 0 0 1 19 22H5A2 2 0 0 1 3 20V6A2 2 0 0 1 5 4M8 14H8.01M12 14H12.01M16 14H16.01M8 18H8.01M12 18H12.01',
+    Verlauf: 'M4 20V13M10 20V7M16 20V10M3 20H21',
+    Coach:
+      'M12 21A9 9 0 1 0 12 3A9 9 0 0 0 12 21M12 16A4 4 0 1 0 12 8A4 4 0 0 0 12 16M12 12H12.01',
+    Einstellungen:
+      'M12 15A3 3 0 1 0 12 9A3 3 0 0 0 12 15M19.4 15A1.65 1.65 0 0 0 19.73 16.82L19.79 16.88A2 2 0 1 1 16.96 19.71L16.9 19.65A1.65 1.65 0 0 0 15.08 19.32A1.65 1.65 0 0 0 14.08 20.83V21A2 2 0 1 1 10.08 21V20.91A1.65 1.65 0 0 0 9 19.4A1.65 1.65 0 0 0 7.18 19.73L7.12 19.79A2 2 0 1 1 4.29 16.96L4.35 16.9A1.65 1.65 0 0 0 4.68 15.08A1.65 1.65 0 0 0 3.17 14.08H3A2 2 0 1 1 3 10.08H3.09A1.65 1.65 0 0 0 4.6 9A1.65 1.65 0 0 0 4.27 7.18L4.21 7.12A2 2 0 1 1 7.04 4.29L7.1 4.35A1.65 1.65 0 0 0 8.92 4.68H9A1.65 1.65 0 0 0 10 3.17V3A2 2 0 1 1 14 3V3.09A1.65 1.65 0 0 0 15 4.6A1.65 1.65 0 0 0 16.82 4.27L16.88 4.21A2 2 0 1 1 19.71 7.04L19.65 7.1A1.65 1.65 0 0 0 19.32 8.92V9A1.65 1.65 0 0 0 20.83 10H21A2 2 0 1 1 21 14H20.91A1.65 1.65 0 0 0 19.4 15',
     Mehr: 'M4 7H20M4 12H20M4 17H20',
   };
   return (
@@ -938,6 +1110,67 @@ export const s = StyleSheet.create({
   noticeTitle: { color: color.text, ...type.label, fontWeight: '700' },
   empty: { paddingVertical: space.xxl, gap: space.md },
   emptyTitle: { color: color.text, ...type.heading },
+  segmented: {
+    flexDirection: 'row',
+    backgroundColor: color.surface,
+    borderRadius: radius.md,
+    padding: space.xxs,
+    gap: space.xxs,
+  },
+  segment: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.xs,
+  },
+  segmentSelected: { backgroundColor: color.raised },
+  segmentText: { color: color.muted, ...type.label },
+  segmentTextSelected: { color: color.text, fontWeight: '600' },
+  badge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: color.green,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.xs,
+    paddingVertical: 2,
+  },
+  badgeMuted: { borderColor: color.muted },
+  badgeText: { color: color.green, ...type.micro, fontWeight: '600' },
+  badgeTextMuted: { color: color.muted },
+  progress: {
+    height: 6,
+    borderRadius: radius.pill,
+    backgroundColor: color.line,
+    overflow: 'hidden',
+  },
+  progressFill: { height: '100%', backgroundColor: color.green },
+  chevronOpen: { transform: [{ rotate: '180deg' }] },
+  disclosureBody: { paddingTop: space.sm, gap: space.sm },
+  sheetBackdrop: { flex: 1, justifyContent: 'flex-end' },
+  sheetScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: color.mapOverlay,
+  },
+  sheetScroll: { maxHeight: '88%', flexGrow: 0 },
+  sheetCard: {
+    backgroundColor: color.raised,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    padding: space.lg,
+    paddingTop: space.sm,
+    gap: space.sm,
+  },
+  sheetGrip: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: color.line,
+    marginBottom: space.xs,
+  },
+  sheetTitle: { color: color.text, ...type.heading },
   stat: { flex: 1, gap: space.xxs },
   statValue: {
     color: color.text,

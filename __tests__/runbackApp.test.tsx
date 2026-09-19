@@ -109,7 +109,7 @@ const tapText = async (
 };
 
 describe('Heute', () => {
-  it('shows the start action without a date or a fake plan', async () => {
+  it('shows one start action without a date, a fake plan or settings', async () => {
     const tree = await render();
     const text = screenText(tree);
 
@@ -120,8 +120,14 @@ describe('Heute', () => {
     expect(text).not.toContain('Minuten eingeplant');
     // Kein Pfeil, der ein Aufklappen verspricht (Design Language § 8).
     expect(text).not.toContain('⌄');
-    // Der Zweck ist eine sichtbare Auswahl statt eines Dialogs.
-    expect(text).toContain('Zweck');
+    // Fokus, Ziel und Vorlagen haben ihren Ort im Coach und im Plan.
+    expect(text).not.toContain('Dein Fokus');
+    expect(text).not.toContain('Dein Ziel');
+    expect(text).not.toContain('Laufvorlagen');
+    // Der Zweck wird erst im Moment des Startens gewählt.
+    expect(text).not.toContain('Zweck');
+    await tap(tree, 'Lauf starten');
+    expect(screenText(tree)).toContain('Zweck');
     await act(async () => {
       tree.unmount();
     });
@@ -138,13 +144,14 @@ describe('Heute', () => {
   });
 });
 
-describe('Einheiten', () => {
+describe('Verlauf', () => {
   it('shows runs and strength side by side, without an import entry', async () => {
     const tree = await render();
-    await tap(tree, 'Einheiten');
+    await tap(tree, 'Verlauf');
     const text = screenText(tree);
 
     expect(text).toContain('Einheiten');
+    expect(text).toContain('Statistik');
     // Beide Trainingsarten sind aus derselben Liste erreichbar.
     expect(text).toContain('Laufen');
     expect(text).toContain('Krafttraining');
@@ -209,11 +216,17 @@ describe('Fokus', () => {
       });
       try {
         await tap(tree, 'Überspringen');
-        expect(screenText(tree)).toContain('Danach vorgesehen');
-        await tapText(tree, 'Danach vorgesehen');
+        // Heute zeigt die Empfehlung kompakt mit Zustand; der Coach trägt den Rest.
+        expect(screenText(tree)).toContain(accepted.recommendation.action);
+        expect(screenText(tree)).toContain(
+          status === 'paused' ? 'Pausiert' : 'Aktiv',
+        );
+        expect(screenText(tree)).not.toContain('Danach vorgesehen');
+        await tapText(tree, accepted.recommendation.action);
         expect(screenText(tree)).toContain('Danach vorgesehen');
         expect(screenText(tree)).not.toContain('Empfehlung annehmen');
-        await tap(tree, 'Details ansehen');
+        expect(screenText(tree)).not.toContain('Empfehlung abschließen');
+        await tap(tree, 'Details');
         expect(screenText(tree)).toContain(
           'Vergleichslauf nicht mehr vorhanden',
         );
@@ -222,6 +235,7 @@ describe('Fokus', () => {
           'fehlen mindestens vier geeignete Abschnitte',
         );
         expect(JSON.stringify(accepted)).toBe(before);
+        await tap(tree, 'Empfehlung verwalten');
         await tap(tree, 'Empfehlung abschließen');
         expect(screenText(tree)).toContain('Vorschlag');
         expect(screenText(tree)).toContain('Empfehlung annehmen');
@@ -278,6 +292,7 @@ describe('Fokus', () => {
     });
     try {
       await tap(tree, 'Überspringen');
+      await tap(tree, 'Coach');
       await tapText(tree, 'Noch kein Fokus');
       await act(async () => {
         tree.root.findByType(ChipGroup).props.onChange('injury_free');
@@ -302,8 +317,8 @@ describe('Fokus', () => {
       await tap(tree, 'Fokus speichern');
       const focus = jest.mocked(native.saveSettings).mock.calls.at(-1)![0]
         .trainingFocus;
-      await tap(tree, 'Mehr');
-      await tapText(tree, 'Ziel & Alltag');
+      await tap(tree, 'Zurück');
+      await tapText(tree, 'Halbmarathon im April');
       await tap(tree, 'Ziel entfernen');
       expect(
         jest.mocked(native.saveSettings).mock.calls.at(-1)![0].trainingFocus,
@@ -316,6 +331,7 @@ describe('Fokus', () => {
       ).toBe(saved);
       await tap(tree, 'Heute');
       await tapText(tree, accepted.recommendation.action);
+      await tap(tree, 'Empfehlung verwalten');
       await tap(tree, 'Empfehlung pausieren');
       expect(screenText(tree)).toContain('Pausiert');
       expect(screenText(tree)).not.toContain('Probiere die Empfehlung aus.');
@@ -341,9 +357,11 @@ describe('Fokus', () => {
       });
     }
   });
-  it('is reachable from Heute and replaces the old wording', async () => {
+  it('is reachable from Coach and replaces the old wording', async () => {
     const tree = await render();
-    // Der Fokus ist keine eigene Wurzel mehr, sondern eine Zeile auf Heute.
+    // Der Fokus ist die Grundlage der Empfehlung und steht im Coach.
+    expect(screenText(tree)).not.toContain('Noch kein Fokus');
+    await tap(tree, 'Coach');
     expect(screenText(tree)).toContain('Noch kein Fokus');
     await tapText(tree, 'Noch kein Fokus');
     const text = screenText(tree);

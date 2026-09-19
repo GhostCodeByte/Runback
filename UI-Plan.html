@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runback – Vorschlag für eine übersichtlichere Oberfläche</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #5f6368; --line: #e3e5e8;
+    --card: #f7f8fa; --accent: #1f5fbf; --good: #1e7f4f; --warn: #b26a00; --bad: #b3261e;
+    /* App-Token (aus components.tsx) für die Mockups */
+    --a-bg: #101210; --a-surface: #1A1D1A; --a-raised: #242924; --a-line: #343B34;
+    --a-text: #F2F4EF; --a-muted: #ADB5AB; --a-green: #A5D879; --a-greensoft: #26331E; --a-ink: #14200E; --a-danger: #E4796B;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131416; --fg: #e8e9eb; --muted: #9aa0a6; --line: #2c2f33; --card: #1c1e21; --accent: #7fb0ff; --good: #5fcf8f; --warn: #ffb74d; --bad: #ff6f66; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2.5rem 1.25rem 5rem; font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.4rem; margin: 3rem 0 .75rem; padding-bottom: .35rem; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 1.1rem; margin: 1.8rem 0 .5rem; }
+  h4 { font-size: .95rem; margin: 1.2rem 0 .4rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  p.sub { color: var(--muted); margin: 0 0 1.5rem; }
+  p { margin: .5rem 0 .9rem; max-width: 78ch; }
+  ul, ol { max-width: 78ch; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: .75rem 0 1.25rem; font-size: .92rem; }
+  th, td { text-align: left; vertical-align: top; padding: .55rem .65rem; border-bottom: 1px solid var(--line); }
+  th { background: var(--card); font-weight: 600; }
+  code { font: .88em/1.4 ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--card); padding: .05em .35em; border-radius: 4px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.2rem; margin: 1rem 0; max-width: 78ch; }
+  .box.key { border-left: 4px solid var(--accent); }
+  .tag { display: inline-block; font-size: .75rem; font-weight: 600; padding: .1em .5em; border-radius: 999px; margin-right: .3rem; vertical-align: middle; }
+  .tag.bad { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+  .tag.good { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+  .tag.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+  .toc { columns: 2; gap: 2rem; max-width: 78ch; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc li { break-inside: avoid; }
+
+  /* ---------- Mockups ---------- */
+  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; align-items: start; margin: 1.2rem 0 2rem; }
+  .compare > div > .lbl { font-weight: 600; margin: 0 0 .5rem; display: flex; align-items: center; gap: .5rem; }
+  .compare > div > .note { color: var(--muted); font-size: .9rem; margin: .5rem 0 0; max-width: 340px; }
+  .phone { width: 340px; background: var(--a-bg); color: var(--a-text); border-radius: 28px; border: 6px solid #2a2d2a; overflow: hidden; font-size: 13px; line-height: 1.35; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  .phone .screen { height: 640px; overflow-y: auto; padding: 10px 14px 14px; scrollbar-width: thin; scrollbar-color: var(--a-line) transparent; }
+  .phone .screen.fit { height: auto; min-height: 640px; }
+  .phone .hdr { display: flex; justify-content: space-between; align-items: center; color: var(--a-muted); font-size: 12px; padding: 4px 0 8px; }
+  .phone .hdr b { color: var(--a-text); font-weight: 700; letter-spacing: .02em; }
+  .phone .hdr b i { color: var(--a-green); font-style: normal; }
+  .phone .ttl { font-size: 22px; font-weight: 600; margin: 4px 0 10px; line-height: 1.2; }
+  .phone .ttl small { display: block; font-size: 12px; color: var(--a-muted); font-weight: 400; margin-top: 2px; }
+  .phone .sec { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+  .phone .card { background: var(--a-surface); border-radius: 12px; padding: 12px; margin: 6px 0; }
+  .phone .card.hero { border: 1px solid var(--a-line); }
+  .phone .card.accent { background: var(--a-greensoft); border: 1px solid var(--a-green); }
+  .phone .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--a-line); min-height: 44px; }
+  .phone .row:last-child { border-bottom: 0; }
+  .phone .row .t { font-weight: 500; }
+  .phone .row .s { color: var(--a-muted); font-size: 12px; margin-top: 1px; }
+  .phone .row .chev { color: var(--a-muted); font-size: 16px; }
+  .phone .row .chev.done { color: var(--a-green); }
+  .phone .card > .row { padding-left: 0; padding-right: 0; }
+  .phone .btn { display: block; text-align: center; background: var(--a-green); color: var(--a-ink); font-weight: 600; padding: 12px; border-radius: 12px; margin: 8px 0; font-size: 14px; }
+  .phone .btn.big { padding: 16px; font-size: 16px; }
+  .phone .btn.sec { background: transparent; border: 1px solid var(--a-line); color: var(--a-text); font-weight: 500; }
+  .phone .btn.sm { padding: 8px; font-size: 12px; margin: 4px 0; }
+  .phone .btn.ghost { background: transparent; color: var(--a-green); padding: 6px; }
+  .phone .btn.danger { background: transparent; border: 1px solid var(--a-danger); color: var(--a-danger); }
+  .phone .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+  .phone .chip { border: 1px solid var(--a-line); border-radius: 999px; padding: 5px 10px; font-size: 12px; color: var(--a-muted); }
+  .phone .chip.on { background: var(--a-greensoft); border-color: var(--a-green); color: var(--a-text); }
+  .phone .seg { display: flex; background: var(--a-surface); border-radius: 10px; padding: 3px; margin: 6px 0 10px; }
+  .phone .seg span { flex: 1; text-align: center; padding: 7px; border-radius: 8px; color: var(--a-muted); font-size: 12px; }
+  .phone .seg span.on { background: var(--a-raised); color: var(--a-text); font-weight: 600; }
+  .phone .lbl { font-size: 11px; color: var(--a-muted); text-transform: uppercase; letter-spacing: .05em; margin: 8px 0 3px; }
+  .phone .stats { display: flex; gap: 14px; margin: 6px 0 10px; }
+  .phone .stat { flex: 1; }
+  .phone .stat b { display: block; font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .phone .stat span { color: var(--a-muted); font-size: 11px; }
+  .phone .copy { color: var(--a-text); margin: 4px 0; }
+  .phone .copy.m { color: var(--a-muted); font-size: 12px; }
+  .phone .tabs { display: flex; justify-content: space-around; border-top: 1px solid var(--a-line); background: var(--a-bg); padding: 8px 0 6px; font-size: 10px; color: var(--a-muted); }
+  .phone .tabs span { text-align: center; }
+  .phone .tabs span::before { content: "○"; display: block; font-size: 16px; line-height: 1; margin-bottom: 2px; }
+  .phone .tabs span.on { color: var(--a-green); }
+  .phone .tabs span.on::before { content: "●"; }
+  .phone .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--a-green); color: var(--a-green); vertical-align: middle; margin-left: 6px; }
+  .phone .badge.m { border-color: var(--a-muted); color: var(--a-muted); }
+  .phone .week { display: flex; justify-content: space-between; margin: 4px 0 10px; }
+  .phone .week div { text-align: center; font-size: 11px; color: var(--a-muted); width: 36px; padding: 6px 0; border-radius: 10px; }
+  .phone .week div b { display: block; font-size: 14px; color: var(--a-text); font-weight: 500; }
+  .phone .week div i { display: block; font-style: normal; font-size: 8px; margin-top: 3px; color: transparent; }
+  .phone .week div i.p { color: var(--a-muted); }
+  .phone .week div i.d { color: var(--a-green); }
+  .phone .week div.today { background: var(--a-surface); border: 1px solid var(--a-line); }
+  .phone .day { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--a-line); align-items: flex-start; }
+  .phone .day:last-child { border: 0; }
+  .phone .day .d { width: 34px; text-align: center; color: var(--a-muted); font-size: 11px; }
+  .phone .day .d b { display: block; color: var(--a-text); font-size: 15px; font-weight: 500; }
+  .phone .day .items { flex: 1; }
+  .phone .day .it { background: var(--a-surface); border-radius: 8px; padding: 6px 8px; margin: 2px 0; font-size: 12px; display: flex; justify-content: space-between; }
+  .phone .day .it.done { border-left: 3px solid var(--a-green); }
+  .phone .day .it.free { color: var(--a-muted); border: 1px dashed var(--a-line); background: transparent; }
+  .phone .day.today .d b { color: var(--a-green); }
+  .phone .map { height: 120px; background: repeating-linear-gradient(45deg, var(--a-surface) 0 10px, var(--a-raised) 10px 20px); border-radius: 10px; margin: 6px 0; position: relative; }
+  .phone .map::after { content: ""; position: absolute; left: 20%; top: 30%; width: 60%; height: 40%; border: 2px solid var(--a-green); border-radius: 40% 60% 50% 50%; }
+  .phone .spark { height: 44px; margin: 6px 0; background: linear-gradient(to top, var(--a-greensoft), transparent); border-bottom: 1px solid var(--a-line); position: relative; }
+  .phone .spark::after { content: ""; position: absolute; inset: 0; border-bottom: 2px solid var(--a-green); clip-path: polygon(0 80%, 15% 60%, 30% 70%, 45% 40%, 60% 50%, 75% 30%, 90% 45%, 100% 20%, 100% 100%, 0 100%); background: var(--a-green); opacity: .35; }
+  .phone .sheet { background: var(--a-raised); border-radius: 18px 18px 0 0; padding: 8px 14px 14px; margin: 40px -14px -14px; border-top: 1px solid var(--a-line); }
+  .phone .sheet .grip { width: 36px; height: 4px; background: var(--a-line); border-radius: 2px; margin: 0 auto 10px; }
+  .phone .dim { color: var(--a-muted); opacity: .5; }
+  .phone .gear { border: 1px solid var(--a-line); border-radius: 999px; padding: 2px 8px; font-size: 11px; color: var(--a-text); }
+  .phone .progress { height: 6px; background: var(--a-line); border-radius: 3px; margin: 8px 0 4px; overflow: hidden; }
+  .phone .progress i { display: block; height: 100%; width: 60%; background: var(--a-green); }
+  .phone .qa { padding: 6px 0; border-bottom: 1px solid var(--a-line); font-size: 12px; }
+  .phone .qa:last-child { border: 0; }
+  .phone .qa b { display: block; font-weight: 500; font-size: 13px; }
+  .phone .qa span { color: var(--a-muted); }
+  .phone .qa span.ok { color: var(--a-green); }
+  .marker { position: absolute; }
+  .navmap { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin: 1rem 0; }
+  .navmap .col { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .8rem 1rem; }
+  .navmap .col h5 { margin: 0 0 .4rem; font-size: 1rem; }
+  .navmap .col ul { padding-left: 1rem; margin: 0; font-size: .9rem; }
+  .navmap .col li.sub { color: var(--muted); }
+  .flow { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 1rem; font-size: .9rem; }
+  .flow span { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .3rem .7rem; }
+  .flow i { color: var(--muted); font-style: normal; }
+  .anno { font-size: .85rem; color: var(--muted); margin: .4rem 0 0; }
+  .anno b { color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Runback – Vorschlag für eine übersichtlichere Oberfläche</h1>
+<p class="sub">Stand 18.09.2026 · bewusst nicht aus <code>docs/spec.md</code> abgeleitet, sondern aus der Frage: <em>Was will ich beim Öffnen der App erledigen, und wie viele Entscheidungen stehen mir dabei im Weg?</em></p>
+
+<div class="box key">
+  <strong>Kurzfassung.</strong> Die App hat nicht zu viele Funktionen, sie zeigt sie nur alle gleichzeitig. Auf „Heute“ stehen zehn Themen auf einer Ebene, drei davon stehen nochmal unter „Mehr“, zwei Tabs beantworten dieselbe Frage, und die wichtigste Idee der App (die eine Empfehlung) ist eine Zeile in Sektion 5.
+  Der Vorschlag: <strong>vier Tabs statt fünf</strong>, <strong>eine Aufgabe je Bildschirm</strong>, <strong>Konfiguration in den Moment der Handlung</strong> (Start-Sheet statt Chips auf der Startseite) und <strong>ein Ort je Thema</strong> (nichts doppelt).
+</div>
+
+<ul class="toc">
+  <li><a href="#diagnose">1. Diagnose je Bildschirm</a></li>
+  <li><a href="#grundsaetze">2. Fünf Grundsätze</a></li>
+  <li><a href="#navigation">3. Neue Navigation</a></li>
+  <li><a href="#heute">4. Heute</a></li>
+  <li><a href="#start">5. Start-Sheet</a></li>
+  <li><a href="#plan">6. Plan</a></li>
+  <li><a href="#verlauf">7. Verlauf (Einheiten + Statistik)</a></li>
+  <li><a href="#detail">8. Einheit im Detail</a></li>
+  <li><a href="#coach">9. Coach (Empfehlung, Fokus, Ziel)</a></li>
+  <li><a href="#einstellungen">10. Einstellungen</a></li>
+  <li><a href="#reihenfolge">11. Reihenfolge der Umsetzung</a></li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="diagnose">1. Diagnose je Bildschirm</h2>
+<p>Ich habe jeden Bildschirm daraufhin angesehen, (a) wie viele Entscheidungen er auf einmal verlangt, (b) ob die Reihenfolge der Wichtigkeit entspricht und (c) ob dasselbe Thema noch woanders steht.</p>
+
+<table>
+  <thead><tr><th style="width:12%">Bildschirm</th><th style="width:40%">Was heute drauf steht</th><th>Warum es unübersichtlich wirkt</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Heute</strong><br><code>renderHome()</code></td>
+      <td>Startkarte (2 Stats, Sportart-Chips, Zweck-Chips, „Laufen nach“-Zeile, Primär-Button, Sekundär-Button) → Deine Planung → Krafttraining (eigener Start-Button) → Dein Fokus (2 Zeilen) → Dein Ziel (2 Zeilen) → Empfehlung (bis 4 Zeilen) → Dein Körper (2 Zeilen) → Zuletzt (3 Zeilen + Button) → Laufvorlagen (n Zeilen)</td>
+      <td>
+        <span class="tag bad">Länge</span> ≈ 3–4 Bildschirmhöhen, alles gleich gewichtet.<br>
+        <span class="tag bad">Entscheidungen vor dem Start</span> Sportart und Zweck müssen jedes Mal auf der Startseite stehen, obwohl man sie meist nur bestätigt.<br>
+        <span class="tag bad">Zwei Start-Buttons</span> Laufen ist immer grün, Kraft immer sekundär – auch wenn heute Kraft geplant ist.<br>
+        <span class="tag bad">Wirkung weit weg</span> Laufvorlagen stehen ganz unten, ändern aber die Karte ganz oben.<br>
+        <span class="tag warn">Doppelt</span> Fokus, Ziel, Empfehlung stehen auch unter „Mehr“ bzw. eigenen Seiten.<br>
+        <span class="tag warn">Kein Tagesbezug</span> Kein Datum, keine Woche, der geplante Lauf ist eine Textzeile in der Karte.
+      </td>
+    </tr>
+    <tr>
+      <td><strong>Planung</strong><br><code>PlanningScreen</code></td>
+      <td>Titel → bis zu 4 Notices → „Woche vorschlagen“ (primär) + „Woche anpassen“ → Chips Woche/Monat → Navigation ‹ › → 3 Stats → Tagesliste → „Zeit und Rhythmus“ (3 Zeilen) → Rückgängig → „Freie Einheiten“ → 3 Modals (Vorschlag, Editor, Verfügbarkeit)</td>
+      <td>
+        <span class="tag bad">Primäraktion falsch</span> „Woche vorschlagen“ ist dauerhaft die grüne Fläche, obwohl man das selten tut; „Einheit hinzufügen“ liegt in der Tagesliste.<br>
+        <span class="tag bad">Modals</span> Editor und Verfügbarkeit als Overlay über einer ohnehin langen Seite; Tastatur + Modal + Scroll.<br>
+        <span class="tag warn">Verwaltung mitten drin</span> Kraftvorlagen und Entwicklung sind Nebenwege, stehen aber zwischen Kalender und Ist-Liste.<br>
+        <span class="tag warn">Zwei Kalender</span> Woche und Monat als Chip-Umschalter statt Monat als Sprungmarke zur Woche.
+      </td>
+    </tr>
+    <tr>
+      <td><strong>Einheiten</strong></td>
+      <td>Titel → Filter-Chips → Zähler → flache Liste</td>
+      <td><span class="tag good">Okay</span> Grundsätzlich brauchbar. <span class="tag warn">Flach</span> Keine Wochengruppierung, keine Summen; man sieht nicht, ob letzte Woche viel oder wenig war – dafür muss man in den Statistik-Tab.</td>
+    </tr>
+    <tr>
+      <td><strong>Einheit-Detail</strong></td>
+      <td>Titel → 3–5 Stats → Chips Art → Chips Zweck → Nächster Schritt → Auffälligkeiten → RPE Beine/Atmung → Notiz → „Hast du die Empfehlung ausprobiert?“ → Strecke (Karte) → „Daten & Auswertung“ (Herkunft, Modell, Abschnitte) → Verwalten (GPX, Löschen)</td>
+      <td><span class="tag bad">Bearbeiten vor Inhalt</span> Zwei Chip-Gruppen zum Ändern der Metadaten stehen <em>vor</em> der Karte und den Abschnitten. <span class="tag warn">Karte unten</span> Das Anschaulichste ist das Letzte, was man sieht.</td>
+    </tr>
+    <tr>
+      <td><strong>Statistik</strong></td>
+      <td>Zeitraum-Chips → Stats → Verlauf (Chips Kennzahl + Diagramm) → „Tiefer schauen“ (≈ 12 Werte) → Krafttraining → Zeile „Entwicklung“</td>
+      <td><span class="tag warn">Zwei Tabs, eine Frage</span> „Was habe ich gemacht?“ ist auf Einheiten und Statistik verteilt. <span class="tag warn">Entwicklung doppelt verlinkt</span> von Statistik <em>und</em> Planung.</td>
+    </tr>
+    <tr>
+      <td><strong>Empfehlung</strong><br><code>page 'focus'</code></td>
+      <td>Satz-Titel (4 Varianten) → Karte mit Aktion → „Ergebnis bisher“ (3 Frage-Zeilen) → Details-Toggle → Vergleichsläufe → „So priorisiert Runback“ → Danach vorgesehen → Verwalten (Pausieren/Abschließen/Abbrechen) → Frühere Empfehlungen (je Karte mit Toggle)</td>
+      <td>
+        <span class="tag bad">Begriffe kollidieren</span> Die Seite heißt im Code <code>focus</code>, in der UI „Empfehlung“; „Dein Fokus“ ist eine andere Seite (<code>orientation</code>). Für Kraft gibt es das nochmal (<code>strength-focus</code>, <code>strength-orientation</code>).<br>
+        <span class="tag bad">Prosa statt Zustand</span> Der Fortschritt („3 von 5 Läufen, seit 12.09.“) steht nirgends als Zahl, nur als Sätze in drei Zeilen.<br>
+        <span class="tag warn">Verwalten und Erklären gleichrangig</span> Pausieren/Abbrechen sind so groß wie die Empfehlung selbst.
+      </td>
+    </tr>
+    <tr>
+      <td><strong>Mehr</strong></td>
+      <td>Einstellungen (7 Zeilen: Fokus L, Fokus K, Ziel &amp; Alltag, Laufvorlagen, Geräte, Herzfrequenz, Einrichtung) → Deine Daten → Verstehen (Chat, Wie Runback rechnet)</td>
+      <td><span class="tag warn">Vermischt</span> „Was ich will“ (Fokus, Ziel) steht neben „Wie das Gerät läuft“ (BLE, Health Connect). <span class="tag warn">Chat versteckt</span> Die einzige Stelle, an der man der App Fragen stellen kann, liegt drei Ebenen tief.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Das gemeinsame Muster</h3>
+<ul>
+  <li><strong>Alles auf Ebene 1.</strong> Die Bildschirme sind Listen von Sektionen, keine Antwort auf eine Frage. Wichtiges und Verwaltung stehen untereinander mit gleichem Gewicht.</li>
+  <li><strong>Konfiguration statt Handlung.</strong> Sportart, Zweck, Tempo-Ziel, Vorlage – all das steht dauerhaft auf der Startseite, obwohl es nur im Moment des Startens interessiert.</li>
+  <li><strong>Ein Thema, drei Orte.</strong> Fokus/Ziel/Empfehlung tauchen auf Heute, Mehr und eigenen Seiten auf. Entwicklung ist von zwei Tabs aus erreichbar. Man weiß nie, wo man „zurück“ landet.</li>
+  <li><strong>Laufen und Kraft als getrennte Welten auf demselben Bildschirm.</strong> Jede Sektion wird für beide Bereiche verdoppelt (Fokus L/K, Ziel L/K, Empfehlung L/K), statt den Bereich einmal zu wählen.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="grundsaetze">2. Fünf Grundsätze für die Neuordnung</h2>
+<ol>
+  <li><strong>Jeder Tab beantwortet genau eine Frage.</strong> Heute: <em>Was mache ich jetzt?</em> Plan: <em>Was mache ich diese Woche?</em> Verlauf: <em>Was habe ich gemacht?</em> Coach: <em>Woran arbeite ich?</em></li>
+  <li><strong>Eine Fläche oben, der Rest darunter.</strong> Das Wichtigste ist eine große Karte mit einem Button. Alles andere sind kompakte Zeilen, die man überfliegen kann.</li>
+  <li><strong>Einstellen im Moment des Tuns.</strong> Sportart, Zweck, Ziel und Vorlage werden im Start-Sheet gewählt – mit der letzten Wahl als Vorgabe. Auf der Startseite steht nur noch: „Lauf starten“.</li>
+  <li><strong>Ein Ort je Thema.</strong> Fokus, Ziel, Empfehlung leben nur im Coach-Tab. Vorlagen (Lauf und Kraft) nur im Plan-Tab. Geräte, Daten, Modelle nur in den Einstellungen (Zahnrad im Kopf).</li>
+  <li><strong>Bereich einmal wählen, nicht je Sektion.</strong> Wo Laufen und Kraft beide vorkommen (Coach, Statistik), gibt es <em>einen</em> Umschalter oben statt doppelter Zeilen in jeder Sektion.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="navigation">3. Neue Navigation: vier Tabs + Zahnrad</h2>
+<p>Fünf Tabs mit „Mehr“ als Sammelbecken werden zu vier Tabs mit klaren Fragen. Einstellungen sind kein Tab mehr, sondern ein Zahnrad im Kopf jeder Hauptseite – so wie es fast jede App macht, die man kennt.</p>
+
+<div class="navmap">
+  <div class="col">
+    <h5>▶ Heute</h5>
+    <ul>
+      <li>Wochenleiste (7 Tage, Punkte für geplant/erledigt)</li>
+      <li>Hero: heutige Einheit oder Schnellstart</li>
+      <li>Aktive Empfehlung (kompakt, nur wenn vorhanden)</li>
+      <li>Körper-Check (nur nach Einheit / bei Muskelkater)</li>
+      <li>Zuletzt (2 Zeilen)</li>
+      <li class="sub">→ Start-Sheet, Aufzeichnung, Muskelkater melden</li>
+    </ul>
+  </div>
+  <div class="col">
+    <h5>▦ Plan</h5>
+    <ul>
+      <li>Wochenansicht mit Tagesleiste (Standard)</li>
+      <li>Monat als Sprungmarke (Symbol im Kopf)</li>
+      <li>„+“ Einheit hinzufügen (Primäraktion)</li>
+      <li>„Woche vorschlagen“ nur in leeren Wochen prominent</li>
+      <li class="sub">→ Einheit bearbeiten (Vollbild), Verfügbarkeit, Vorlagen (Lauf + Kraft), Entwicklung</li>
+    </ul>
+  </div>
+  <div class="col">
+    <h5>≡ Verlauf</h5>
+    <ul>
+      <li>Umschalter: Einheiten · Statistik</li>
+      <li>Einheiten: nach Woche gruppiert, Wochensumme im Kopf</li>
+      <li>Statistik: Zeitraum, 3 Kennzahlen, 1 Diagramm, „Mehr Kennzahlen“ aufklappbar</li>
+      <li class="sub">→ Einheit-Detail, Muskelkarte</li>
+    </ul>
+  </div>
+  <div class="col">
+    <h5>◎ Coach</h5>
+    <ul>
+      <li>Umschalter: Laufen · Krafttraining</li>
+      <li>Empfehlung (Zustand, Fortschritt, Ergebnis)</li>
+      <li>Fokus &amp; Ziel (eine Zeile, ein Editor)</li>
+      <li>Trainingschat</li>
+      <li class="sub">→ Empfehlungsdetails, frühere Empfehlungen, „Wie Runback rechnet“</li>
+    </ul>
+  </div>
+  <div class="col">
+    <h5>⚙ Einstellungen (Zahnrad)</h5>
+    <ul>
+      <li>Geräte &amp; Verbindungen (Uhr, BLE, Health Connect, Wetter)</li>
+      <li>Herzfrequenz-Zonen</li>
+      <li>Deine Daten (Import, Backup, Löschen)</li>
+      <li>KI &amp; Formulierung (OpenRouter)</li>
+      <li>Einrichtung erneut öffnen</li>
+    </ul>
+  </div>
+</div>
+
+<h4>Wo landet was? (alt → neu)</h4>
+<table>
+  <thead><tr><th>Heute (alt)</th><th>Neu</th><th>Mehr (alt)</th><th>Neu</th></tr></thead>
+  <tbody>
+    <tr><td>Startkarte mit Chips</td><td>Heute → Hero + Start-Sheet</td><td>Dein Fokus · Laufen/Kraft</td><td>Coach → Fokus &amp; Ziel</td></tr>
+    <tr><td>Deine Planung</td><td>Heute → Wochenleiste; Plan</td><td>Ziel &amp; Alltag</td><td>Coach → Fokus &amp; Ziel (Ziel) · Plan → Verfügbarkeit (Alltag)</td></tr>
+    <tr><td>Krafttraining-Sektion</td><td>Heute → Hero (wenn geplant) oder Schnellstart</td><td>Laufvorlagen</td><td>Plan → Vorlagen; Start-Sheet</td></tr>
+    <tr><td>Dein Fokus / Dein Ziel</td><td>Coach</td><td>Geräte &amp; Verbindungen</td><td>Einstellungen</td></tr>
+    <tr><td>Empfehlung</td><td>Heute (kompakt, nur aktiv) · Coach (voll)</td><td>Herzfrequenz</td><td>Einstellungen</td></tr>
+    <tr><td>Dein Körper</td><td>Heute → Körper-Check (situativ) · Verlauf → Muskelkarte</td><td>Deine Daten</td><td>Einstellungen</td></tr>
+    <tr><td>Zuletzt</td><td>Heute (2 Zeilen)</td><td>Trainingschat</td><td>Coach</td></tr>
+    <tr><td>Laufvorlagen</td><td>Start-Sheet</td><td>Wie Runback rechnet</td><td>Coach → unten; Einstellungen</td></tr>
+    <tr><td>Trainingspläne (Kraft)</td><td>Plan → Vorlagen</td><td>Einrichtung</td><td>Einstellungen</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="heute">4. Heute</h2>
+<p>Die Startseite antwortet auf eine einzige Frage: <strong>Was mache ich jetzt?</strong> Die Antwort ist eine große Karte. Alles darunter passt auf einen Bildschirm ohne Scrollen.</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag bad">Vorher</span> scrollbar – so lang ist die Seite heute</p>
+    <div class="phone"><div class="screen">
+      <div class="hdr"><b>runback <i>/</i></b><span>Auf deinem Gerät</span></div>
+      <div class="ttl">Heute</div>
+      <div class="card hero">
+        <div class="stats"><div class="stat"><b>vor 2 Tagen</b><span>Letzter Lauf</span></div><div class="stat"><b>18,4</b><span>km in 7 Tagen</span></div></div>
+        <div class="lbl">Sportart</div>
+        <div class="chips"><span class="chip on">Laufen</span><span class="chip">Radfahren</span></div>
+        <div class="lbl">Zweck</div>
+        <div class="chips"><span class="chip">Frei</span><span class="chip on">Locker</span><span class="chip">Lang</span><span class="chip">Tempo</span><span class="chip">Intervalle</span></div>
+        <div class="row"><div><div class="t">Laufen nach</div><div class="s">Gefühl</div></div><span class="chev">›</span></div>
+        <div class="btn">Lauf starten</div>
+        <div class="btn sec sm">Geplanten Lauf starten</div>
+      </div>
+      <div class="sec">Deine Planung</div>
+      <div class="copy m">Als Nächstes: Lockerer Lauf · 19.09. · 40 Min.</div>
+      <div class="row"><div><div class="t">Woche ansehen</div><div class="s">Training und verfügbare Zeit planen</div></div><span class="chev">›</span></div>
+      <div class="sec">Krafttraining</div>
+      <div class="copy m">Heute vorgesehen: Oberkörper A</div>
+      <div class="btn sec">Oberkörper A starten</div>
+      <div class="btn sec sm">Stattdessen frei trainieren</div>
+      <div class="row"><div><div class="t">Trainingspläne</div><div class="s">Übungsfolgen anlegen, ändern und starten</div></div><span class="chev">›</span></div>
+      <div class="sec">Dein Fokus</div>
+      <div class="row"><div><div class="t">Ausdauer</div><div class="s">Laufen · deine dauerhafte Orientierung</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Fitness</div><div class="s">Krafttraining · deine dauerhafte Orientierung</div></div><span class="chev">›</span></div>
+      <div class="sec">Dein Ziel</div>
+      <div class="row"><div><div class="t">Halbmarathon im Oktober</div><div class="s">Laufen · Ziel &amp; Alltag</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Kein Ziel gesetzt</div><div class="s">Krafttraining</div></div><span class="chev">›</span></div>
+      <div class="sec">Empfehlung</div>
+      <div class="row"><div><div class="t">Starte die ersten 10 Minuten ruhiger</div><div class="s">Laufen · Angenommen · Aktiv</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Danach vorgesehen</div><div class="s">Laufen · Längere lockere Läufe</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Noch keine Empfehlung</div><div class="s">Krafttraining · Trainiere weiter oder sieh nach, was noch fehlt.</div></div><span class="chev">›</span></div>
+      <div class="sec">Dein Körper</div>
+      <div class="row"><div><div class="t">Muskelkater melden</div><div class="s">Zuletzt gemeldet: 15.09.</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Muskelkarte</div><div class="s">Gemeldeter Muskelkater und gerechnete Frische je Region</div></div><span class="chev">›</span></div>
+      <div class="sec">Zuletzt</div>
+      <div class="row"><div><div class="t">Lockerer Lauf</div><div class="s">Lauf · 16.09. · 7,20 km · 5:48 /km</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Oberkörper A</div><div class="s">Krafttraining · 15.09. · 12 Sätze</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Langer Lauf</div><div class="s">Lauf · 13.09. · 14,10 km · 6:02 /km</div></div><span class="chev">›</span></div>
+      <div class="btn sec sm">Alle Einheiten ansehen</div>
+      <div class="sec">Laufvorlagen</div>
+      <div class="row"><div><div class="t">Feierabendrunde</div><div class="s">Locker · 40 Minuten</div></div></div>
+      <div class="row"><div><div class="t">Sonntag lang</div><div class="s">Lang · 90 Minuten</div></div></div>
+      <div class="tabs"><span class="on">Heute</span><span>Planung</span><span>Einheiten</span><span>Statistik</span><span>Mehr</span></div>
+    </div></div>
+    <p class="note">10 Sektionen, 4 Buttons, 2 Chip-Gruppen, 18 Zeilen. Der geplante Lauf steht in Zeile 12 der Karte, die Vorlagen ganz unten.</p>
+  </div>
+
+  <div>
+    <p class="lbl"><span class="tag good">Nachher</span> passt auf einen Bildschirm</p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><b>runback <i>/</i></b><span class="gear">⚙</span></div>
+      <div class="ttl">Heute<small>Donnerstag, 18. September</small></div>
+      <div class="week">
+        <div><b>15</b>Mo<i class="d">●</i></div><div><b>16</b>Di<i class="d">●</i></div><div><b>17</b>Mi<i>●</i></div><div class="today"><b>18</b>Do<i class="p">●</i></div><div><b>19</b>Fr<i>●</i></div><div><b>20</b>Sa<i class="p">●</i></div><div><b>21</b>So<i class="p">●</i></div>
+      </div>
+      <div class="card hero">
+        <div class="lbl">Heute geplant</div>
+        <div style="font-size:18px;font-weight:600;margin:2px 0">Oberkörper A</div>
+        <div class="copy m">Krafttraining · 45 Min · 6 Übungen</div>
+        <div class="btn big">Training starten</div>
+        <div class="btn ghost sm">Stattdessen Lauf oder Rad starten</div>
+      </div>
+      <div class="card accent">
+        <div class="row" style="border:0;padding:4px 0">
+          <div><div class="t">Starte die ersten 10 Minuten ruhiger <span class="badge">Aktiv</span></div><div class="s">3 von 5 Läufen · noch nicht klar</div></div><span class="chev">›</span>
+        </div>
+        <div class="progress"><i></i></div>
+      </div>
+      <div class="row"><div><div class="t">Wie fühlst du dich heute?</div><div class="s">Gestern Krafttraining · Muskelkater melden</div></div><span class="chev">›</span></div>
+      <div class="sec">Zuletzt</div>
+      <div class="row"><div><div class="t">Lockerer Lauf · Di</div><div class="s">7,20 km · 5:48 /km · Beine 4</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Oberkörper A · Mo</div><div class="s">12 Sätze · 42 Min</div></div><span class="chev">›</span></div>
+      <div style="flex:1"></div>
+      <div class="tabs" style="margin-top:auto"><span class="on">Heute</span><span>Plan</span><span>Verlauf</span><span>Coach</span></div>
+    </div></div>
+    <p class="note">Eine Karte, ein Button. Die Wochenleiste ersetzt „Deine Planung“. Die Empfehlung erscheint nur, wenn eine aktiv ist, und mit Fortschritt statt Prosa. Fokus, Ziel, Vorlagen, Muskelkarte, Pläne: weg von hier.</p>
+  </div>
+</div>
+
+<h3>Regeln für die Hero-Karte</h3>
+<table>
+  <thead><tr><th>Situation</th><th>Hero zeigt</th><th>Button</th></tr></thead>
+  <tbody>
+    <tr><td>Heute ist genau eine Einheit geplant</td><td>Titel, Art, Dauer, ggf. Zweck und Tempo-Ziel</td><td>„Lauf starten“ / „Training starten“ + Ghost „Stattdessen …“</td></tr>
+    <tr><td>Heute sind zwei Einheiten geplant</td><td>Die erste offene; die zweite als Zeile darunter</td><td>wie oben</td></tr>
+    <tr><td>Nichts geplant</td><td>„Nichts geplant“ + nächste geplante Einheit als Zeile</td><td>Drei gleichwertige Schnellstarts: Lauf · Rad · Kraft (alle öffnen das Start-Sheet)</td></tr>
+    <tr><td>Heute schon erledigt</td><td>Erledigte Einheit mit Häkchen und Kurzergebnis</td><td>Ghost „Noch eine Einheit starten“</td></tr>
+    <tr><td>Aufzeichnung läuft / Krafttraining offen</td><td>Live-Werte</td><td>„Fortsetzen“ (die Karte <em>ist</em> der Weg zurück)</td></tr>
+  </tbody>
+</table>
+<p class="anno"><b>Warum kein zweiter Start-Button für Kraft?</b> Weil an einem Tag meist eine Sache geplant ist. Wer etwas anderes will, tippt auf „Stattdessen …“ und ist im selben Sheet – ein Tipp mehr, aber die Startseite ist halb so lang.</p>
+
+<!-- ============================================================ -->
+<h2 id="start">5. Start-Sheet: einstellen, wenn man startet</h2>
+<p>Alle Entscheidungen, die heute dauerhaft auf der Startseite stehen (Sportart, Zweck, Tempo-/Puls-Ziel, Vorlage), wandern in ein Bottom-Sheet, das sich beim Tippen auf „Starten“ öffnet. Die letzte Wahl ist vorausgefüllt – für den Normalfall heißt das: <strong>ein Tipp, dann „Los“</strong>.</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag good">Start-Sheet · Laufen</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr dim"><b>runback <i>/</i></b><span class="gear">⚙</span></div>
+      <div class="ttl dim">Heute</div>
+      <div class="week dim"><div><b>15</b>Mo</div><div><b>16</b>Di</div><div><b>17</b>Mi</div><div class="today"><b>18</b>Do</div><div><b>19</b>Fr</div><div><b>20</b>Sa</div><div><b>21</b>So</div></div>
+      <div class="sheet">
+        <div class="grip"></div>
+        <div class="seg"><span class="on">Laufen</span><span>Rad</span><span>Kraft</span></div>
+        <div class="lbl">Vorlage</div>
+        <div class="chips"><span class="chip on">Feierabendrunde</span><span class="chip">Sonntag lang</span><span class="chip">Ohne</span></div>
+        <div class="lbl">Zweck</div>
+        <div class="chips"><span class="chip">Frei</span><span class="chip on">Locker</span><span class="chip">Lang</span><span class="chip">Tempo</span><span class="chip">Intervalle</span></div>
+        <div class="row"><div><div class="t">Laufen nach</div><div class="s">Puls · Zone 2 (125–140)</div></div><span class="chev">›</span></div>
+        <div class="row"><div><div class="t">Strecke</div><div class="s">Keine · Route wählen</div></div><span class="chev">›</span></div>
+        <div class="copy m" style="margin-top:8px">Uhr verbunden · Pulsgurt gefunden · GPS bereit</div>
+        <div class="btn big">Los</div>
+      </div>
+    </div></div>
+    <p class="note">Vorlage oben, weil sie Zweck und Dauer setzt. Wer keine nutzt, sieht Chips wie bisher. Sensor-Status als Satz, nicht als Sektion.</p>
+  </div>
+  <div>
+    <p class="lbl"><span class="tag good">Start-Sheet · Kraft</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr dim"><b>runback <i>/</i></b><span class="gear">⚙</span></div>
+      <div class="ttl dim">Heute</div>
+      <div class="week dim"><div><b>15</b>Mo</div><div><b>16</b>Di</div><div><b>17</b>Mi</div><div class="today"><b>18</b>Do</div><div><b>19</b>Fr</div><div><b>20</b>Sa</div><div><b>21</b>So</div></div>
+      <div class="sheet">
+        <div class="grip"></div>
+        <div class="seg"><span>Laufen</span><span>Rad</span><span class="on">Kraft</span></div>
+        <div class="lbl">Vorlage</div>
+        <div class="row"><div><div class="t">Oberkörper A</div><div class="s">6 Übungen · zuletzt Mo</div></div><span class="chev done">✓</span></div>
+        <div class="row"><div><div class="t">Unterkörper</div><div class="s">5 Übungen · zuletzt vor 6 Tagen</div></div><span class="chev"></span></div>
+        <div class="row"><div><div class="t">Frei trainieren</div><div class="s">Übungen während der Einheit wählen</div></div><span class="chev"></span></div>
+        <div class="btn ghost sm">Vorlagen verwalten ›</div>
+        <div class="btn big">Los</div>
+      </div>
+    </div></div>
+    <p class="note">Die heutige geplante Vorlage ist vorausgewählt. „Vorlagen verwalten“ führt in den Plan-Tab – ein Ort, nicht drei.</p>
+  </div>
+</div>
+
+<div class="flow">
+  <span>Heute</span><i>→ tippt „Lauf starten“ →</i><span>Start-Sheet (vorausgefüllt)</span><i>→ „Los“ →</i><span>Aufzeichnung</span><i>→ „Beenden“ →</i><span>Nachher-Karte: Laufgefühl, Zweck bestätigen, nächster Schritt</span><i>→</i><span>Heute (Hero: erledigt ✓)</span>
+</div>
+<p class="anno"><b>Aufzeichnungsansicht</b> bleibt inhaltlich wie heute (Live-Werte, Ziel-Hinweis, Pause/Beenden). Nur die Reihenfolge ändert sich: erst die Zahl, die man gerade braucht (Tempo bzw. Puls je nach „Laufen nach“), dann der Rest kleiner.</p>
+
+<!-- ============================================================ -->
+<h2 id="plan">6. Plan</h2>
+<p>Der Plan ist ein Wochenkalender, keine Konfigurationsseite. Die Primäraktion ist <strong>„+ Einheit“</strong>, nicht „Woche vorschlagen“. Alles, was die Woche <em>beschreibt</em> (Verfügbarkeit, Rhythmus, Vorlagen), ist ein Nebenweg hinter einem Symbol.</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag bad">Vorher</span></p>
+    <div class="phone"><div class="screen">
+      <div class="hdr"><b>runback <i>/</i></b><span>Auf deinem Gerät</span></div>
+      <div class="ttl">Planung</div>
+      <div style="display:flex;gap:6px"><div class="btn" style="flex:2">Woche vorschlagen</div><div class="btn sec sm" style="flex:1;align-self:center">Woche anpassen</div></div>
+      <div class="chips"><span class="chip on">Woche</span><span class="chip">Monat</span></div>
+      <div class="sec">Diese Woche</div>
+      <div style="display:flex;justify-content:space-between;color:var(--a-muted)"><span>‹</span><span>15.09. – 21.09.</span><span>›</span></div>
+      <div class="stats"><div class="stat"><b>4</b><span>Einheiten</span></div><div class="stat"><b>190</b><span>Minuten</span></div><div class="stat"><b>5</b><span>Tage</span></div></div>
+      <div class="card">
+        <div class="day"><div class="d">Mo<b>15</b></div><div class="items"><div class="it done"><span>Oberkörper A</span><span>45</span></div></div></div>
+        <div class="day"><div class="d">Di<b>16</b></div><div class="items"><div class="it done"><span>Lockerer Lauf</span><span>40</span></div></div></div>
+        <div class="day"><div class="d">Mi<b>17</b></div><div class="items"><div class="it free">frei · 0 Min</div></div></div>
+        <div class="day today"><div class="d">Do<b>18</b></div><div class="items"><div class="it"><span>Oberkörper A</span><span>45</span></div><div class="btn sec sm">Einheit hinzufügen</div></div></div>
+        <div class="day"><div class="d">Fr<b>19</b></div><div class="items"><div class="it free">frei · 45 Min</div></div></div>
+        <div class="day"><div class="d">Sa<b>20</b></div><div class="items"><div class="it"><span>Langer Lauf</span><span>90</span></div></div></div>
+        <div class="day"><div class="d">So<b>21</b></div><div class="items"><div class="it free">frei · 60 Min</div></div></div>
+      </div>
+      <div class="sec">Zeit und Rhythmus</div>
+      <div class="card">
+        <div class="row"><div><div class="t">Verfügbarkeit anpassen</div><div class="s">Zeitbudget für die angezeigte Woche</div></div><span class="chev">›</span></div>
+        <div class="row"><div><div class="t">Kraftvorlagen verwalten</div><div class="s">2 Vorlagen gespeichert</div></div><span class="chev">›</span></div>
+        <div class="row"><div><div class="t">Entwicklung ansehen</div><div class="s">Plan und tatsächliche Einheiten</div></div><span class="chev">›</span></div>
+      </div>
+      <div class="sec">Freie Einheiten</div>
+      <div class="row"><div><div class="t">Lockerer Lauf</div><div class="s">13.09. · nicht im Plan</div></div><span class="chev">›</span></div>
+      <div class="tabs"><span>Heute</span><span class="on">Planung</span><span>Einheiten</span><span>Statistik</span><span>Mehr</span></div>
+    </div></div>
+    <p class="note">Zwei Aktionen oben, dann ein Umschalter, dann Navigation, dann Stats – bevor der Kalender kommt. Bearbeiten in Modals.</p>
+  </div>
+  <div>
+    <p class="lbl"><span class="tag good">Nachher</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><b>runback <i>/</i></b><span><span class="gear">▦ Monat</span> &nbsp; <span class="gear">⋯</span></span></div>
+      <div class="ttl">Plan<small>15. – 21. September · 4 Einheiten · 3 h 10</small></div>
+      <div style="display:flex;justify-content:space-between;color:var(--a-muted);padding:2px 0 6px"><span>‹ Vorherige</span><span style="color:var(--a-green)">Diese Woche</span><span>Nächste ›</span></div>
+      <div class="card">
+        <div class="day"><div class="d">Mo<b>15</b></div><div class="items"><div class="it done"><span>Oberkörper A</span><span>45 ✓</span></div></div></div>
+        <div class="day"><div class="d">Di<b>16</b></div><div class="items"><div class="it done"><span>Lockerer Lauf</span><span>7,2 km ✓</span></div></div></div>
+        <div class="day"><div class="d">Mi<b>17</b></div><div class="items"><div class="it free">Ruhetag</div></div></div>
+        <div class="day today"><div class="d">Do<b>18</b></div><div class="items"><div class="it"><span>Oberkörper A</span><span>45</span></div></div></div>
+        <div class="day"><div class="d">Fr<b>19</b></div><div class="items"><div class="it free">frei · 45 Min möglich</div></div></div>
+        <div class="day"><div class="d">Sa<b>20</b></div><div class="items"><div class="it"><span>Langer Lauf · Zone 2</span><span>90</span></div></div></div>
+        <div class="day"><div class="d">So<b>21</b></div><div class="items"><div class="it free">frei · 60 Min möglich</div></div></div>
+      </div>
+      <div class="btn">+ Einheit hinzufügen</div>
+      <div class="btn sec">Woche vorschlagen lassen</div>
+      <div class="sec">Ungeplant diese Woche</div>
+      <div class="row"><div><div class="t">Lockerer Lauf · Sa 13.09.</div><div class="s">Nicht im Plan · zuordnen oder so lassen</div></div><span class="chev">›</span></div>
+      <div style="flex:1"></div>
+      <div class="tabs"><span>Heute</span><span class="on">Plan</span><span>Verlauf</span><span>Coach</span></div>
+    </div></div>
+    <p class="note">Der Kalender kommt zuerst. Erledigt zeigt das Ergebnis (km), nicht die Planminuten. „⋯“ öffnet: Verfügbarkeit &amp; Rhythmus, Vorlagen, Entwicklung. Monat ist ein Sprung zur Woche, kein zweiter Modus.</p>
+  </div>
+</div>
+
+<h3>Weitere Änderungen im Plan</h3>
+<ul>
+  <li><strong>Tag antippen → Tages-Sheet.</strong> Statt Inline-Buttons in der Tagesliste: ein Sheet mit den Einheiten des Tages, „Starten“, „Bearbeiten“, „Verschieben“, „+ Einheit“. Die Liste bleibt ruhig.</li>
+  <li><strong>Editor als Vollbildseite, nicht als Modal.</strong> „‹ Zurück“ oben, Speichern unten fest. Felder in der Reihenfolge, in der man entscheidet: Art → Vorlage/Zweck → Dauer → Belastung → Name (automatisch vorgeschlagen, änderbar).</li>
+  <li><strong>„Woche vorschlagen“</strong> bleibt, wird aber nur in einer leeren Woche zur Primäraktion. In einer gefüllten Woche ist es sekundär. Der Vorschlag erscheint als Vorschau <em>im Kalender</em> (gestrichelt), mit „Übernehmen“ / „Verwerfen“ unten – kein Modal mit eigener Liste.</li>
+  <li><strong>Vorlagen (Lauf + Kraft) an einem Ort:</strong> Plan → ⋯ → Vorlagen. Zwei Reiter (Laufvorlagen, Kraftvorlagen). Heute liegen Laufvorlagen unter Mehr, Kraftvorlagen unter Heute → Trainingspläne.</li>
+  <li><strong>Entwicklung</strong> nur noch hier (Plan → ⋯ → Entwicklung), weil sie Plan gegen Ist stellt. Aus der Statistik verschwindet der Link.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="verlauf">7. Verlauf: Einheiten und Statistik in einem Tab</h2>
+<p>Beide beantworten „Was habe ich gemacht?“. Ein Umschalter oben trennt Liste und Zahlen, so dass man zwischen beiden wechselt, ohne den Tab zu verlassen.</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag good">Verlauf · Einheiten</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><b>runback <i>/</i></b><span class="gear">⚙</span></div>
+      <div class="ttl">Verlauf</div>
+      <div class="seg"><span class="on">Einheiten</span><span>Statistik</span></div>
+      <div class="chips"><span class="chip on">Alle</span><span class="chip">Laufen</span><span class="chip">Rad</span><span class="chip">Kraft</span></div>
+      <div class="sec" style="display:flex;justify-content:space-between"><span>Diese Woche</span><span class="copy m" style="margin:0">2 Einheiten · 7,2 km · 1 h 27</span></div>
+      <div class="row"><div><div class="t">Lockerer Lauf</div><div class="s">Di 16.09. · 7,20 km · 5:48 /km · Beine 4</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Oberkörper A</div><div class="s">Mo 15.09. · 12 Sätze · 1 840 kg</div></div><span class="chev">›</span></div>
+      <div class="sec" style="display:flex;justify-content:space-between"><span>8. – 14. Sept.</span><span class="copy m" style="margin:0">4 Einheiten · 28,6 km · 3 h 50</span></div>
+      <div class="row"><div><div class="t">Langer Lauf</div><div class="s">Sa 13.09. · 14,10 km · 6:02 /km</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Unterkörper</div><div class="s">Do 11.09. · 15 Sätze</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Intervalle</div><div class="s">Mi 10.09. · 8,20 km · 4:55 /km</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Lockerer Lauf</div><div class="s">Mo 08.09. · 6,30 km · 5:52 /km</div></div><span class="chev">›</span></div>
+      <div class="sec" style="display:flex;justify-content:space-between"><span>1. – 7. Sept.</span><span class="copy m" style="margin:0">3 Einheiten · 21,0 km</span></div>
+      <div class="row"><div><div class="t">Lockerer Lauf</div><div class="s">Sa 06.09. · 9,80 km · 5:50 /km</div></div><span class="chev">›</span></div>
+      <div style="flex:1"></div>
+      <div class="tabs"><span>Heute</span><span>Plan</span><span class="on">Verlauf</span><span>Coach</span></div>
+    </div></div>
+    <p class="note">Nach Wochen gruppiert, Wochensumme im Kopf. So sieht man Umfang, ohne in die Statistik zu gehen. Wochentag vor dem Datum, weil man sich so erinnert.</p>
+  </div>
+  <div>
+    <p class="lbl"><span class="tag good">Verlauf · Statistik</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><b>runback <i>/</i></b><span class="gear">⚙</span></div>
+      <div class="ttl">Verlauf</div>
+      <div class="seg"><span>Einheiten</span><span class="on">Statistik</span></div>
+      <div class="seg" style="margin-top:0"><span class="on">Laufen</span><span>Krafttraining</span></div>
+      <div class="chips"><span class="chip">4 Wo</span><span class="chip on">8 Wo</span><span class="chip">12 Wo</span><span class="chip">Jahr</span></div>
+      <div class="stats"><div class="stat"><b>142</b><span>km</span></div><div class="stat"><b>5:51</b><span>Ø /km</span></div><div class="stat"><b>2,4</b><span>Läufe / Woche</span></div></div>
+      <div class="card">
+        <div class="chips" style="margin-top:0"><span class="chip on">km je Woche</span><span class="chip">Tempo</span><span class="chip">Puls</span><span class="chip">Beine</span></div>
+        <div class="spark"></div>
+        <div class="copy m">Letzte 8 Wochen · diese Woche bisher 7,2 km</div>
+      </div>
+      <div class="row"><div><div class="t">Mehr Kennzahlen</div><div class="s">Serie, Tage mit Lauf, Ø Puls, Schrittfrequenz …</div></div><span class="chev">⌄</span></div>
+      <div class="row"><div><div class="t">Muskelkarte</div><div class="s">Frische je Region aus Einheiten und Muskelkater</div></div><span class="chev">›</span></div>
+      <div style="flex:1"></div>
+      <div class="tabs"><span>Heute</span><span>Plan</span><span class="on">Verlauf</span><span>Coach</span></div>
+    </div></div>
+    <p class="note">Drei Kennzahlen, ein Diagramm. „Tiefer schauen“ mit zwölf Werten ist eingeklappt. Bereich (Laufen/Kraft) einmal oben wählen statt separater Kraft-Sektion unten. Muskelkarte gehört zum Rückblick, nicht auf die Startseite.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="detail">8. Einheit im Detail: erst sehen, dann bewerten, dann verwalten</h2>
+<p>Die Detailseite folgt heute der Reihenfolge „Zahlen → Metadaten ändern → Bewertung → Karte → Rohdaten → Löschen“. Sinnvoller: <strong>Ergebnis → Karte → Abschnitte → Bewertung → Verwaltung</strong>. Das Ändern von Art und Zweck ist eine Ausnahme, kein Dauerzustand – es kommt in ein Sheet.</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag bad">Vorher</span> (Reihenfolge)</p>
+    <div class="phone"><div class="screen">
+      <div class="hdr"><span>‹ Zurück</span><span></span></div>
+      <div class="ttl">Lockerer Lauf<small>Lauf · 16.09.2026</small></div>
+      <div class="stats"><div class="stat"><b>7,20</b><span>Kilometer</span></div><div class="stat"><b>41:46</b><span>Dauer</span></div><div class="stat"><b>5:48</b><span>/km</span></div></div>
+      <div class="stats"><div class="stat"><b>148</b><span>Ø bpm</span></div><div class="stat"><b>172</b><span>Ø Schritte / min</span></div></div>
+      <div class="lbl">Art</div>
+      <div class="chips"><span class="chip on">Laufen</span><span class="chip">Radfahren</span></div>
+      <div class="lbl">Zweck</div>
+      <div class="chips"><span class="chip">Frei</span><span class="chip on">Locker</span><span class="chip">Lang</span><span class="chip">Tempo</span><span class="chip">Intervalle</span></div>
+      <div class="sec">Nächster Schritt</div>
+      <div class="copy">Behalte den ruhigen Start bei.</div>
+      <div class="sec">Laufgefühl</div>
+      <div class="lbl">Beine</div><div class="chips"><span class="chip">1</span><span class="chip">2</span><span class="chip">3</span><span class="chip on">4</span><span class="chip">5</span></div>
+      <div class="lbl">Atmung</div><div class="chips"><span class="chip">1</span><span class="chip">2</span><span class="chip on">3</span><span class="chip">4</span><span class="chip">5</span></div>
+      <div class="lbl">Notiz</div><div class="card" style="min-height:40px"></div>
+      <div class="btn sec sm">Notiz speichern</div>
+      <div class="sec">Hast du die Empfehlung ausprobiert?</div>
+      <div class="chips"><span class="chip">Ja</span><span class="chip">Teilweise</span><span class="chip">Nein</span></div>
+      <div class="sec">Strecke</div>
+      <div class="map"></div>
+      <div class="btn sec sm">Daten &amp; Auswertung</div>
+      <div class="sec">Diese Aufzeichnung verwalten</div>
+      <div class="btn sec sm">Als GPX exportieren</div>
+      <div class="btn danger sm">Aufzeichnung löschen</div>
+    </div></div>
+  </div>
+  <div>
+    <p class="lbl"><span class="tag good">Nachher</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><span>‹ Verlauf</span><span class="gear">⋯</span></div>
+      <div class="ttl">Lockerer Lauf<small>Di 16. Sept. · 18:12 · Locker · Zone 2</small></div>
+      <div class="map" style="height:150px"></div>
+      <div class="stats"><div class="stat"><b>7,20</b><span>km</span></div><div class="stat"><b>41:46</b><span>Dauer</span></div><div class="stat"><b>5:48</b><span>Ø /km</span></div><div class="stat"><b>148</b><span>Ø bpm</span></div></div>
+      <div class="card accent">
+        <div class="copy">Passt zum Zweck: gleichmäßig, Puls in Zone 2. Behalte den ruhigen Start bei.</div>
+        <div class="copy m">Empfehlung ausprobiert? <span class="chip on" style="display:inline">Ja</span> <span class="chip" style="display:inline">Teilweise</span> <span class="chip" style="display:inline">Nein</span></div>
+      </div>
+      <div class="sec">Laufgefühl</div>
+      <div class="row"><div class="t">Beine</div><div class="chips" style="margin:0"><span class="chip">1</span><span class="chip">2</span><span class="chip">3</span><span class="chip on">4</span><span class="chip">5</span></div></div>
+      <div class="row"><div class="t">Atmung</div><div class="chips" style="margin:0"><span class="chip">1</span><span class="chip">2</span><span class="chip on">3</span><span class="chip">4</span><span class="chip">5</span></div></div>
+      <div class="row"><div><div class="t">Notiz</div><div class="s">Windig, letzte 2 km bergauf</div></div><span class="chev">›</span></div>
+      <div class="sec">Abschnitte</div>
+      <div class="row" style="min-height:32px;padding:4px 0"><span class="copy m">1 km</span><span>5:52</span><span class="copy m">142</span></div>
+      <div class="row" style="min-height:32px;padding:4px 0"><span class="copy m">2 km</span><span>5:49</span><span class="copy m">146</span></div>
+      <div class="row" style="min-height:32px;padding:4px 0"><span class="copy m">3 km</span><span>5:45</span><span class="copy m">149</span></div>
+      <div class="row"><div><div class="t">Daten &amp; Herkunft</div><div class="s">Quelle, Samples, Modellversion, Auffälligkeiten</div></div><span class="chev">⌄</span></div>
+      <div class="tabs"><span>Heute</span><span>Plan</span><span class="on">Verlauf</span><span>Coach</span></div>
+    </div></div>
+    <p class="note">Karte zuerst, Kennzahlen in einer Reihe. Bewertung (Nächster Schritt + „ausprobiert?“) als eine Karte. Art/Zweck ändern, GPX, Löschen: hinter „⋯“. Laufgefühl speichert beim Tippen, kein extra Button.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="coach">9. Coach: Empfehlung, Fokus und Ziel an einem Ort</h2>
+<p>Die eine Empfehlung je Bereich ist die zentrale Idee der App – sie bekommt einen eigenen Tab statt einer Zeile in Sektion 5. Fokus und Ziel sind die <em>Grundlage</em> der Empfehlung, deshalb stehen sie direkt darunter. Der Chat gehört dazu, weil er dieselbe Frage beantwortet: „Woran arbeite ich, und warum?“</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag bad">Vorher</span> Empfehlungsseite (<code>page 'focus'</code>)</p>
+    <div class="phone"><div class="screen">
+      <div class="hdr"><span>‹ Zurück</span><span></span></div>
+      <div class="ttl">Bleib bei deiner Empfehlung.</div>
+      <div class="card"><div style="font-weight:600">Starte die ersten 10 Minuten ruhiger</div><div class="copy m">Angenommen · Aktiv seit 12.09.2026</div></div>
+      <div class="sec">Ergebnis bisher</div>
+      <div class="row"><div><div class="t">Hast du es ausprobiert?</div><div class="s">Bei 3 Läufen ja, bei 1 teilweise.</div></div></div>
+      <div class="row"><div><div class="t">Bist du gleichmäßiger gelaufen?</div><div class="s">Noch nicht klar. Zu wenig vergleichbare Läufe (3 von 5).</div></div></div>
+      <div class="row"><div><div class="t">Lag es an der Empfehlung?</div><div class="s">Noch nicht klar. Wetter und Tagesform können mitwirken.</div></div></div>
+      <div class="btn sec sm">Details ansehen</div>
+      <div class="sec">Danach vorgesehen</div>
+      <div class="copy">Längere lockere Läufe</div>
+      <div class="copy m">Vorschau · wird erst nach Abschluss aktiv</div>
+      <div class="sec">Empfehlung verwalten</div>
+      <div class="btn sec">Empfehlung pausieren</div>
+      <div class="btn sec">Empfehlung abschließen</div>
+      <div class="btn danger">Empfehlung abbrechen</div>
+      <div class="sec">Frühere Empfehlungen</div>
+      <div class="card"><div class="copy">Geh alle 3 Läufe einen längeren</div><div class="copy m">Abgeschlossen · Hat geholfen</div><div class="btn sec sm">Gespeicherte Details ansehen</div></div>
+      <div class="card"><div class="copy">Nimm Schrittfrequenz 175</div><div class="copy m">Abgebrochen · Noch nicht klar</div><div class="btn sec sm">Gespeicherte Details ansehen</div></div>
+    </div></div>
+    <p class="note">Titel ist ein Satz, der je Zustand wechselt. Drei Verwaltungs-Buttons so groß wie die Empfehlung. Fortschritt nur in Prosa.</p>
+  </div>
+  <div>
+    <p class="lbl"><span class="tag good">Nachher</span> Coach-Tab</p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><b>runback <i>/</i></b><span class="gear">⚙</span></div>
+      <div class="ttl">Coach</div>
+      <div class="seg"><span class="on">Laufen</span><span>Krafttraining</span></div>
+      <div class="card hero">
+        <div class="lbl">Deine Empfehlung <span class="badge">Aktiv seit 12.09.</span></div>
+        <div style="font-size:17px;font-weight:600;margin:2px 0 4px">Starte die ersten 10 Minuten ruhiger</div>
+        <div class="progress"><i></i></div>
+        <div class="copy m">3 von 5 vergleichbaren Läufen · Ergebnis noch nicht klar</div>
+        <div class="qa"><b>Ausprobiert?</b><span class="ok">Bei 3 Läufen ja, bei 1 teilweise</span></div>
+        <div class="qa"><b>Gleichmäßiger?</b><span>Noch nicht klar – 2 Läufe fehlen</span></div>
+        <div style="display:flex;gap:6px;margin-top:8px"><div class="btn sec sm" style="flex:1">Details</div><div class="btn sec sm" style="flex:1">Pausieren ⋯</div></div>
+      </div>
+      <div class="row"><div><div class="t">Danach: Längere lockere Läufe</div><div class="s">Vorschau · wird nach Abschluss geprüft</div></div><span class="chev">›</span></div>
+      <div class="sec">Grundlage</div>
+      <div class="row"><div><div class="t">Fokus: Ausdauer</div><div class="s">Ziel: Halbmarathon · 18. Okt. · 4 Wochen</div></div><span class="chev">›</span></div>
+      <div class="sec">Fragen</div>
+      <div class="row"><div><div class="t">Trainingschat</div><div class="s">„Warum ist mein Puls beim langen Lauf gestiegen?“</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Frühere Empfehlungen</div><div class="s">2 · 1 hat geholfen</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Wie Runback rechnet</div><div class="s">Grundlagen, Grenzen, gesperrte Modelle</div></div><span class="chev">›</span></div>
+      <div style="flex:1"></div>
+      <div class="tabs"><span>Heute</span><span>Plan</span><span>Verlauf</span><span class="on">Coach</span></div>
+    </div></div>
+    <p class="note">Zustand als Badge + Fortschrittsbalken. Zwei Fragen statt drei (die dritte „Lag es daran?“ gehört in Details). Pausieren/Abschließen/Abbrechen in einem Menü. Fokus und Ziel in einer Zeile, ein Editor.</p>
+  </div>
+</div>
+
+<h3>Zustände der Empfehlungskarte</h3>
+<table>
+  <thead><tr><th>Zustand</th><th>Karte</th><th>Aktion</th></tr></thead>
+  <tbody>
+    <tr><td><span class="badge" style="border:1px solid var(--good);color:var(--good);font-size:.75rem;padding:0 .5em;border-radius:999px">Vorschlag</span></td><td>Satz + „Woran wir es erkennen“ in einer Zeile + „Warum jetzt“ (1 Satz)</td><td>„Annehmen“ (primär) · „Später“ · „Ablehnen“ (im Menü)</td></tr>
+    <tr><td>Aktiv</td><td>wie oben: Fortschritt, zwei Fragen</td><td>„Details“ · Menü: Pausieren, Abschließen, Abbrechen</td></tr>
+    <tr><td>Pausiert</td><td>Satz + „Pausiert seit …“</td><td>„Weitermachen“ (primär) · Menü</td></tr>
+    <tr><td>Keine</td><td>„Noch keine Empfehlung“ + <em>ein</em> Satz, was fehlt (z.&nbsp;B. „2 lockere Läufe mit Zweck“)</td><td>Die passende Aktion („Zweck ergänzen“ → Verlauf, „Lauf starten“ → Heute)</td></tr>
+  </tbody>
+</table>
+
+<h3>Begriffe bereinigen</h3>
+<table>
+  <thead><tr><th>Heute im Code</th><th>Heute in der UI</th><th>Vorschlag</th></tr></thead>
+  <tbody>
+    <tr><td><code>page 'focus'</code>, <code>'strength-focus'</code></td><td>„Empfehlung“</td><td>Coach-Tab, Bereich per Umschalter. Eine Seite, eine Komponente mit <code>area</code>-Parameter.</td></tr>
+    <tr><td><code>'orientation'</code>, <code>'strength-orientation'</code></td><td>„Dein Fokus“</td><td>„Fokus &amp; Ziel“ – ein Editor je Bereich, erreichbar aus dem Coach.</td></tr>
+    <tr><td><code>'profile'</code></td><td>„Ziel &amp; Alltag“</td><td>Ziel → Fokus &amp; Ziel (Coach). Alltag (Zeitbudget, Lauftage) → Verfügbarkeit &amp; Rhythmus (Plan).</td></tr>
+    <tr><td><code>'plans'</code></td><td>„Trainingspläne“</td><td>„Kraftvorlagen“ unter Plan → Vorlagen. „Plan“ ist die Woche, nicht die Übungsfolge.</td></tr>
+    <tr><td><code>'presets'</code></td><td>„Laufvorlagen“</td><td>Plan → Vorlagen, gleicher Ort wie Kraftvorlagen.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="einstellungen">10. Einstellungen (Zahnrad)</h2>
+<p>Was übrig bleibt, wenn Fokus, Ziel, Vorlagen und Chat ihren fachlichen Ort gefunden haben, ist reine Gerätekonfiguration. Das passt hinter ein Zahnrad.</p>
+
+<div class="compare">
+  <div>
+    <p class="lbl"><span class="tag good">Einstellungen</span></p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><span>‹ Zurück</span><span></span></div>
+      <div class="ttl">Einstellungen</div>
+      <div class="sec">Gerät</div>
+      <div class="row"><div><div class="t">Uhr</div><div class="s">Verbunden · Galaxy Watch</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Sensoren</div><div class="s">Pulsgurt · zuletzt gestern</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Health Connect</div><div class="s">Lesen an · Schreiben je Lauf</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Wetter</div><div class="s">Aus</div></div><span class="chev">›</span></div>
+      <div class="sec">Laufen</div>
+      <div class="row"><div><div class="t">Herzfrequenz-Zonen</div><div class="s">Max 188 · aus 14 Läufen</div></div><span class="chev">›</span></div>
+      <div class="sec">Daten</div>
+      <div class="row"><div><div class="t">Importieren</div><div class="s">Garmin, Strava, Fitbit, Dateien …</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Backup</div><div class="s">Zuletzt 10.09. · exportieren, wiederherstellen</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Alle Daten löschen</div><div class="s" style="color:var(--a-danger)">Unwiderruflich</div></div><span class="chev">›</span></div>
+      <div class="sec">Optional</div>
+      <div class="row"><div><div class="t">KI-Formulierung &amp; Chat</div><div class="s">OpenRouter · Schlüssel hinterlegt</div></div><span class="chev">›</span></div>
+      <div class="row"><div><div class="t">Einrichtung erneut öffnen</div><div class="s">Ziel, Historie, Uhr</div></div><span class="chev">›</span></div>
+      <div style="flex:1"></div>
+      <div class="copy m" style="text-align:center">Runback 0.1.0 · Alles auf deinem Gerät</div>
+    </div></div>
+    <p class="note">Jede Zeile zeigt ihren Zustand als Untertitel („Verbunden“, „Aus“, „Zuletzt 10.09.“) – so muss man nicht hineingehen, um zu wissen, ob etwas eingerichtet ist.</p>
+  </div>
+  <div>
+    <p class="lbl"><span class="tag good">Fokus &amp; Ziel · Laufen</span> (ein Editor statt zwei Seiten)</p>
+    <div class="phone"><div class="screen fit">
+      <div class="hdr"><span>‹ Coach</span><span></span></div>
+      <div class="ttl">Fokus &amp; Ziel<small>Laufen</small></div>
+      <div class="lbl">Fokus – woran du dauerhaft arbeitest</div>
+      <div class="chips"><span class="chip on">Ausdauer</span><span class="chip">Schneller werden</span><span class="chip">Verletzungsfrei</span><span class="chip">Gewohnheit</span><span class="chip">Fitness</span></div>
+      <div class="copy m">Der Fokus bestimmt, welche Empfehlung Runback dir zuerst vorschlägt.</div>
+      <div class="lbl" style="margin-top:16px">Ziel – optional</div>
+      <div class="card"><div class="row"><div><div class="t">Halbmarathon</div><div class="s">18. Oktober 2026 · noch 4 Wochen</div></div><span class="chev">›</span></div></div>
+      <div class="btn ghost sm">Ziel entfernen</div>
+      <div class="lbl" style="margin-top:16px">Zweck, wenn du ohne Plan startest</div>
+      <div class="chips"><span class="chip">Frei</span><span class="chip on">Locker</span><span class="chip">Lang</span><span class="chip">Tempo</span></div>
+      <div style="flex:1"></div>
+      <div class="btn">Speichern</div>
+    </div></div>
+    <p class="note">Fokus, Ziel und Standardzweck – heute auf drei Seiten (<code>orientation</code>, <code>profile</code>, Startkarte). Zeitbudget und Lauftage gehören in den Plan.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="reihenfolge">11. Reihenfolge der Umsetzung</h2>
+<p>Die Umstellung lässt sich in vier Schritten machen, von denen jeder für sich schon spürbar hilft und die App zwischendurch benutzbar bleibt.</p>
+
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:28%">Schritt</th><th>Was sich ändert</th><th style="width:22%">Berührt</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>Heute entrümpeln + Start-Sheet</strong></td>
+      <td>Chips aus der Startkarte ins Sheet, Hero-Karte mit den Regeln aus Abschnitt 4, Wochenleiste, Empfehlung als kompakte Karte. Fokus/Ziel/Vorlagen/Muskelkarte/Pläne von Heute entfernen (sind über Mehr weiterhin erreichbar). <em>Größter Effekt, kleinster Umbau der Navigation.</em></td>
+      <td><code>RunbackApp.tsx</code> (<code>renderHome</code>), neues <code>StartSheet.tsx</code>, <code>components.tsx</code> (Sheet, WeekStrip, Progress)</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>Vier Tabs + Zahnrad</strong></td>
+      <td>Einheiten und Statistik unter „Verlauf“ mit Umschalter zusammenlegen; „Mehr“ → Einstellungen hinter dem Zahnrad; Coach-Tab aus <code>renderFocus</code> + <code>renderStrengthFocus</code> mit Bereichs-Umschalter. Seiten-Enum <code>Page</code> bereinigen (Begriffstabelle in Abschnitt 9).</td>
+      <td><code>RunbackApp.tsx</code> (Tab/Page-Logik, <code>renderMore</code>), <code>Statistics.tsx</code></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>Plan aufräumen</strong></td>
+      <td>Kalender zuerst, „+ Einheit“ primär, Tages-Sheet, Editor als Seite, Vorschlag als Kalender-Vorschau, ⋯-Menü mit Verfügbarkeit/Vorlagen/Entwicklung. Lauf- und Kraftvorlagen zusammen unter Plan → Vorlagen.</td>
+      <td><code>PlanningScreen.tsx</code> (2 000 Zeilen → aufteilen: WeekView, DaySheet, SessionEditor, AvailabilityEditor), <code>PlanList.tsx</code>, Presets aus <code>RunbackApp.tsx</code></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>Detailseiten</strong></td>
+      <td>Einheit-Detail neu sortieren (Karte → Zahlen → Bewertung → Abschnitte), Metadaten in ⋯-Sheet. Coach-Karte mit Fortschritt und Menü. Fokus &amp; Ziel als ein Editor.</td>
+      <td><code>RunbackApp.tsx</code> (<code>renderSelected</code>, <code>renderFocus</code>), <code>FocusEditor.tsx</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Was bewusst gleich bleibt</h3>
+<ul>
+  <li>Dunkle Fläche, ein grüner Akzent, zwei Textstufen, Systemschrift – das Erscheinungsbild ist nicht das Problem, die Menge ist es.</li>
+  <li>Die Aufzeichnungsansicht, das Krafttraining-Live-Screen (<code>WorkoutScreen</code>), Onboarding, Import – sie sind Flows mit klarem Anfang und Ende und funktionieren.</li>
+  <li>Die Domain-Logik. Nichts hier verlangt eine andere Berechnung; es geht nur darum, <em>wo</em> und <em>wann</em> ihre Ergebnisse gezeigt werden.</li>
+</ul>
+
+<h3>Offene Punkte, die du entscheiden solltest</h3>
+<ul>
+  <li><strong>Name des vierten Tabs.</strong> „Coach“ ist griffig, aber die App vermeidet bewusst, sich als Trainer aufzuspielen. Alternativen: „Empfehlung“, „Fokus“, „Du“. Ich würde „Coach“ nehmen – es sagt am ehesten, was drin ist.</li>
+  <li><strong>Wochenleiste auf Heute: antippbar?</strong> Ja wäre naheliegend (öffnet den Tag im Plan). Dann ist Heute aber auch ein Einstieg in den Plan – bewusst, als Abkürzung.</li>
+  <li><strong>Muskelkater-Zeile:</strong> immer zeigen oder nur nach einer Einheit bzw. wenn zuletzt etwas gemeldet wurde? Ich würde: nur situativ (nach Kraft/langem Lauf, oder wenn eine Meldung älter als 3 Tage ist und Frische sinkt). Sonst ist es wieder eine Dauerzeile.</li>
+  <li><strong>Rad als eigener Schnellstart</strong> oder unter „Lauf starten“ im Sheet? Wer selten Rad fährt, braucht keinen dritten Button auf der Startseite. Ich würde: drei Schnellstarts nur, wenn Rad in den letzten 8 Wochen vorkam.</li>
+</ul>
+
+</main>
+</body>
+</html>

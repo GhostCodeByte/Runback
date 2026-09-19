@@ -147,7 +147,10 @@ function formatMetric(
     case 'duration':
       return { value: formatDuration(value), unit: '' };
     case 'count':
-      return { value: String(Math.round(value)), unit: value === 1 ? 'Lauf' : 'Läufe' };
+      return {
+        value: String(Math.round(value)),
+        unit: value === 1 ? 'Lauf' : 'Läufe',
+      };
     case 'pace':
       return { value: formatPace(value), unit: 'min / km' };
     case 'effort':
@@ -163,6 +166,7 @@ export function Statistics({
   sessions = [],
   view = defaultStatisticsView,
   onViewChange,
+  embedded = false,
 }: {
   runs: Run[];
   /** Abgeschlossene Krafteinheiten. Ohne sie bleibt der Abschnitt weg. */
@@ -170,6 +174,8 @@ export function Statistics({
   /** Zuletzt gewählter Zeitraum und Kennzahl. */
   view?: StatisticsView;
   onViewChange?: (view: StatisticsView) => void;
+  /** Als Teil einer Seite, die den Titel schon trägt (Verlauf). */
+  embedded?: boolean;
 }) {
   const [localView, setLocalView] = useState(view);
   // Ohne Speicher von außen bleibt die Auswahl wenigstens für diese Sitzung.
@@ -227,9 +233,11 @@ export function Statistics({
   if (!runs.length) {
     return (
       <View style={styles.page}>
-        <Text accessibilityRole="header" style={styles.title}>
-          Statistik
-        </Text>
+        {embedded ? null : (
+          <Text accessibilityRole="header" style={styles.title}>
+            Statistik
+          </Text>
+        )}
         <EmptyState
           title="Noch keine Läufe"
           copy="Sobald ein Lauf abgeschlossen oder importiert ist, entsteht hier deine Entwicklung."
@@ -241,9 +249,11 @@ export function Statistics({
 
   return (
     <View style={styles.page}>
-      <Text accessibilityRole="header" style={styles.title}>
-        Statistik
-      </Text>
+      {embedded ? null : (
+        <Text accessibilityRole="header" style={styles.title}>
+          Statistik
+        </Text>
+      )}
 
       <ChipGroup
         label="Zeitraum"
@@ -294,9 +304,7 @@ export function Statistics({
         <Chart
           buckets={stats.buckets}
           metric={metric}
-          shape={
-            METRICS.find(entry => entry.value === metric)?.shape ?? 'bar'
-          }
+          shape={METRICS.find(entry => entry.value === metric)?.shape ?? 'bar'}
           selected={selected}
           onSelect={index =>
             setSelected(current => (current === index ? null : index))
@@ -535,7 +543,8 @@ function Chart({
   const min = present.length ? Math.min(...present) : 0;
   // Punkte bekommen etwas Luft, damit der beste und der schlechteste Wert
   // nicht auf dem Rand kleben.
-  const padding = shape === 'point' ? Math.max((max - min) * 0.2, max * 0.02) : 0;
+  const padding =
+    shape === 'point' ? Math.max((max - min) * 0.2, max * 0.02) : 0;
   const low = shape === 'bar' ? 0 : min - padding;
   const high = shape === 'bar' ? max : max + padding;
   const span = high - low;
@@ -550,7 +559,9 @@ function Chart({
   const scale = present.length
     ? shape === 'bar'
       ? `0 bis ${formatMetric(metric, max).value}`
-      : `${formatMetric(metric, min).value} bis ${formatMetric(metric, max).value}`
+      : `${formatMetric(metric, min).value} bis ${
+          formatMetric(metric, max).value
+        }`
     : 'keine Werte';
 
   return (
@@ -567,7 +578,9 @@ function Chart({
       </View>
       <View
         accessibilityRole="adjustable"
-        accessibilityLabel={`${metricLabel(metric)} je Zeitraum, ${buckets.length} Werte`}
+        accessibilityLabel={`${metricLabel(metric)} je Zeitraum, ${
+          buckets.length
+        } Werte`}
         style={styles.chart}
       >
         {buckets.map((bucket, index) => {
@@ -645,7 +658,9 @@ function BucketDetail({
     <View accessibilityLiveRegion="polite" style={styles.detail}>
       <Text style={styles.detailTitle}>{bucket.fullLabel}</Text>
       <Text style={styles.detailValue}>
-        {`${metricLabel(metric)} ${highlighted.value} ${highlighted.unit}`.trim()}
+        {`${metricLabel(metric)} ${highlighted.value} ${
+          highlighted.unit
+        }`.trim()}
       </Text>
       <Text style={styles.detailMeta}>
         {[
@@ -655,7 +670,9 @@ function BucketDetail({
           bucket.paceSecondsPerKm === null
             ? null
             : `${formatPace(bucket.paceSecondsPerKm)} min / km`,
-          bucket.effort === null ? null : `Gefühl ${decimal(bucket.effort)} / 10`,
+          bucket.effort === null
+            ? null
+            : `Gefühl ${decimal(bucket.effort)} / 10`,
         ]
           .filter(Boolean)
           .join(' · ')}

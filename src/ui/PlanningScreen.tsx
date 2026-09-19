@@ -49,7 +49,6 @@ import {
   Notice,
   Row,
   Section,
-  Stat,
   Title,
   color,
   radius,
@@ -1031,7 +1030,7 @@ export function PlanningScreen({
   const renderActuals = () => {
     if (!freeRuns.length && !freeStrength.length) return null;
     return (
-      <Section title="Freie Einheiten">
+      <Section title="Ungeplant in diesem Zeitraum">
         <Card>
           {freeRuns.map(run => (
             <Row
@@ -1064,7 +1063,7 @@ export function PlanningScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Title>Planung</Title>
+        <Title>Plan</Title>
         {working ? (
           <ActivityIndicator
             color={color.green}
@@ -1118,40 +1117,8 @@ export function PlanningScreen({
         </Notice>
       ) : null}
 
-      <View style={styles.topActions}>
-        <View style={styles.topActionPrimary}>
-          <Button
-            title="Woche vorschlagen"
-            disabled={working}
-            onPress={createProposal}
-            label="Trainingswoche aus Rhythmus und Kraftvorlagen vorschlagen"
-          />
-        </View>
-        <View style={styles.topActionSecondary}>
-          <Button
-            title="Woche anpassen"
-            secondary
-            small
-            disabled={working}
-            onPress={openAdjustment}
-            label="Verfügbarkeit und Rhythmus für die Woche anpassen"
-          />
-        </View>
-      </View>
-
-      <ChipGroup
-        label="Planungsansicht"
-        options={[
-          { value: 'week' as ViewMode, label: 'Woche' },
-          { value: 'month' as ViewMode, label: 'Monat' },
-        ]}
-        value={view}
-        onChange={setView}
-        disabled={working}
-      />
-
       {view === 'week' ? (
-        <Section title="Diese Woche">
+        <>
           <View style={styles.periodNavigation}>
             <Pressable
               accessibilityRole="button"
@@ -1174,6 +1141,12 @@ export function PlanningScreen({
               <Text style={styles.periodTitle}>
                 {dateLabel(weekDates[0])} – {dateLabel(weekDates[6])}
               </Text>
+              <Text style={styles.periodMeta}>
+                {weekSessionCount === 1
+                  ? '1 Einheit'
+                  : `${weekSessionCount} Einheiten`}{' '}
+                · {formatMinutes(summaryMinutes)}
+              </Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -1186,22 +1159,42 @@ export function PlanningScreen({
               <Text style={styles.navText}>›</Text>
             </Pressable>
           </View>
-          <View style={styles.stats}>
-            <Stat value={String(weekSessionCount)} label="Einheiten" />
-            <Stat value={String(summaryMinutes)} label="Minuten" />
-            <Stat
-              value={String(
-                weekDateKeys.filter(
-                  (date, index) => availableMinutes(date, index) > 0,
-                ).length,
-              )}
-              label="Tage"
-            />
-          </View>
           <Card style={styles.weekCard}>{weekDates.map(renderDayRow)}</Card>
-        </Section>
+          <Button
+            title="Einheit hinzufügen"
+            secondary={!weekSessionCount}
+            disabled={working || weekDateKeys[6] < today}
+            onPress={() =>
+              openEditor(
+                undefined,
+                weekDateKeys.find(key => key >= today) ?? weekDateKeys[0],
+              )
+            }
+            label="Einheit in dieser Woche hinzufügen"
+          />
+          <Button
+            title="Woche vorschlagen lassen"
+            secondary={Boolean(weekSessionCount)}
+            disabled={working}
+            onPress={createProposal}
+            label="Trainingswoche aus Rhythmus und Kraftvorlagen vorschlagen"
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Monat"
+            accessibilityState={{ disabled: working }}
+            disabled={working}
+            onPress={() => setView('month')}
+            style={({ pressed }) => [
+              styles.monthLink,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.monthLinkText}>Monat ansehen ›</Text>
+          </Pressable>
+        </>
       ) : (
-        <Section title="Monat">
+        <Section title={monthLabel(monthDate)}>
           <View style={styles.periodNavigation}>
             <Pressable
               accessibilityRole="button"
@@ -1221,7 +1214,7 @@ export function PlanningScreen({
               onPress={jumpToToday}
               style={styles.periodLabel}
             >
-              <Text style={styles.periodTitle}>{monthLabel(monthDate)}</Text>
+              <Text style={styles.periodTitle}>Heute</Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -1249,32 +1242,15 @@ export function PlanningScreen({
             ))}
           </View>
           <Copy muted>Tippe auf einen Tag, um seine Woche zu öffnen.</Copy>
+          <Button
+            title="Zurück zur Woche"
+            secondary
+            small
+            label="Woche"
+            onPress={() => setView('week')}
+          />
         </Section>
       )}
-
-      <Section title="Zeit und Rhythmus">
-        <Card>
-          <Row
-            title="Verfügbarkeit anpassen"
-            subtitle="Zeitbudget für die angezeigte Woche"
-            onPress={openAdjustment}
-          />
-          {onManageTemplates ? (
-            <Row
-              title="Kraftvorlagen verwalten"
-              subtitle={`${templates.length} Vorlagen gespeichert`}
-              onPress={onManageTemplates}
-            />
-          ) : null}
-          {onDevelopment ? (
-            <Row
-              title="Entwicklung ansehen"
-              subtitle="Plan und tatsächliche Einheiten"
-              onPress={onDevelopment}
-            />
-          ) : null}
-        </Card>
-      </Section>
 
       {undoState ? (
         <View style={styles.undoRow}>
@@ -1290,6 +1266,34 @@ export function PlanningScreen({
       ) : null}
 
       {renderActuals()}
+
+      <Section title="Einstellen">
+        <Row
+          title="Zeit & Rhythmus"
+          subtitle={`${
+            displayState.routine.days.length
+              ? displayState.routine.days
+                  .map(day => WEEKDAY_SHORT[day])
+                  .join(' · ')
+              : 'Keine festen Tage'
+          } · ${formatMinutes(displayState.routine.minutes)} üblich`}
+          onPress={openAdjustment}
+        />
+        {onManageTemplates ? (
+          <Row
+            title="Vorlagen"
+            subtitle={`${templates.length} Kraftvorlagen · Laufvorlagen`}
+            onPress={onManageTemplates}
+          />
+        ) : null}
+        {onDevelopment ? (
+          <Row
+            title="Entwicklung"
+            subtitle="Ziel, Planstand und tatsächliches Training"
+            onPress={onDevelopment}
+          />
+        ) : null}
+      </Section>
 
       <Modal
         visible={Boolean(proposal)}
@@ -1365,7 +1369,7 @@ export function PlanningScreen({
                     (displayState.routine.days.length ||
                     templates.some(template => template.days.length)
                       ? 'Der vorhandene Plan passt bereits.'
-                      : 'Lege unter Woche anpassen deinen üblichen Rhythmus fest oder füge eine Einheit direkt hinzu.')
+                      : 'Lege unter „Zeit & Rhythmus“ deine üblichen Tage fest oder füge eine Einheit direkt hinzu.')
                   }
                   action={{
                     title: 'Schließen',
@@ -1870,9 +1874,13 @@ export function PlanningScreen({
 
 const styles = StyleSheet.create({
   screen: { gap: space.md },
-  topActions: { flexDirection: 'row', gap: space.xs },
-  topActionPrimary: { flex: 1 },
-  topActionSecondary: { flex: 1 },
+  periodMeta: { color: color.muted, ...typography.label, textAlign: 'center' },
+  monthLink: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLinkText: { color: color.green, ...typography.label },
   weekCard: { padding: space.md, gap: space.xs },
   emptyDayRow: {
     minHeight: 48,

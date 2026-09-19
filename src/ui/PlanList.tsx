@@ -50,10 +50,9 @@ export function PlanList({
 
   return (
     <View style={styles.content}>
-      <Text style={styles.title}>Trainingspläne</Text>
       <Copy muted>
-        Ein Plan schlägt vor, was ansteht. Was du tatsächlich trainierst, zählt
-        — auch wenn es etwas anderes ist.
+        Eine Kraftvorlage schlägt vor, was ansteht. Was du tatsächlich
+        trainierst, zählt — auch wenn es etwas anderes ist.
       </Copy>
 
       {templates.length ? (
@@ -172,7 +171,6 @@ export function PlanList({
 
 const styles = StyleSheet.create({
   content: { gap: 12, paddingBottom: 24 },
-  title: { color: color.text, fontSize: 26, fontWeight: '600' },
   card: {
     borderRadius: 8,
     backgroundColor: color.raised,

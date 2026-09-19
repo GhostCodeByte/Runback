@@ -129,7 +129,7 @@ afterEach(async () => {
 
 it('saves calendar changes locally and restores them after reopening the app', async () => {
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   const next = {
     ...normalizeSchedule(),
     sessions: [session()],
@@ -143,13 +143,13 @@ it('saves calendar changes locally and restores them after reopening the app', a
   expect(stored.settings.schedule).toEqual(next);
   await act(async () => tree.unmount());
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   expect(tree.root.findByType(PlanningScreen).props.state).toEqual(next);
 });
 
 it('leaves saved planning intact and rejects the caller on storage failure', async () => {
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   const before = clone(stored.settings.schedule);
   (native.saveSettings as jest.Mock).mockRejectedValueOnce(
     new Error('Speicher voll'),
@@ -165,7 +165,7 @@ it('leaves saved planning intact and rejects the caller on storage failure', asy
 
 it('links a started planned run to its recording without claiming completion', async () => {
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   await act(async () => {
     await tree.root.findByType(PlanningScreen).props.onStartRun(session());
   });
@@ -188,7 +188,7 @@ it('links a started planned run to its recording without claiming completion', a
 
 it('keeps a failed activity link retryable without starting a second run', async () => {
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   (native.saveSettings as jest.Mock).mockRejectedValueOnce(
     new Error('Speicher voll'),
   );
@@ -205,7 +205,7 @@ it('keeps a failed activity link retryable without starting a second run', async
       .some(node => textContent(node).includes('Öffne Planung')),
   ).toBe(true);
 
-  await tap('Planung');
+  await tap('Plan');
   await act(async () => {
     await tree.root.findByType(PlanningScreen).props.onStartRun(session());
   });
@@ -223,7 +223,7 @@ it('keeps a failed activity link retryable without starting a second run', async
 it('keeps the plan unlinked if recording permission is denied', async () => {
   (nativeCall as jest.Mock).mockResolvedValue({ locationPermission: false });
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   await act(async () => {
     await expect(
       tree.root.findByType(PlanningScreen).props.onStartRun(session()),
@@ -240,7 +240,7 @@ it('keeps the plan unlinked if recording permission is denied', async () => {
 
 it('opens development from planning using actual activity data', async () => {
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   await act(async () =>
     tree.root.findByType(PlanningScreen).props.onDevelopment(),
   );
@@ -265,7 +265,7 @@ it('does not let a slow refresh overwrite a newly saved calendar', async () => {
       return { remove: jest.fn() };
     });
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   const stale = clone(stored);
   let resolveRead!: (value: AppState) => void;
   (native.state as jest.Mock).mockImplementationOnce(
@@ -298,7 +298,7 @@ it('does not let a slow refresh erase a newly started recording', async () => {
       return { remove: jest.fn() };
     });
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   const stale = clone(stored);
   let resolveRead!: (value: AppState) => void;
   (native.state as jest.Mock).mockImplementationOnce(
@@ -340,7 +340,7 @@ it('uses the schedule goal as canonical and preserves its routine in profile sav
   };
 
   await mount();
-  await tap('Planung');
+  await tap('Plan');
   await act(async () =>
     tree.root.findByType(PlanningScreen).props.onDevelopment(),
   );
@@ -358,7 +358,7 @@ it('uses the schedule goal as canonical and preserves its routine in profile sav
 
   const saveButton = tree.root.find(
     node =>
-      node.props.title === 'Einstellungen speichern' &&
+      node.props.title === 'Ziel speichern' &&
       typeof node.props.onPress === 'function',
   );
   await act(async () => saveButton.props.onPress());
@@ -392,6 +392,7 @@ it('does not resurrect a recurring strength workout after moving it into next we
   });
   await mount();
   const text = tree.root.findAllByType(Text).map(textContent).join(' ');
-  expect(text).not.toContain('Beintraining starten');
-  expect(text).toContain('Freies Training starten');
+  expect(text).not.toContain('Beintraining');
+  // Heute steht nur der geplante Lauf; die verschobene Kraft kehrt nicht zurück.
+  expect(text).toContain('Locker 30');
 });
