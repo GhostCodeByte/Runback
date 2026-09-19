@@ -70,6 +70,12 @@ export interface PlanningScreenProps {
   onDevelopment?: () => void;
   onManageTemplates?: () => void;
   busy?: boolean;
+  /** „Woche vorschlagen lassen“ anbieten. Wer selbst plant, blendet es aus. */
+  showSuggest?: boolean;
+  /** Monatsansicht anbieten. */
+  showMonth?: boolean;
+  /** Krafteinheiten planbar. Ohne Bereich Krafttraining nur Läufe. */
+  showStrength?: boolean;
 }
 
 type ViewMode = 'week' | 'month';
@@ -381,6 +387,9 @@ export function PlanningScreen({
   onDevelopment,
   onManageTemplates,
   busy = false,
+  showSuggest = true,
+  showMonth = true,
+  showStrength = true,
 }: PlanningScreenProps) {
   const [displayState, setDisplayState] = useState<ScheduleState>(() =>
     cloneState(state),
@@ -1117,7 +1126,7 @@ export function PlanningScreen({
         </Notice>
       ) : null}
 
-      {view === 'week' ? (
+      {view === 'week' || !showMonth ? (
         <>
           <View style={styles.periodNavigation}>
             <Pressable
@@ -1172,26 +1181,30 @@ export function PlanningScreen({
             }
             label="Einheit in dieser Woche hinzufügen"
           />
-          <Button
-            title="Woche vorschlagen lassen"
-            secondary={Boolean(weekSessionCount)}
-            disabled={working}
-            onPress={createProposal}
-            label="Trainingswoche aus Rhythmus und Kraftvorlagen vorschlagen"
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Monat"
-            accessibilityState={{ disabled: working }}
-            disabled={working}
-            onPress={() => setView('month')}
-            style={({ pressed }) => [
-              styles.monthLink,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.monthLinkText}>Monat ansehen ›</Text>
-          </Pressable>
+          {showSuggest ? (
+            <Button
+              title="Woche vorschlagen lassen"
+              secondary={Boolean(weekSessionCount)}
+              disabled={working}
+              onPress={createProposal}
+              label="Trainingswoche aus Rhythmus und Kraftvorlagen vorschlagen"
+            />
+          ) : null}
+          {showMonth ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Monat"
+              accessibilityState={{ disabled: working }}
+              disabled={working}
+              onPress={() => setView('month')}
+              style={({ pressed }) => [
+                styles.monthLink,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.monthLinkText}>Monat ansehen ›</Text>
+            </Pressable>
+          ) : null}
         </>
       ) : (
         <Section title={monthLabel(monthDate)}>
@@ -1654,7 +1667,11 @@ export function PlanningScreen({
                 </Field>
                 <Field label="Art">
                   <ChipGroup
-                    options={KIND_OPTIONS}
+                    options={
+                      showStrength
+                        ? KIND_OPTIONS
+                        : KIND_OPTIONS.filter(item => item.value === 'run')
+                    }
                     value={editor.kind}
                     onChange={kind =>
                       setEditor(current =>

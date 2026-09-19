@@ -16,7 +16,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -131,6 +130,17 @@ import {
   type Run,
   type Settings,
 } from '../native';
+import { FeatureSettings } from './FeatureSettings';
+import {
+  enabledSports,
+  normalizeFeatures,
+  recommendationsShown,
+  recommendationsSuggested,
+  shouldPromptSoreness,
+  visibleHomeSections,
+  visibleTabs,
+  type FeatureSettings as Features,
+} from '../domain/features';
 import {
   Badge,
   Button,
@@ -214,7 +224,6 @@ const initial: AppState = {
  * Einstellungen sind kein Tab, sondern eine Seite hinter dem Zahnrad im Kopf.
  */
 type Tab = 'Heute' | 'Plan' | 'Verlauf' | 'Coach';
-const TABS: Tab[] = ['Heute', 'Plan', 'Verlauf', 'Coach'];
 
 type Page =
   | 'main'
@@ -231,12 +240,16 @@ type Page =
   | 'models'
   | 'development'
   | 'chat'
-  | 'run-target';
+  | 'run-target'
+  | 'features'
+  | 'features-home';
 /** Wohin „‹ Zurück“ von einer Seite führt. Fehlt der Eintrag, zur Hauptseite. */
 const PARENT_PAGE: Partial<Record<Page, Page>> = {
   devices: 'settings',
   data: 'settings',
   models: 'settings',
+  features: 'settings',
+  'features-home': 'features',
   'vendor-import': 'data',
 };
 type VerlaufView = 'units' | 'stats';
@@ -470,7 +483,12 @@ const UnitRow = memo(function UnitRow({
   );
 });
 
-export function RunbackApp() {
+export function RunbackApp({
+  onOpenRoutePlanner,
+}: {
+  /** Öffnet den Routenplaner. Fehlt er, gibt es keinen Einstieg. */
+  onOpenRoutePlanner?: () => void;
+} = {}) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<AppState>(initial);
   const stateRef = useRef(state);
@@ -531,10 +549,31 @@ export function RunbackApp() {
     useState(false);
   const [sorenessOpen, setSorenessOpen] = useState(false);
   const [muscleMapMode, setMuscleMapMode] = useState<BodyMapMode>('freshness');
+  // Nach dem Beenden nur das Gefühl abfragen statt der ganzen Detailseite.
+  const [feelingOnly, setFeelingOnly] = useState(false);
+  // Ob die Krafthistorie geladen (oder als nicht verfügbar erkannt) ist.
+  const [strengthHistorySettled, setStrengthHistorySettled] = useState(false);
+  // Trainingschat nur mit eingerichtetem OpenRouter-Zugang anbieten.
+  const [proseReady, setProseReady] = useState(false);
   const sorenessPromptShown = useRef(false);
   const strengthRef = useRef(strength);
   strengthRef.current = strength;
   const settings = state.settings;
+  const features = useMemo(
+    () =>
+      normalizeFeatures(settings.features, {
+        showHeartRate: settings.showHeartRate,
+      }),
+    [settings.features, settings.showHeartRate],
+  );
+  const tabs = useMemo(() => visibleTabs(features), [features]);
+  const homeSections = useMemo(() => visibleHomeSections(features), [features]);
+  const showRunning = features.areas.running;
+  const showStrength = features.areas.strength;
+  const runRecs = recommendationsShown(features, 'running');
+  const strengthRecs = recommendationsShown(features, 'strength');
+  const runRecsSuggested = recommendationsSuggested(features, 'running');
+  const sports = enabledSports(features);
   const schedule = useMemo(
     () =>
       normalizeSchedule(settings.schedule, {
@@ -632,8 +671,11 @@ export function RunbackApp() {
       now,
     ],
   );
-  const candidate = experiment ? undefined : selection.selected;
-  const queued = experiment ? selection.selected : undefined;
+  const candidate = experiment || !runRecs ? undefined : selection.selected;
+  const queued =
+    experiment && runRecs && features.recommendations.showQueued
+      ? selection.selected
+      : undefined;
   const strengthSelection = useMemo(
     () =>
       selectStrengthRecommendation(finishedSessions, {
@@ -659,14 +701,20 @@ export function RunbackApp() {
       now,
     ],
   );
-  const strengthCandidate = strengthExperiment
-    ? undefined
-    : strengthSelection.selected;
-  const strengthQueued = strengthExperiment
-    ? strengthSelection.selected
-    : undefined;
+  const strengthCandidate =
+    strengthExperiment || !strengthRecs
+      ? undefined
+      : strengthSelection.selected;
+  const strengthQueued =
+    strengthExperiment && strengthRecs && features.recommendations.showQueued
+      ? strengthSelection.selected
+      : undefined;
   const purpose = settings.purpose || 'free';
-  const sport = normalizeSport(settings.sport);
+  // Eine abgewählte Sportart fällt auf die erste erlaubte zurück.
+  const chosenSport = normalizeSport(settings.sport);
+  const sport = sports.includes(chosenSport)
+    ? chosenSport
+    : sports[0] ?? 'running';
   const words = sportWords(sport);
   const runTarget = normalizeRunTarget(settings.runTarget);
 
@@ -794,20 +842,24 @@ export function RunbackApp() {
           history: sameSport,
         },
       };
-      const files: { fileName: string; mimeType: string; content?: string }[] = [
-        {
-          fileName: names.markdown,
-          mimeType: 'text/markdown',
-          content: buildRunReport(input),
-        },
-        {
-          fileName: names.analysis,
-          mimeType: 'application/json',
-          content: JSON.stringify(buildRunAnalysisExport(input), null, 1),
-        },
-      ];
+      const files: { fileName: string; mimeType: string; content?: string }[] =
+        [
+          {
+            fileName: names.markdown,
+            mimeType: 'text/markdown',
+            content: buildRunReport(input),
+          },
+          {
+            fileName: names.analysis,
+            mimeType: 'application/json',
+            content: JSON.stringify(buildRunAnalysisExport(input), null, 1),
+          },
+        ];
       try {
-        const written = await native.writeRunTimeseries(run.id, names.timeseries);
+        const written = await native.writeRunTimeseries(
+          run.id,
+          names.timeseries,
+        );
         if (written.rows > 0) {
           files.push({ fileName: written.fileName, mimeType: 'text/csv' });
         }
@@ -842,7 +894,8 @@ export function RunbackApp() {
         setStrengthSessions(sessions);
         setStrengthHistoryAvailable(true);
       })
-      .catch(() => setStrengthHistoryAvailable(false));
+      .catch(() => setStrengthHistoryAvailable(false))
+      .finally(() => setStrengthHistorySettled(true));
     void native
       .sorenessReports()
       .then(next => {
@@ -851,10 +904,21 @@ export function RunbackApp() {
       })
       .catch(() => {});
   }, []);
+  const loadProseReady = useCallback(() => {
+    void nativeCall<{ enabled?: boolean; hasKey?: boolean }>('getProseSettings')
+      .then(value => setProseReady(Boolean(value?.enabled && value?.hasKey)))
+      .catch(() => setProseReady(false));
+  }, []);
+  useEffect(() => {
+    loadProseReady();
+  }, [loadProseReady]);
+  // Die Abfrage erscheint höchstens einmal je Sitzung, und nur wenn die
+  // Einstellung es will (`shouldPromptSoreness`).
   useEffect(() => {
     if (
       !loaded ||
       !sorenessStorageAvailable ||
+      !strengthHistorySettled ||
       sorenessPromptShown.current ||
       showOnboarding ||
       isRecording ||
@@ -863,34 +927,47 @@ export function RunbackApp() {
       return;
     }
     sorenessPromptShown.current = true;
-    const today = new Date();
-    const hasReportToday = sorenessReports.some(report => {
-      const at = new Date(report.at);
-      return (
-        at.getFullYear() === today.getFullYear() &&
-        at.getMonth() === today.getMonth() &&
-        at.getDate() === today.getDate()
-      );
-    });
-    if (!hasReportToday) {
+    if (
+      shouldPromptSoreness(
+        features,
+        sorenessReports,
+        strengthSessions,
+        settings.trainingDays ?? [],
+        Date.now(),
+      )
+    ) {
       setSorenessOpen(true);
     }
   }, [
+    features,
     isRecording,
     loaded,
+    settings.trainingDays,
     sorenessReports,
     sorenessStorageAvailable,
+    strengthHistorySettled,
+    strengthSessions,
     showOnboarding,
     workoutOpen,
   ]);
-  // Sekundentakt nur, solange eine Pause läuft.
+  // Sekundentakt nur, solange eine Pause läuft und der Timer sichtbar ist.
   useEffect(() => {
-    if (strength.active?.restStartedAt === undefined) {
+    if (
+      strength.active?.restStartedAt === undefined ||
+      !features.strength.restTimer
+    ) {
       return;
     }
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [strength.active?.restStartedAt]);
+  }, [strength.active?.restStartedAt, features.strength.restTimer]);
+  // Verschwindet der aktuelle Tab (Plan abgeschaltet), geht es zu Heute.
+  useEffect(() => {
+    if (!tabs.includes(tab)) {
+      setTab('Heute');
+      setPage('main');
+    }
+  }, [tabs, tab]);
   useEffect(() => {
     const subscription = AndroidAppState.addEventListener('change', value => {
       if (value === 'active' && !busyRef.current) {
@@ -936,6 +1013,7 @@ export function RunbackApp() {
         if (selected) {
           setSelected(null);
           setMoreDetails(false);
+          setFeelingOnly(false);
           return true;
         }
         if (page !== 'main') {
@@ -1006,6 +1084,11 @@ export function RunbackApp() {
     if (next !== 'session') {
       setSelectedSession(null);
     }
+    // Bestehende Nutzer sehen bis zum ersten Besuch einen Hinweis auf Heute;
+    // der erste Besuch schreibt die Standardwerte und beendet ihn.
+    if (next === 'features' && !settings.features) {
+      save({ features });
+    }
     if (next === 'muscle-map') {
       setNow(Date.now());
     }
@@ -1024,6 +1107,7 @@ export function RunbackApp() {
     setStartSheet(null);
     setPage('main');
     setSelected(null);
+    setFeelingOnly(false);
     setSelectedSession(null);
     setError('');
     setMessage('');
@@ -1037,10 +1121,57 @@ export function RunbackApp() {
     if (selected) {
       setSelected(null);
       setMoreDetails(false);
+      setFeelingOnly(false);
       return;
+    }
+    if (page === 'models' || page === 'devices') {
+      loadProseReady();
     }
     setPage(PARENT_PAGE[page] ?? 'main');
     setSelectedSession(null);
+  };
+  const changeFeatures = (next: Features) => {
+    const at = Date.now();
+    const stopsRunning =
+      recommendationsShown(features, 'running') &&
+      !recommendationsShown(next, 'running');
+    const stopsStrength =
+      recommendationsShown(features, 'strength') &&
+      !recommendationsShown(next, 'strength');
+    const pausing: string[] = [];
+    if (stopsRunning && experiment?.status === 'active') {
+      pausing.push(experiment.id);
+    }
+    if (stopsStrength && strengthExperiment?.status === 'active') {
+      pausing.push(strengthExperiment.id);
+    }
+    const apply = () => {
+      const patch: Partial<Settings> = { features: next };
+      if (pausing.length) {
+        patch.experiments = settings.experiments?.map(item =>
+          pausing.includes(item.id)
+            ? transitionExperiment(item, 'paused', at, 'Funktion abgeschaltet')
+            : item,
+        );
+      }
+      save(patch);
+    };
+    const warnings = [
+      features.areas.strength && !next.areas.strength && strength.active
+        ? 'Ein Krafttraining läuft gerade; es bleibt gespeichert.'
+        : '',
+      pausing.length
+        ? 'Die laufende Empfehlung wird pausiert, nicht abgebrochen.'
+        : '',
+    ].filter(Boolean);
+    if (!warnings.length) {
+      apply();
+      return;
+    }
+    Alert.alert('Trotzdem ausblenden?', warnings.join(' '), [
+      { text: 'Zurück', style: 'cancel' },
+      { text: 'Ausblenden', onPress: apply },
+    ]);
   };
 
   // ── Krafttraining ────────────────────────────────────────────────────────
@@ -1128,7 +1259,9 @@ export function RunbackApp() {
     ? strength.templates.find(
         item => item.id === todaysScheduledStrength?.templateId,
       ) ?? null
-    : templateForDay(strength.templates, new Date(now).getDay());
+    : features.strength.templateOfDay
+    ? templateForDay(strength.templates, new Date(now).getDay())
+    : null;
   // Eine Aufzeichnung braucht die Standortfreigabe, sonst nichts: keine
   // Planung, keine Vorlage. Sportart und Zweck sind Beschriftung, nicht Vorgabe.
   const beginRecording = async (
@@ -1335,6 +1468,13 @@ export function RunbackApp() {
               const id = recording?.id;
               await nativeCall('finishRun');
               const next = await refresh();
+              if (features.recording.afterRun === 'home') {
+                setMessage(
+                  'Aufzeichnung gespeichert. Dein Gefühl kannst du im Verlauf nachtragen.',
+                );
+                return;
+              }
+              setFeelingOnly(features.recording.afterRun === 'feeling');
               if (id) {
                 setSelected(await native.run(id));
               } else if (next.runs[0]) {
@@ -1501,16 +1641,17 @@ export function RunbackApp() {
       startStrength(todaysTemplate);
     }
   };
-  const targetRow = (nextPurpose: RunPurpose) => (
-    <Row
-      title="Laufen nach"
-      subtitle={runTargetLabel(targetForPurpose(runTarget, nextPurpose))}
-      onPress={() => {
-        setStartSheet(null);
-        openPage('run-target');
-      }}
-    />
-  );
+  const targetRow = (nextPurpose: RunPurpose) =>
+    features.recording.targets ? (
+      <Row
+        title="Laufen nach"
+        subtitle={runTargetLabel(targetForPurpose(runTarget, nextPurpose))}
+        onPress={() => {
+          setStartSheet(null);
+          openPage('run-target');
+        }}
+      />
+    ) : null;
   const shortVerdict = (verdict: string | undefined) =>
     verdict === 'improved'
       ? 'hat geholfen'
@@ -1534,6 +1675,9 @@ export function RunbackApp() {
     : null;
   /** Kompakte Karte je Bereich: Zustand, Fortschritt, ein Tipp führt zum Coach. */
   const recommendationCard = (area: 'running' | 'strength') => {
+    if (!recommendationsSuggested(features, area)) {
+      return null;
+    }
     const active = area === 'running' ? experiment : strengthExperiment;
     const evaluation = area === 'running' ? runEvaluation : strengthEvaluation;
     const proposal = area === 'running' ? candidate : strengthCandidate;
@@ -1684,7 +1828,9 @@ export function RunbackApp() {
         </Card>
       );
     }
-    if (todaysScheduledRun) {
+    // Ohne Bereich Laufen startet „etwas anderes“ direkt beim Krafttraining.
+    const otherKind: StartKind = sports.length ? 'run' : 'strength';
+    if (todaysScheduledRun && showRunning) {
       const plannedPurpose = todaysScheduledRun.purpose || 'free';
       return (
         <Card style={styles.hero}>
@@ -1700,7 +1846,7 @@ export function RunbackApp() {
             onPress={startPlannedRun}
             disabled={busy}
           />
-          {todaysScheduledStrength ? (
+          {todaysScheduledStrength && showStrength ? (
             <Row
               title={todaysScheduledStrength.title}
               subtitle={`Krafttraining · ${todaysScheduledStrength.minutes} Min · ebenfalls heute`}
@@ -1711,13 +1857,13 @@ export function RunbackApp() {
             secondary
             small
             title="Stattdessen etwas anderes starten"
-            onPress={() => openStartSheet('run')}
+            onPress={() => openStartSheet(otherKind)}
             disabled={busy}
           />
         </Card>
       );
     }
-    if (todaysScheduledStrength || todaysTemplate) {
+    if (showStrength && (todaysScheduledStrength || todaysTemplate)) {
       const title = todaysScheduledStrength?.title ?? todaysTemplate!.name;
       const exerciseCount = todaysTemplate?.exercises.length ?? 0;
       return (
@@ -1744,7 +1890,7 @@ export function RunbackApp() {
             secondary
             small
             title="Stattdessen etwas anderes starten"
-            onPress={() => openStartSheet('run')}
+            onPress={() => openStartSheet(otherKind)}
             disabled={busy}
           />
         </Card>
@@ -1766,7 +1912,7 @@ export function RunbackApp() {
           <Button
             secondary
             title="Noch eine Einheit starten"
-            onPress={() => openStartSheet('run')}
+            onPress={() => openStartSheet(otherKind)}
             disabled={busy}
           />
         </Card>
@@ -1783,17 +1929,21 @@ export function RunbackApp() {
               )}`
             : 'Starte, was du magst — oder plane deine Woche.'}
         </Copy>
-        <Button
-          title={`${words.noun} starten`}
-          onPress={() => openStartSheet('run')}
-          disabled={busy}
-        />
-        <Button
-          secondary
-          title="Krafttraining starten"
-          onPress={() => openStartSheet('strength')}
-          disabled={busy}
-        />
+        {sports.length ? (
+          <Button
+            title={`${words.noun} starten`}
+            onPress={() => openStartSheet('run')}
+            disabled={busy}
+          />
+        ) : null}
+        {showStrength ? (
+          <Button
+            secondary={sports.length > 0}
+            title="Krafttraining starten"
+            onPress={() => openStartSheet('strength')}
+            disabled={busy}
+          />
+        ) : null}
       </Card>
     );
   };
@@ -1807,11 +1957,22 @@ export function RunbackApp() {
   const renderHome = () => (
     <>
       <Title>Heute</Title>
-      {weekStrip()}
+      {homeSections.includes('week') ? weekStrip() : null}
       {renderHero()}
-      {recommendationCard(heroArea) ??
-        recommendationCard(heroArea === 'running' ? 'strength' : 'running')}
-      {sorenessStorageAvailable && !reportedToday ? (
+      {!settings.features && settings.onboardedAt ? (
+        <Row
+          title="Neu: Wähle, was Runback zeigt"
+          subtitle="Bereiche, Muskelkater, Plan und mehr abwählen"
+          onPress={() => openPage('features')}
+        />
+      ) : null}
+      {homeSections.includes('recommendation')
+        ? recommendationCard(heroArea) ??
+          recommendationCard(heroArea === 'running' ? 'strength' : 'running')
+        : null}
+      {homeSections.includes('body') &&
+      sorenessStorageAvailable &&
+      !reportedToday ? (
         <Row
           title="Wie fühlst du dich heute?"
           subtitle={
@@ -1822,7 +1983,7 @@ export function RunbackApp() {
           onPress={openSorenessCapture}
         />
       ) : null}
-      {units.length ? (
+      {!homeSections.includes('recent') ? null : units.length ? (
         <Section title="Zuletzt">
           {units.slice(0, 2).map(unit => (
             <Row
@@ -1853,6 +2014,9 @@ export function RunbackApp() {
   // der letzten Wahl als Vorgabe. Im Normalfall: ein Tipp, dann „Los“.
   const startKindValue: 'running' | 'cycling' | 'strength' =
     startSheet === 'strength' ? 'strength' : sport;
+  const startKinds = START_KINDS.filter(kind =>
+    kind.value === 'strength' ? showStrength : sports.includes(kind.value),
+  );
   const selectedTemplate =
     strength.templates.find(item => item.id === startTemplateId) ?? null;
   const startFromSheet = () => {
@@ -1878,19 +2042,21 @@ export function RunbackApp() {
       title="Was startest du?"
       onClose={() => setStartSheet(null)}
     >
-      <Segmented
-        label="Art der Einheit"
-        options={START_KINDS}
-        value={startKindValue}
-        onChange={value => {
-          if (value === 'strength') {
-            openStartSheet('strength');
-          } else {
-            setStartSheet('run');
-            save({ sport: value });
-          }
-        }}
-      />
+      {startKinds.length > 1 ? (
+        <Segmented
+          label="Art der Einheit"
+          options={startKinds}
+          value={startKindValue}
+          onChange={value => {
+            if (value === 'strength') {
+              openStartSheet('strength');
+            } else {
+              setStartSheet('run');
+              save({ sport: value });
+            }
+          }}
+        />
+      ) : null}
       {startSheet === 'strength' ? (
         <>
           {strength.templates.map(item => (
@@ -1990,6 +2156,12 @@ export function RunbackApp() {
       return null;
     }
     const recordingWords = sportWords(recording.sport);
+    const { primary, metrics } = features.recording;
+    const secondary = [
+      primary !== 'duration',
+      metrics.includes('distance') && primary !== 'distance',
+      metrics.includes('pace'),
+    ].filter(Boolean);
     return (
       <>
         <View style={styles.recordingHeader}>
@@ -2003,17 +2175,46 @@ export function RunbackApp() {
           <Copy muted>{purposeLabel(recording.purpose)}</Copy>
         </View>
         <View style={styles.bigMetric}>
-          <Stat
-            large
-            value={duration(recording.durationSeconds)}
-            label={recordingWords.durationLabel}
-          />
+          {primary === 'distance' ? (
+            <Stat large value={distance(recording)} label="Kilometer" />
+          ) : primary === 'heartRate' ? (
+            <Stat
+              large
+              value={
+                recording.avgHeartRate
+                  ? String(Math.round(recording.avgHeartRate))
+                  : '–'
+              }
+              label="Ø bpm"
+            />
+          ) : (
+            <Stat
+              large
+              value={duration(recording.durationSeconds)}
+              label={recordingWords.durationLabel}
+            />
+          )}
         </View>
-        <View style={styles.metrics}>
-          <Stat value={distance(recording)} label="Kilometer" />
-          <Stat value={tempoValue(recording)} label={tempoLabel(recording)} />
-        </View>
-        {settings.showHeartRate ? (
+        {secondary.length ? (
+          <View style={styles.metrics}>
+            {primary !== 'duration' ? (
+              <Stat
+                value={duration(recording.durationSeconds)}
+                label={recordingWords.durationLabel}
+              />
+            ) : null}
+            {metrics.includes('distance') && primary !== 'distance' ? (
+              <Stat value={distance(recording)} label="Kilometer" />
+            ) : null}
+            {metrics.includes('pace') ? (
+              <Stat
+                value={tempoValue(recording)}
+                label={tempoLabel(recording)}
+              />
+            ) : null}
+          </View>
+        ) : null}
+        {metrics.includes('heartRate') && primary !== 'heartRate' ? (
           <Row
             title="Herzfrequenz"
             trailing={
@@ -2025,7 +2226,9 @@ export function RunbackApp() {
             }
           />
         ) : null}
-        {recording.target && recording.target.kind !== 'none' ? (
+        {metrics.includes('target') &&
+        recording.target &&
+        recording.target.kind !== 'none' ? (
           <Row
             title="Laufen nach"
             subtitle={runTargetLabel(recording.target)}
@@ -2042,7 +2245,9 @@ export function RunbackApp() {
             Daten erkennbar.
           </Copy>
         ) : null}
-        {experiment?.status === 'active' && isRun(recording) ? (
+        {experiment?.status === 'active' &&
+        runRecsSuggested &&
+        isRun(recording) ? (
           <Section title="Für diesen Lauf">
             <Copy>{experiment.recommendation.action}</Copy>
           </Section>
@@ -2753,13 +2958,18 @@ export function RunbackApp() {
       </>
     );
   };
-  const showStrengthArea = Boolean(
-    finishedSessions.length || strengthExperiment || settings.strengthFocus,
-  );
+  // Krafttraining zeigt seinen Coach erst, wenn es genutzt wird — und gar
+  // nicht, wenn der Bereich abgewählt ist. Ohne Laufen steht er allein.
+  const showStrengthArea =
+    showStrength &&
+    (!showRunning ||
+      Boolean(
+        finishedSessions.length || strengthExperiment || settings.strengthFocus,
+      ));
   const renderCoach = () => (
     <>
       <Title>Coach</Title>
-      {showStrengthArea ? (
+      {showStrengthArea && showRunning ? (
         <Segmented
           label="Bereich"
           options={[
@@ -2773,15 +2983,17 @@ export function RunbackApp() {
           }}
         />
       ) : null}
-      {coachArea === 'strength' && showStrengthArea
+      {(coachArea === 'strength' || !showRunning) && showStrengthArea
         ? renderStrengthCoach()
         : renderRunningCoach()}
       <Section title="Fragen">
-        <Row
-          title="Trainingschat"
-          subtitle="Fragen zu deinen Einheiten stellen"
-          onPress={() => openPage('chat')}
-        />
+        {proseReady ? (
+          <Row
+            title="Trainingschat"
+            subtitle="Fragen zu deinen Einheiten stellen"
+            onPress={() => openPage('chat')}
+          />
+        ) : null}
         <Row
           title="Wie Runback rechnet"
           subtitle="Grundlagen, Grenzen und gesperrte Modelle"
@@ -2863,6 +3075,35 @@ export function RunbackApp() {
       </Field>
     );
     const askPurpose = isRun(selected) && !hasNamedPurpose(selected.purpose);
+    if (feelingOnly) {
+      return (
+        <>
+          <Title>{runTitle(selected)}</Title>
+          <Copy muted>
+            {selectedWords.noun} · {date(selected.startTime)} · gespeichert
+          </Copy>
+          <View style={styles.metrics}>
+            <Stat value={distance(selected)} label="km" />
+            <Stat
+              value={duration(selected.durationSeconds)}
+              label={selectedWords.durationLabel}
+            />
+            <Stat value={tempoValue(selected)} label={tempoLabel(selected)} />
+          </View>
+          <Section title={selectedWords.feelingLabel}>
+            {renderRpe('legs', 'Beine')}
+            {renderRpe('breathing', 'Atmung')}
+          </Section>
+          <Button title="Fertig" onPress={leaveDetail} disabled={busy} />
+          <Button
+            secondary
+            small
+            title="Alle Details ansehen"
+            onPress={() => setFeelingOnly(false)}
+          />
+        </>
+      );
+    }
     return (
       <>
         <Title>{runTitle(selected)}</Title>
@@ -2894,7 +3135,7 @@ export function RunbackApp() {
           <Card style={styles.nextStepCard}>
             <Text style={styles.heroLabel}>Nächster Schritt</Text>
             <Copy>{snapshot.nextAction}</Copy>
-            {snapshot.recommendation && !experiment ? (
+            {snapshot.recommendation && !experiment && runRecs ? (
               <Button
                 title="Empfehlung ansehen"
                 onPress={() => {
@@ -2903,7 +3144,9 @@ export function RunbackApp() {
                 }}
               />
             ) : null}
-            {experiment && selected.startTime > experiment.acceptedAt ? (
+            {experiment &&
+            runRecs &&
+            selected.startTime > experiment.acceptedAt ? (
               <>
                 <Copy muted>Hast du die Empfehlung ausprobiert?</Copy>
                 <View style={styles.choiceRow}>
@@ -3020,8 +3263,8 @@ export function RunbackApp() {
             disabled={busy}
           />
           <Copy muted>
-            Eine Textdatei mit allen Werten, Abschnitten, Verlauf und
-            Auswertung — zum Beispiel für eine Auswertung mit ChatGPT.
+            Eine Textdatei mit allen Werten, Abschnitten, Verlauf und Auswertung
+            — zum Beispiel für eine Auswertung mit ChatGPT.
           </Copy>
         </Section>
         <View style={styles.sectionGap}>
@@ -3078,7 +3321,11 @@ export function RunbackApp() {
             <Field label="Art">
               <ChipGroup
                 label="Sportart dieser Aufzeichnung"
-                options={SPORTS}
+                options={SPORTS.filter(
+                  option =>
+                    sports.includes(option.value) ||
+                    option.value === normalizeSport(selected.sport),
+                )}
                 value={normalizeSport(selected.sport)}
                 onChange={value => updateFeedback({ sport: value })}
                 disabled={busy}
@@ -3124,36 +3371,24 @@ export function RunbackApp() {
     );
   };
 
-  const toggle = (value: boolean, onValueChange: (value: boolean) => void) => (
-    <Switch
-      value={value}
-      onValueChange={onValueChange}
-      trackColor={{ false: color.line, true: color.green }}
-      thumbColor={value ? color.ink : color.muted}
-    />
-  );
   // Einstellungen: was übrig bleibt, wenn Fokus, Ziel, Vorlagen und Chat ihren
   // fachlichen Ort haben — Gerät, Daten, Optionales. Jede Zeile zeigt ihren
   // Zustand, damit man nicht hineingehen muss, um ihn zu kennen.
   const renderSettings = () => (
     <>
       <Title>Einstellungen</Title>
+      <Section title="App">
+        <Row
+          title="Funktionen"
+          subtitle="Was Runback zeigt und wann es fragt"
+          onPress={() => openPage('features')}
+        />
+      </Section>
       <Section title="Gerät">
         <Row
           title="Geräte & Verbindungen"
           subtitle="Uhr, Sensoren, Health Connect, Wetter"
           onPress={() => openPage('devices')}
-        />
-        <Row
-          title="Herzfrequenz beim Laufen"
-          subtitle={
-            settings.showHeartRate
-              ? 'Wird während der Aufzeichnung angezeigt'
-              : 'Aus · nur mit vorhandenen Messdaten'
-          }
-          trailing={toggle(Boolean(settings.showHeartRate), value =>
-            save({ showHeartRate: value }),
-          )}
         />
       </Section>
       <Section title="Deine Daten">
@@ -3802,6 +4037,15 @@ export function RunbackApp() {
         }
       }}
     />
+  ) : page === 'features' || page === 'features-home' ? (
+    <FeatureSettings
+      features={features}
+      screen={page === 'features-home' ? 'home' : 'main'}
+      disabled={busy}
+      onChange={changeFeatures}
+      onOpenHomeSections={() => openPage('features-home')}
+      onOpenDevices={() => openPage('devices')}
+    />
   ) : page === 'settings' ? (
     renderSettings()
   ) : page === 'devices' ? (
@@ -3832,10 +4076,13 @@ export function RunbackApp() {
       onStartStrength={startScheduled}
       onDevelopment={() => openPage('development')}
       onManageTemplates={() => {
-        setTemplatesView('strength');
+        setTemplatesView(showStrength ? 'strength' : 'run');
         openPage('templates');
       }}
       busy={busy}
+      showSuggest={features.planning.suggest}
+      showMonth={features.planning.month}
+      showStrength={showStrength}
     />
   ) : tab === 'Verlauf' ? (
     <>
@@ -3852,14 +4099,19 @@ export function RunbackApp() {
         sessions={finishedSessions}
         view={statisticsView}
         onViewChange={next => save({ statisticsView: next })}
+        modules={features.statistics.modules}
+        showRunning={showRunning}
+        showStrength={showStrength}
       />
-      <Section title="Körper">
-        <Row
-          title="Muskelkarte"
-          subtitle="Gemeldeter Muskelkater und gerechnete Frische je Region"
-          onPress={() => openPage('muscle-map')}
-        />
-      </Section>
+      {features.soreness.enabled && features.soreness.map ? (
+        <Section title="Körper">
+          <Row
+            title="Muskelkarte"
+            subtitle="Gemeldeter Muskelkater und gerechnete Frische je Region"
+            onPress={() => openPage('muscle-map')}
+          />
+        </Section>
+      ) : null}
     </>
   ) : (
     renderCoach()
@@ -3894,9 +4146,15 @@ export function RunbackApp() {
           now={now}
           onSave={saveSoreness}
           onSkip={() => setSorenessOpen(false)}
-          onTranscribe={transcribeSoreness}
-          voiceAvailable={Boolean(state.capabilities.speechRecognition)}
+          onTranscribe={
+            features.soreness.voice ? transcribeSoreness : undefined
+          }
+          voiceAvailable={
+            features.soreness.voice &&
+            Boolean(state.capabilities.speechRecognition)
+          }
           voiceHint={
+            features.soreness.voice &&
             state.capabilities.speechRecognition === false
               ? 'Auf diesem Gerät ist keine Spracherkennung verfügbar. Tippen funktioniert unverändert.'
               : undefined
@@ -3920,6 +4178,7 @@ export function RunbackApp() {
         ) : null}
         <PlanEditor
           busy={busy}
+          defaultRestSeconds={features.strength.defaultRestSeconds}
           onCancel={() => setPlanDraft(null)}
           onSave={template => {
             persistTemplates(upsertTemplate(strength.templates, template));
@@ -3950,8 +4209,19 @@ export function RunbackApp() {
           history={recentSessions}
           now={now}
           sessions={strengthSessions}
+          showRir={features.strength.rir}
+          showRestTimer={features.strength.restTimer}
           onAddExercise={() => setPickerOpen(true)}
-          onAddSet={index => changeSession(s => addSet(s, index, Date.now()))}
+          onAddSet={index =>
+            changeSession(s =>
+              addSet(
+                s,
+                index,
+                Date.now(),
+                features.strength.defaultRestSeconds,
+              ),
+            )
+          }
           onCompleteSet={(index, setId, values) =>
             changeSession(s =>
               completeStrengthSet(s, index, setId, Date.now(), values),
@@ -3971,7 +4241,15 @@ export function RunbackApp() {
           onClose={() => setPickerOpen(false)}
           onSelect={(exercise: Exercise) => {
             setPickerOpen(false);
-            changeSession(s => addExercise(s, exercise, Date.now()));
+            changeSession(s =>
+              addExercise(
+                s,
+                exercise,
+                Date.now(),
+                3,
+                features.strength.defaultRestSeconds,
+              ),
+            );
           }}
           visible={pickerOpen}
         />
@@ -4019,6 +4297,19 @@ export function RunbackApp() {
     unitMatches(unit, 'cycling'),
   ).length;
   const sessionCount = units.length - runCount - cyclingCount;
+  // Ein Filter bleibt, solange es Einheiten dafür gibt — auch bei
+  // abgewähltem Bereich; Historie verschwindet nicht.
+  const unitFilters = UNIT_FILTERS.filter(
+    item =>
+      item.value === 'all' ||
+      (item.value === 'runs' && (showRunning || runCount > 0)) ||
+      (item.value === 'cycling' &&
+        (features.sports.cycling || cyclingCount > 0)) ||
+      (item.value === 'strength' && (showStrength || sessionCount > 0)),
+  );
+  const activeUnitFilter = unitFilters.some(item => item.value === unitFilter)
+    ? unitFilter
+    : 'all';
   const runCountLabel = counted(runCount, 'Lauf', 'Läufe');
   const cyclingCountLabel = counted(cyclingCount, 'Radfahrt', 'Radfahrten');
   const sessionCountLabel = counted(
@@ -4165,8 +4456,8 @@ export function RunbackApp() {
               />
               <ChipGroup
                 label="Einheiten filtern"
-                options={UNIT_FILTERS}
-                value={unitFilter}
+                options={unitFilters}
+                value={activeUnitFilter}
                 onChange={setUnitFilter}
               />
               {units.length ? <Copy muted>{unitCountLabel}</Copy> : null}
@@ -4206,10 +4497,25 @@ export function RunbackApp() {
           {content}
         </ScrollView>
       )}
+      {onOpenRoutePlanner &&
+      features.recording.routes &&
+      showRunning &&
+      !selected &&
+      page === 'main' &&
+      !recording ? (
+        <View pointerEvents="box-none" style={styles.routeLauncher}>
+          <Button
+            small
+            title="Route planen"
+            onPress={onOpenRoutePlanner}
+            label="Routenplaner öffnen"
+          />
+        </View>
+      ) : null}
       <View
         style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
       >
-        {TABS.map(name => (
+        {tabs.map(name => (
           <Pressable
             key={name}
             accessibilityRole="tab"
@@ -4234,6 +4540,11 @@ export function RunbackApp() {
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: color.bg },
+  routeLauncher: {
+    position: 'absolute',
+    right: space.md,
+    bottom: 86,
+  },
   header: {
     height: 64,
     paddingHorizontal: space.lg,

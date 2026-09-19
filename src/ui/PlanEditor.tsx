@@ -190,11 +190,14 @@ const SetRow = memo(function SetRow({
 export function PlanEditor({
   template,
   busy = false,
+  defaultRestSeconds,
   onSave,
   onCancel,
 }: {
   template: WorkoutTemplate;
   busy?: boolean;
+  /** Pause für neue Sätze; bestehende Sätze behalten ihre Werte. */
+  defaultRestSeconds?: number;
   onSave: (template: WorkoutTemplate) => void;
   onCancel: () => void;
 }) {
@@ -420,7 +423,11 @@ export function PlanEditor({
             <Pressable
               accessibilityLabel={`Satz zu ${exercise.name} hinzufügen`}
               accessibilityRole="button"
-              onPress={() => change(current => addPlannedSet(current, exerciseIndex))}
+              onPress={() =>
+                change(current =>
+                  addPlannedSet(current, exerciseIndex, defaultRestSeconds),
+                )
+              }
               style={({ pressed }) => [styles.ghost, pressed && styles.pressed]}
             >
               <Text style={styles.ghostText}>+ Satz</Text>
@@ -452,7 +459,9 @@ export function PlanEditor({
         onClose={() => setPickerOpen(false)}
         onSelect={(exercise: Exercise) => {
           setPickerOpen(false);
-          change(current => addTemplateExercise(current, exercise));
+          change(current =>
+            addTemplateExercise(current, exercise, 3, defaultRestSeconds),
+          );
         }}
         visible={pickerOpen}
       />

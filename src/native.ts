@@ -22,6 +22,7 @@ import type {
   SorenessReport as CapturedSorenessReport,
   StructuredSorenessItem,
 } from './domain/sorenessInput';
+import type { FeatureSettings } from './domain/features';
 
 export interface Preset {
   id: string;
@@ -49,7 +50,10 @@ export interface Settings {
   /** Explizit gewählte Begleitung für den nächsten Lauf. */
   runTarget?: RunTarget;
   weather?: boolean;
+  /** Älterer Einzelschalter; gilt nur, solange `features` fehlt. */
   showHeartRate?: boolean;
+  /** Was der Nutzer sehen will und wann Runback fragt (`domain/features`). */
+  features?: FeatureSettings;
   presets?: Preset[];
   experiments?: Experiment[];
   dismissedRecommendations?: string[];
