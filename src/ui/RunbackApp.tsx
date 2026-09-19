@@ -156,8 +156,9 @@ import {
   runTitle,
 } from '../domain/runTitle';
 import {
+  buildRunAnalysisExport,
   buildRunReport,
-  runReportFileName,
+  runExportFileNames,
   type RunTimeline,
 } from '../domain/runReport';
 
@@ -661,9 +662,10 @@ export function RunbackApp() {
   const openCoMaps = useCallback(async (points: RouteCoordinate[]) => {
     await native.openRouteFile(points, 'comaps');
   }, []);
-  // Ein Bericht als Textdatei: alles, was die App über den Lauf weiß, zum
-  // Weitergeben (z. B. an ein Sprachmodell). Fehlt der Zeitverlauf, fehlt nur
-  // dieser Abschnitt — der Rest wird trotzdem geteilt.
+  // Drei Dateien zum Weitergeben (z. B. an ein Sprachmodell): der Bericht
+  // für Menschen, die Analyse als JSON und die 5-s-Zeitreihe als CSV. Die
+  // Zeitreihe schreibt Kotlin direkt in den Export-Cache; fehlt sie oder der
+  // Zeitverlauf, fehlt nur dieser Teil — der Rest wird trotzdem geteilt.
   const shareRun = (run: Run, analysis: RunAnalysis | null) => {
     void action(async () => {
       let timeline: RunTimeline | null = null;
@@ -676,7 +678,8 @@ export function RunbackApp() {
       const sameSport = current.runs.filter(
         other => normalizeSport(other.sport) === normalizeSport(run.sport),
       );
-      const content = buildRunReport({
+      const names = runExportFileNames(run);
+      const input = {
         run,
         analysis,
         timeline,
@@ -687,12 +690,28 @@ export function RunbackApp() {
           adherence: current.settings.adherence?.[run.id],
           history: sameSport,
         },
-      });
-      await native.shareTextFile(
-        runReportFileName(run),
-        content,
-        `${sportWords(run.sport).noun} teilen`,
-      );
+      };
+      const files: { fileName: string; mimeType: string; content?: string }[] = [
+        {
+          fileName: names.markdown,
+          mimeType: 'text/markdown',
+          content: buildRunReport(input),
+        },
+        {
+          fileName: names.analysis,
+          mimeType: 'application/json',
+          content: JSON.stringify(buildRunAnalysisExport(input), null, 1),
+        },
+      ];
+      try {
+        const written = await native.writeRunTimeseries(run.id, names.timeseries);
+        if (written.rows > 0) {
+          files.push({ fileName: written.fileName, mimeType: 'text/csv' });
+        }
+      } catch {
+        // Ohne Zeitreihe (Import, Altdaten) bleiben Bericht und Analyse.
+      }
+      await native.shareFiles(files, `${sportWords(run.sport).noun} teilen`);
     });
   };
 

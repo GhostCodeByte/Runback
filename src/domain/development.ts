@@ -2,7 +2,7 @@ import type { Run } from '../native';
 import type { StrengthSession } from './strength';
 import { localDateKey as scheduleLocalDateKey } from './schedule';
 import type { ScheduleState } from './schedule';
-import { isRun } from './sport';
+import { isAccidentalRun, isRun } from './sport';
 
 /**
  * Fakten für die Entwicklungsansicht.
@@ -165,6 +165,10 @@ const isCompletedRun = (run: Run, now: number): boolean => {
     !finite(run.durationSeconds) ||
     run.durationSeconds < 0
   ) {
+    return false;
+  }
+  // Fehlstarts bleiben gespeichert, zählen aber nicht als Training.
+  if (isAccidentalRun(run)) {
     return false;
   }
   return true;

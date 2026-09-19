@@ -20,6 +20,8 @@ import { finite, median } from './inference';
  * Auf- und Abstieg statt Nettohöhe, Belastung als RPE × Minuten.
  */
 export const MODEL_VERSION = 'runback-rules-2.0.0';
+/** Regeln der Datenqualitätsprüfung; 2: Lücken je Abschnitt werden wirksam (gapSeconds aus Distanzmodell 3.0). */
+export const QUALITY_VERSION = 'runback-quality-2';
 export const PACING_METHOD = 'pacing-fade-v2';
 export const MAX_SEGMENTS = 500;
 /** Ab diesem Median des späten Tempoabfalls wird ein ruhigerer Start vorgeschlagen (Setzung). */
@@ -97,7 +99,7 @@ export function assessQuality(run: RunSummary): QualityReport {
     issue(
       'time',
       'duration_mismatch',
-      'Bewegungszeit überschreitet die Aufzeichnungsdauer.',
+      'Aufzeichnungszeit überschreitet die Spanne zwischen Start und Ende.',
     );
   }
   if ((run.segments?.length ?? 0) > MAX_SEGMENTS) {

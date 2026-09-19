@@ -129,3 +129,30 @@ export function speedKmh(record: {
   }
   return record.distanceMeters / 1000 / (record.durationSeconds / 3600);
 }
+
+/** Unter 60 s und unter 100 m: versehentlich gestartet, kein Training (Setzung). */
+export const ACCIDENTAL_MAX_SECONDS = 60;
+export const ACCIDENTAL_MAX_METERS = 100;
+/**
+ * Fehlstart: Die Aufzeichnung bleibt gespeichert, zählt aber weder in
+ * Historie, Umfang noch Belastung. Beide Grenzen müssen unterschritten sein —
+ * ein kurzer Sprint über 100 m oder ein Stehen über eine Minute ist kein Fehlstart.
+ */
+export function isAccidentalRun(record: {
+  durationSeconds: number;
+  distanceMeters: number;
+}): boolean {
+  return (
+    Number.isFinite(record.durationSeconds) &&
+    Number.isFinite(record.distanceMeters) &&
+    record.durationSeconds < ACCIDENTAL_MAX_SECONDS &&
+    record.distanceMeters < ACCIDENTAL_MAX_METERS
+  );
+}
+export type RunValidity = 'valid' | 'accidental';
+export function runValidity(record: {
+  durationSeconds: number;
+  distanceMeters: number;
+}): RunValidity {
+  return isAccidentalRun(record) ? 'accidental' : 'valid';
+}

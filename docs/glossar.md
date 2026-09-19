@@ -45,6 +45,16 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Flach | `segmentIsFlat` | Auf- plus Abstieg höchstens 2 % der Strecke. Nettohöhe allein reicht nicht. |
 | Gemeldeter Muskelkater | `SorenessReport` | Nutzerangabe je Region und Zeitpunkt. Eingabe, keine Messung. |
 | Zusammenfassungs-Lauf | `summaryOnly` | Importierter Lauf ohne Spur; nur Zeit und Distanz bekannt. |
+| Gesamtzeit | `elapsedSeconds` | Start bis Ende nach der Uhr, Pausen eingeschlossen. |
+| Aufzeichnungszeit | `activeSeconds`, `durationSeconds` | Gesamtzeit ohne die vom Nutzer ausgelösten Pausen. Keine Bewegungszeit. |
+| Bewegungszeit | `movingSeconds` | Laufen plus Gehen laut Phasenerkennung. Ohne Phasen unbekannt, nicht geschätzt. |
+| Phase | `MovementPhase` | Zusammenhängender Abschnitt Laufen, Gehen, Stillstand, Pause oder Unbekannt (mindestens 20 s). |
+| Unbekannt (Phase) | `UNKNOWN` | Weder Bewegung noch Stillstand belegbar, z. B. GPS-Ausfall ohne ruhenden Beschleunigungssensor. |
+| Kilometer-Abschnitt | `SegmentAggregate` | Endet am vollen Kilometer oder an einer Pause; GPS-Lücken bleiben als `gapSeconds` darin. |
+| GPS-Lücke | `GpsGap` | Schritt, der nicht zählt: zu lange ohne Fix, zu ungenau oder unplausibel schnell. |
+| Höhenmeter | `ElevationSummary` | Auf-/Abstieg aus Barometer, sonst aus GPS mit bekannter vertikaler Genauigkeit; sonst „nicht bestimmbar“. |
+| Fehlstart | `isAccidentalRun` | Unter 60 s und unter 100 m. Bleibt gespeichert, zählt aber nicht als Training. |
+| Analyse-Export | `buildRunAnalysisExport` | Drei Dateien zum Teilen: Bericht (Markdown), Analyse (JSON), Zeitreihe (CSV, 5 s). |
 | Grundregel | — | Regel, die für alles gilt und nicht gegen eine UI-Abkürzung getauscht wird. |
 
 **Nicht mehr verwendet:** Arbeitsthema, nächste Handlung, Intervention,

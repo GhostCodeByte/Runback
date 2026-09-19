@@ -336,6 +336,8 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
             .put("accuracyM", location.accuracy.toDouble()).put("provider", location.provider ?: "unknown")
             .put("elapsedRealtimeNanos", location.elapsedRealtimeNanos)
         if (location.hasAltitude()) values.put("altitudeM", location.altitude)
+        // Ohne vertikale Genauigkeit ist GPS-Höhe nicht bewertbar (RunElevation).
+        if (location.hasVerticalAccuracy()) values.put("verticalAccuracyM", location.verticalAccuracyMeters.toDouble())
         if (location.hasSpeed()) values.put("speedMps", location.speed.toDouble())
         if (location.hasBearing()) values.put("bearingDeg", location.bearing.toDouble())
         values.put("source", recordingSource)

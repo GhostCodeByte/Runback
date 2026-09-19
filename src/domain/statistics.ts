@@ -1,6 +1,6 @@
 import type { Run } from '../native';
 import { medianOrNull } from './inference';
-import { isRun } from './sport';
+import { isAccidentalRun, isRun } from './sport';
 
 export interface StatisticsWeek {
   startTime: number;
@@ -31,6 +31,7 @@ export function validRun(run: Run, now: number) {
   return (
     isRun(run) &&
     (run.status === 'completed' || run.status === 'imported') &&
+    !isAccidentalRun(run) &&
     Number.isFinite(start) &&
     start > 0 &&
     start <= now &&

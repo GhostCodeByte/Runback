@@ -13,6 +13,19 @@ class RunMathTest {
         assertNull(RunMath.acceptedDistance(91.0, 13.0, 1000, 5.0, 52.0, 13.0, 2000, 5.0))
         assertNull(RunMath.acceptedDistance(52.0, 13.0, 1000, 60.0, 52.0001, 13.0, 3000, 5.0))
     }
+    @Test fun rejectionReasonNamesWhyAStepDoesNotCount() {
+        assertNull(RunMath.rejectionReason(52.0, 13.0, 1000, 5.0, 52.0001, 13.0, 3000, 5.0))
+        assertEquals("speed", RunMath.rejectionReason(52.0, 13.0, 1000, 5.0, 53.0, 13.0, 2000, 5.0))
+        assertEquals("timeout", RunMath.rejectionReason(52.0, 13.0, 1000, 5.0, 52.0001, 13.0, 32000, 5.0))
+        assertEquals("invalid", RunMath.rejectionReason(91.0, 13.0, 1000, 5.0, 52.0, 13.0, 2000, 5.0))
+        assertEquals("accuracy", RunMath.rejectionReason(52.0, 13.0, 1000, 60.0, 52.0001, 13.0, 3000, 5.0))
+    }
+    @Test fun pressureConvertsToAltitudeDifferences() {
+        assertEquals(0.0, RunMath.pressureToAltitudeMeters(1013.25)!!, 0.01)
+        // 1 hPa ≈ 8,3 m nahe Meereshöhe.
+        assertEquals(8.3, RunMath.pressureToAltitudeMeters(1012.25)!!, 0.2)
+        assertNull(RunMath.pressureToAltitudeMeters(0.0))
+    }
     @Test fun shortRunningSegmentRemainsUsable() {
         assertEquals(11.12, RunMath.acceptedDistance(52.0, 13.0, 1000, 5.0, 52.0001, 13.0, 3000, 5.0)!!, 0.1)
     }
