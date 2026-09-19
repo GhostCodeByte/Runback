@@ -23,6 +23,7 @@ import {
   space,
   type as type_,
 } from './components';
+import { STATS_MODULES, type StatsModule } from '../domain/features';
 
 /**
  * Statistik in drei Tiefen:
@@ -167,6 +168,9 @@ export function Statistics({
   view = defaultStatisticsView,
   onViewChange,
   embedded = false,
+  modules = STATS_MODULES,
+  showRunning = true,
+  showStrength = true,
 }: {
   runs: Run[];
   /** Abgeschlossene Krafteinheiten. Ohne sie bleibt der Abschnitt weg. */
@@ -176,6 +180,11 @@ export function Statistics({
   onViewChange?: (view: StatisticsView) => void;
   /** Als Teil einer Seite, die den Titel schon trägt (Verlauf). */
   embedded?: boolean;
+  /** Blöcke unter „Tiefer schauen“, die der Nutzer sehen will. */
+  modules?: StatsModule[];
+  /** Abgeschaltete Bereiche zeigen hier nichts — auch keinen Leerzustand. */
+  showRunning?: boolean;
+  showStrength?: boolean;
 }) {
   const [localView, setLocalView] = useState(view);
   // Ohne Speicher von außen bleibt die Auswahl wenigstens für diese Sitzung.
@@ -194,30 +203,29 @@ export function Statistics({
     () => strengthTotals(sessions, stats.windowStart, stats.windowEnd),
     [sessions, stats.windowStart, stats.windowEnd],
   );
-  const strengthSection = sessions.some(
-    session => session.status === 'finished',
-  ) ? (
-    <Section title="Krafttraining">
-      <ValueRow label="Einheiten" value={String(strength.count)} />
-      <ValueRow label="Bestätigte Sätze" value={String(strength.sets)} />
-      <ValueRow
-        label="Volumen"
-        value={
-          strength.volumeKg > 0
-            ? `${formatKilograms(strength.volumeKg)} kg`
-            : DASH
-        }
-      />
-      <ValueRow
-        label="Zeit"
-        value={strength.seconds > 0 ? formatDuration(strength.seconds) : DASH}
-      />
-      <Copy muted>
-        Nur bestätigte Sätze. Volumen ist Last mal Wiederholungen und bleibt
-        ohne Gewichtsangabe leer.
-      </Copy>
-    </Section>
-  ) : null;
+  const strengthSection =
+    showStrength && sessions.some(session => session.status === 'finished') ? (
+      <Section title="Krafttraining">
+        <ValueRow label="Einheiten" value={String(strength.count)} />
+        <ValueRow label="Bestätigte Sätze" value={String(strength.sets)} />
+        <ValueRow
+          label="Volumen"
+          value={
+            strength.volumeKg > 0
+              ? `${formatKilograms(strength.volumeKg)} kg`
+              : DASH
+          }
+        />
+        <ValueRow
+          label="Zeit"
+          value={strength.seconds > 0 ? formatDuration(strength.seconds) : DASH}
+        />
+        <Copy muted>
+          Nur bestätigte Sätze. Volumen ist Last mal Wiederholungen und bleibt
+          ohne Gewichtsangabe leer.
+        </Copy>
+      </Section>
+    ) : null;
 
   // Eine Kennzahl, für die es keine Daten gibt, wird nicht angeboten — und
   // eine bereits gewählte fällt auf die Distanz zurück.
@@ -230,6 +238,23 @@ export function Statistics({
     ? active.metric
     : 'distance';
 
+  if (!showRunning) {
+    return (
+      <View style={styles.page}>
+        {embedded ? null : (
+          <Text accessibilityRole="header" style={styles.title}>
+            Statistik
+          </Text>
+        )}
+        {strengthSection ?? (
+          <EmptyState
+            title="Noch keine Krafteinheit"
+            copy="Sobald ein Training abgeschlossen ist, stehen hier Einheiten, Sätze und Volumen."
+          />
+        )}
+      </View>
+    );
+  }
   if (!runs.length) {
     return (
       <View style={styles.page}>
@@ -316,151 +341,167 @@ export function Statistics({
         />
       </Section>
 
-      <Section title="Tiefer schauen">
-        <Panel
-          title="Verteilung"
-          summary={
-            stats.purposes.length
-              ? `${stats.purposes[0].label} führt mit ${Math.round(
-                  stats.purposes[0].share * 100,
-                )} %`
-              : DASH
-          }
-        >
-          {stats.purposes.map(share => (
-            <View key={share.purpose} style={styles.shareRow}>
-              <View style={styles.shareHead}>
-                <Text style={styles.shareLabel}>{share.label}</Text>
-                <Text style={styles.rowValue}>
-                  {formatKm(share.distanceKm)} km ·{' '}
-                  {Math.round(share.share * 100)} %
-                </Text>
-              </View>
-              <View style={styles.shareTrack}>
-                <View
-                  style={[
-                    styles.shareFill,
-                    { width: `${Math.max(share.share * 100, 1)}%` },
-                  ]}
-                />
-              </View>
-              <Text style={styles.shareMeta}>
-                {share.runCount} {share.runCount === 1 ? 'Lauf' : 'Läufe'}
-              </Text>
-            </View>
-          ))}
-        </Panel>
+      {modules.length ? (
+        <Section title="Tiefer schauen">
+          {modules.includes('distribution') ? (
+            <Panel
+              title="Verteilung"
+              summary={
+                stats.purposes.length
+                  ? `${stats.purposes[0].label} führt mit ${Math.round(
+                      stats.purposes[0].share * 100,
+                    )} %`
+                  : DASH
+              }
+            >
+              {stats.purposes.map(share => (
+                <View key={share.purpose} style={styles.shareRow}>
+                  <View style={styles.shareHead}>
+                    <Text style={styles.shareLabel}>{share.label}</Text>
+                    <Text style={styles.rowValue}>
+                      {formatKm(share.distanceKm)} km ·{' '}
+                      {Math.round(share.share * 100)} %
+                    </Text>
+                  </View>
+                  <View style={styles.shareTrack}>
+                    <View
+                      style={[
+                        styles.shareFill,
+                        { width: `${Math.max(share.share * 100, 1)}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.shareMeta}>
+                    {share.runCount} {share.runCount === 1 ? 'Lauf' : 'Läufe'}
+                  </Text>
+                </View>
+              ))}
+            </Panel>
+          ) : null}
 
-        <Panel
-          title="Bestwerte"
-          summary={stats.records.length ? stats.records[0].value : DASH}
-        >
-          {stats.records.length ? (
-            stats.records.map(record => (
+          {modules.includes('records') ? (
+            <Panel
+              title="Bestwerte"
+              summary={stats.records.length ? stats.records[0].value : DASH}
+            >
+              {stats.records.length ? (
+                stats.records.map(record => (
+                  <ValueRow
+                    key={record.id}
+                    label={record.label}
+                    value={record.value}
+                    meta={record.detail}
+                  />
+                ))
+              ) : (
+                <Copy muted>
+                  Für diesen Zeitraum gibt es noch keine Bestwerte.
+                </Copy>
+              )}
+            </Panel>
+          ) : null}
+
+          {modules.includes('consistency') ? (
+            <Panel
+              title="Konsistenz"
+              summary={`${stats.consistency.activeWeeks} von ${stats.consistency.weekCount} Wochen`}
+            >
               <ValueRow
-                key={record.id}
-                label={record.label}
-                value={record.value}
-                meta={record.detail}
+                label="Wochen mit Lauf"
+                value={`${stats.consistency.activeWeeks} / ${stats.consistency.weekCount}`}
               />
-            ))
-          ) : (
-            <Copy muted>Für diesen Zeitraum gibt es noch keine Bestwerte.</Copy>
-          )}
-        </Panel>
+              <ValueRow
+                label="Aktuelle Serie"
+                value={`${stats.consistency.currentStreakWeeks} ${
+                  stats.consistency.currentStreakWeeks === 1
+                    ? 'Woche'
+                    : 'Wochen'
+                }`}
+              />
+              <ValueRow
+                label="Längste Serie"
+                value={`${stats.consistency.longestStreakWeeks} ${
+                  stats.consistency.longestStreakWeeks === 1
+                    ? 'Woche'
+                    : 'Wochen'
+                }`}
+              />
+              <ValueRow
+                label="Läufe je Woche"
+                value={
+                  stats.totals.runsPerWeek === null
+                    ? DASH
+                    : decimal(stats.totals.runsPerWeek)
+                }
+              />
+              <ValueRow
+                label="Tage mit Lauf"
+                value={String(stats.consistency.activeDays)}
+              />
+            </Panel>
+          ) : null}
 
-        <Panel
-          title="Konsistenz"
-          summary={`${stats.consistency.activeWeeks} von ${stats.consistency.weekCount} Wochen`}
-        >
-          <ValueRow
-            label="Wochen mit Lauf"
-            value={`${stats.consistency.activeWeeks} / ${stats.consistency.weekCount}`}
-          />
-          <ValueRow
-            label="Aktuelle Serie"
-            value={`${stats.consistency.currentStreakWeeks} ${
-              stats.consistency.currentStreakWeeks === 1 ? 'Woche' : 'Wochen'
-            }`}
-          />
-          <ValueRow
-            label="Längste Serie"
-            value={`${stats.consistency.longestStreakWeeks} ${
-              stats.consistency.longestStreakWeeks === 1 ? 'Woche' : 'Wochen'
-            }`}
-          />
-          <ValueRow
-            label="Läufe je Woche"
-            value={
-              stats.totals.runsPerWeek === null
-                ? DASH
-                : decimal(stats.totals.runsPerWeek)
-            }
-          />
-          <ValueRow
-            label="Tage mit Lauf"
-            value={String(stats.consistency.activeDays)}
-          />
-        </Panel>
-
-        <Panel
-          title="Körperwerte"
-          summary={
-            stats.totals.paceSecondsPerKm === null
-              ? DASH
-              : `${formatPace(stats.totals.paceSecondsPerKm)} min / km`
-          }
-        >
-          <ValueRow
-            label="Ø Tempo"
-            value={
-              stats.totals.paceSecondsPerKm === null
-                ? DASH
-                : `${formatPace(stats.totals.paceSecondsPerKm)} min / km`
-            }
-          />
-          <ValueRow
-            label="Ø Distanz je Lauf"
-            value={
-              stats.totals.averageDistanceKm === null
-                ? DASH
-                : `${formatKm(stats.totals.averageDistanceKm)} km`
-            }
-          />
-          <ValueRow
-            label="Beine (Median)"
-            value={
-              stats.totals.medianLegsRpe === null
-                ? DASH
-                : `${decimal(stats.totals.medianLegsRpe)} / 10`
-            }
-          />
-          <ValueRow
-            label="Atmung (Median)"
-            value={
-              stats.totals.medianBreathingRpe === null
-                ? DASH
-                : `${decimal(stats.totals.medianBreathingRpe)} / 10`
-            }
-          />
-          <ValueRow
-            label="Ø Puls"
-            value={
-              stats.totals.averageHeartRate === null
-                ? DASH
-                : `${Math.round(stats.totals.averageHeartRate)} bpm`
-            }
-          />
-          <ValueRow
-            label="Ø Schrittfrequenz"
-            value={
-              stats.totals.averageCadence === null
-                ? DASH
-                : `${Math.round(stats.totals.averageCadence)} spm`
-            }
-          />
-        </Panel>
-      </Section>
+          {modules.includes('body') ? (
+            <Panel
+              title="Körperwerte"
+              summary={
+                stats.totals.paceSecondsPerKm === null
+                  ? DASH
+                  : `${formatPace(stats.totals.paceSecondsPerKm)} min / km`
+              }
+            >
+              <ValueRow
+                label="Ø Tempo"
+                value={
+                  stats.totals.paceSecondsPerKm === null
+                    ? DASH
+                    : `${formatPace(stats.totals.paceSecondsPerKm)} min / km`
+                }
+              />
+              <ValueRow
+                label="Ø Distanz je Lauf"
+                value={
+                  stats.totals.averageDistanceKm === null
+                    ? DASH
+                    : `${formatKm(stats.totals.averageDistanceKm)} km`
+                }
+              />
+              <ValueRow
+                label="Beine (Median)"
+                value={
+                  stats.totals.medianLegsRpe === null
+                    ? DASH
+                    : `${decimal(stats.totals.medianLegsRpe)} / 10`
+                }
+              />
+              <ValueRow
+                label="Atmung (Median)"
+                value={
+                  stats.totals.medianBreathingRpe === null
+                    ? DASH
+                    : `${decimal(stats.totals.medianBreathingRpe)} / 10`
+                }
+              />
+              <ValueRow
+                label="Ø Puls"
+                value={
+                  stats.totals.averageHeartRate === null
+                    ? DASH
+                    : `${Math.round(stats.totals.averageHeartRate)} bpm`
+                }
+              />
+              <ValueRow
+                label="Ø Schrittfrequenz"
+                value={
+                  stats.totals.averageCadence === null
+                    ? DASH
+                    : `${Math.round(stats.totals.averageCadence)} spm`
+                }
+              />
+            </Panel>
+          ) : null}
+        </Section>
+      ) : null}
 
       {strengthSection}
 

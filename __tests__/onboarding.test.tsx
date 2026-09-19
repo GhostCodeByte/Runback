@@ -123,4 +123,30 @@ describe('onboarding', () => {
         .some(item => textValue(item).includes('permission failed')),
     ).toBe(true);
   });
+
+  it('fragt nach den genutzten Bereichen und speichert sie als Funktionen', async () => {
+    const persist = jest.fn().mockResolvedValue(undefined);
+    const tree = render({ persist, settings: { onboardingStep: 'features' } });
+    const checkbox = (label: string) =>
+      tree.root.find(
+        node =>
+          node.props.accessibilityRole === 'checkbox' &&
+          node.props.accessibilityLabel === label,
+      );
+    expect(checkbox('Laufen').props.accessibilityState.checked).toBe(true);
+    await ReactTestRenderer.act(() =>
+      checkbox('Krafttraining').props.onPress(),
+    );
+    await ReactTestRenderer.act(() =>
+      checkbox('Muskelkater melden').props.onPress(),
+    );
+    // Der letzte Bereich bleibt an.
+    await ReactTestRenderer.act(() => checkbox('Laufen').props.onPress());
+    expect(checkbox('Laufen').props.accessibilityState.checked).toBe(true);
+    await ReactTestRenderer.act(() => button(tree, 'Weiter').props.onPress());
+    const saved = persist.mock.calls.at(-1)![0];
+    expect(saved.onboardingStep).toBe('import');
+    expect(saved.features.areas).toEqual({ running: true, strength: false });
+    expect(saved.features.soreness.enabled).toBe(false);
+  });
 });

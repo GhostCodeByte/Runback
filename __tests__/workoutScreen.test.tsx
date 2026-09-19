@@ -57,6 +57,8 @@ function render(
     now?: number;
     history?: StrengthSession[];
     sessions?: StrengthSession[];
+    showRir?: boolean;
+    showRestTimer?: boolean;
   } = {},
 ) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
@@ -67,6 +69,8 @@ function render(
         now={overrides.now ?? 1_000_000}
         session={session}
         sessions={overrides.sessions}
+        showRir={overrides.showRir}
+        showRestTimer={overrides.showRestTimer}
         {...props}
       />,
     );
@@ -430,5 +434,46 @@ describe('Trainingsansicht', () => {
     expect(
       texts(tree).some(text => text.includes('Bestes geschätztes Maximum')),
     ).toBe(false);
+  });
+});
+
+describe('Funktionen im Training', () => {
+  it('blendet RIR-Feld und Pausenbalken auf Wunsch aus', () => {
+    const started = startSession(template, 1_000_000);
+    const session = completeSet(
+      started,
+      0,
+      started.exercises[0].sets[0].id,
+      1_000_000,
+      {},
+    );
+    const shown = render(session, handlers(), { now: 1_010_000 });
+    expect(
+      shown.root
+        .findAllByType(TextInput)
+        .some(node =>
+          String(node.props.accessibilityLabel).startsWith(
+            'Wiederholungen im Tank',
+          ),
+        ),
+    ).toBe(true);
+    expect(texts(shown).some(text => text.startsWith('Pause '))).toBe(true);
+
+    const hidden = render(session, handlers(), {
+      now: 1_010_000,
+      showRir: false,
+      showRestTimer: false,
+    });
+    expect(
+      hidden.root
+        .findAllByType(TextInput)
+        .some(node =>
+          String(node.props.accessibilityLabel).startsWith(
+            'Wiederholungen im Tank',
+          ),
+        ),
+    ).toBe(false);
+    expect(texts(hidden).some(text => text.startsWith('Pause '))).toBe(false);
+    expect(texts(hidden)).not.toContain('RIR');
   });
 });

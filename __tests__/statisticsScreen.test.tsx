@@ -136,3 +136,38 @@ describe('readStatisticsView', () => {
     expect(readStatisticsView(undefined)).toEqual(defaultStatisticsView);
   });
 });
+
+describe('Statistik · Funktionen', () => {
+  it('zeigt unter „Tiefer schauen“ nur gewählte Module', () => {
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    ReactTestRenderer.act(() => {
+      tree = ReactTestRenderer.create(
+        <Statistics runs={[run()]} modules={['records']} />,
+      );
+    });
+    const all = texts(tree);
+    expect(all).toContain('"Bestwerte"');
+    expect(all).not.toContain('"Verteilung"');
+    expect(all).not.toContain('"Konsistenz"');
+    expect(all).not.toContain('"Körperwerte"');
+    ReactTestRenderer.act(() => {
+      tree = ReactTestRenderer.create(
+        <Statistics runs={[run()]} modules={[]} />,
+      );
+    });
+    expect(texts(tree)).not.toContain('"Tiefer schauen"');
+  });
+
+  it('zeigt ohne Bereich Laufen keine Laufstatistik und keinen Leerzustand dafür', () => {
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    ReactTestRenderer.act(() => {
+      tree = ReactTestRenderer.create(
+        <Statistics runs={[run()]} showRunning={false} />,
+      );
+    });
+    const all = texts(tree);
+    expect(all).not.toContain('"Noch keine Läufe"');
+    expect(all).not.toContain('"Verlauf"');
+    expect(byLabel(tree, 'Zeitraum')).toBeUndefined();
+  });
+});

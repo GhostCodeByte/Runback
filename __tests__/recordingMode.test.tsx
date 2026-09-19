@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { AppState as AndroidAppState, Text } from 'react-native';
+import { Alert, AppState as AndroidAppState, Text } from 'react-native';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -309,5 +309,75 @@ describe('Radfahrten in Einheiten und Detail', () => {
     expect(screenText()).toContain('Art');
     await tap('Laufen');
     expect(native.feedback).toHaveBeenCalledWith('ride', { sport: 'running' });
+  });
+});
+
+describe('Funktionen der Aufzeichnung', () => {
+  const live = (): Run => ({
+    id: 'live',
+    startTime: Date.now() - 600_000,
+    endTime: 0,
+    status: 'recording',
+    purpose: 'free',
+    sport: 'running',
+    durationSeconds: 600,
+    distanceMeters: 2000,
+    source: 'phone',
+  });
+
+  it('versteckt Radfahren, Krafttraining und „Laufen nach“, wenn sie abgewählt sind', async () => {
+    stored.settings.features = {
+      areas: { running: true, strength: false },
+      sports: { cycling: false },
+      recording: { targets: false },
+    } as any;
+    await mount();
+    expect(screenText()).not.toContain('Krafttraining starten');
+    await tap('Lauf starten');
+    const sheet = screenText();
+    expect(sheet).not.toContain('Radfahren');
+    expect(sheet).not.toContain('Art der Einheit');
+    expect(sheet).not.toContain('Laufen nach');
+    expect(sheet).toContain('Zweck');
+  });
+
+  it('zeigt während der Aufzeichnung nur gewählte Kennzahlen', async () => {
+    stored.settings.features = {
+      recording: { metrics: ['heartRate'], primary: 'distance' },
+    } as any;
+    stored.recording = live();
+    await mount();
+    const text = screenText();
+    expect(text).toContain('Kilometer');
+    expect(text).toContain('Herzfrequenz');
+    expect(text).not.toContain('Ø min / km');
+  });
+
+  it('kehrt nach dem Beenden direkt zu Heute zurück, wenn gewünscht', async () => {
+    stored.settings.features = { recording: { afterRun: 'home' } } as any;
+    stored.recording = live();
+    (nativeCall as jest.Mock).mockImplementation(async (method: string) => {
+      if (method === 'finishRun') {
+        stored.runs = [finished({ id: 'live' })];
+        stored.recording = null;
+      }
+      return {};
+    });
+    const alert = jest
+      .spyOn(Alert, 'alert')
+      .mockImplementation((_title, _message, buttons) => {
+        buttons
+          ?.find(button => button.text === 'Beenden & speichern')
+          ?.onPress?.();
+      });
+    await mount();
+    await tap('Lauf beenden');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screenText()).toContain('Aufzeichnung gespeichert');
+    expect(screenText()).toContain('Lauf starten');
+    expect(screenText()).not.toContain('Notiz zu dieser Aufzeichnung');
+    alert.mockRestore();
   });
 });

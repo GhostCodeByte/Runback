@@ -117,6 +117,7 @@ const SetRow = memo(function SetRow({
   reference,
   suggestion,
   active,
+  showRir,
   onComplete,
   onEdit,
 }: {
@@ -125,6 +126,8 @@ const SetRow = memo(function SetRow({
   reference: string | null;
   suggestion: SetSuggestion | null;
   active: boolean;
+  /** Ohne das Feld bleibt die Reserve unbekannt; gespeicherte Werte bleiben. */
+  showRir: boolean;
   onComplete: (
     setId: string,
     weight: string,
@@ -235,7 +238,7 @@ const SetRow = memo(function SetRow({
         style={[styles.input, repsIsSuggested && styles.inputSuggested]}
         value={reps}
       />
-      {timed ? (
+      {timed || !showRir ? (
         <View style={styles.inputSmall} />
       ) : (
         <TextInput
@@ -333,6 +336,8 @@ export function WorkoutScreen({
   sessions,
   now,
   busy = false,
+  showRir = true,
+  showRestTimer = true,
   onSelectExercise,
   onCompleteSet,
   onEditSet,
@@ -347,6 +352,10 @@ export function WorkoutScreen({
   sessions?: StrengthSession[];
   now: number;
   busy?: boolean;
+  /** Eingabefeld „Wiederholungen im Tank“ anbieten. */
+  showRir?: boolean;
+  /** Pausenbalken nach einem Satz zeigen. Die Pause selbst wird immer gespeichert. */
+  showRestTimer?: boolean;
   onSelectExercise: (index: number) => void;
   onCompleteSet: (
     exerciseIndex: number,
@@ -553,7 +562,7 @@ export function WorkoutScreen({
               <Text style={[styles.columnLabel, styles.columnInput]}>kg</Text>
               <Text style={[styles.columnLabel, styles.columnInput]}>Wdh.</Text>
               <Text style={[styles.columnLabel, styles.columnInputSmall]}>
-                RIR
+                {showRir ? 'RIR' : ''}
               </Text>
               <View style={styles.columnCheck} />
             </View>
@@ -567,9 +576,11 @@ export function WorkoutScreen({
                   position={position + 1}
                   reference={references[position]}
                   suggestion={suggestions[position]}
+                  showRir={showRir}
                   set={set}
                 />
-                {rest !== null &&
+                {showRestTimer &&
+                rest !== null &&
                 session.restStartedAt !== undefined &&
                 set.completedAt === session.restStartedAt ? (
                   <View

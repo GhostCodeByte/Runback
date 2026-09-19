@@ -24,9 +24,16 @@ normales Ergebnis.
 - **Coach** — Woran arbeite ich? Die Empfehlung je Bereich mit Zustand und
   Fortschritt, darunter Fokus und Ziel, Trainingschat, frühere Empfehlungen,
   Wie Runback rechnet.
-- **Einstellungen** (Zahnrad im Kopf) — Geräte & Verbindungen (Uhr, BLE,
-  Health Connect, Wetter), Herzfrequenz, Deine Daten (Import, Backup,
-  Löschen), KI-Formulierung, Einrichtung.
+- **Einstellungen** (Zahnrad im Kopf) — Funktionen, Geräte & Verbindungen
+  (Uhr, BLE, Health Connect, Wetter), Deine Daten (Import, Backup, Löschen),
+  KI-Formulierung, Einrichtung.
+
+Unter **Funktionen** wählst du, was Runback zeigt und wann es fragt: Bereiche
+(Laufen, Krafttraining, Radfahren), Muskelkater und die Häufigkeit der Abfrage
+(standardmäßig nach Krafttraining), die Blöcke auf Heute, Plan als Tab,
+Empfehlungen (vorschlagen, nur im Coach, aus), Anzeige während der
+Aufzeichnung, Pausentimer und mehr. Abgeschaltetes verschwindet aus der App;
+Daten bleiben erhalten.
 
 Nach einem Lauf zeigt Runback drei Dinge: wie der Lauf zu seinem Zweck passt,
 wo die aktuelle Empfehlung steht und was du als Nächstes tun kannst — auch

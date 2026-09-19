@@ -161,9 +161,11 @@ export function addTemplateExercise(
   template: WorkoutTemplate,
   exercise: Exercise,
   sets = 3,
+  defaultRestSeconds = DEFAULT_SET.restSeconds,
 ): WorkoutTemplate {
   const planned: PlannedSet = {
     ...DEFAULT_SET,
+    restSeconds: defaultRestSeconds,
     loadKind: exercise.equipment === 'bodyweight' ? 'bodyweight' : 'kg',
   };
   return {
@@ -216,6 +218,7 @@ export function moveTemplateExercise(
 export function addPlannedSet(
   template: WorkoutTemplate,
   exerciseIndex: number,
+  defaultRestSeconds = DEFAULT_SET.restSeconds,
 ): WorkoutTemplate {
   const exercise = template.exercises[exerciseIndex];
   if (!exercise) {
@@ -224,7 +227,10 @@ export function addPlannedSet(
   const last = exercise.sets[exercise.sets.length - 1];
   return replaceExercise(template, exerciseIndex, {
     ...exercise,
-    sets: [...exercise.sets, { ...(last || DEFAULT_SET) }],
+    sets: [
+      ...exercise.sets,
+      { ...(last || { ...DEFAULT_SET, restSeconds: defaultRestSeconds }) },
+    ],
   });
 }
 

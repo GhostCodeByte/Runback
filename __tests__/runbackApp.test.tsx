@@ -71,9 +71,33 @@ async function render() {
   await act(async () => {
     await Promise.resolve();
   });
-  await tap(tree, 'Überspringen');
   return tree;
 }
+
+/** Schalter (Switch) tragen keinen Titel; sie hängen an der Zeile davor. */
+const flip = async (tree: TestRenderer.ReactTestRenderer, rowTitle: string) => {
+  const row = tree.root
+    .findAll(
+      item =>
+        item.props?.title === rowTitle &&
+        typeof item.props?.trailing === 'object',
+    )
+    .at(0);
+  if (!row) {
+    throw new Error(`Keine Zeile „${rowTitle}“ mit Schalter gefunden.`);
+  }
+  const trailing = row.props.trailing;
+  await act(async () => {
+    trailing.props.onValueChange(!trailing.props.value);
+  });
+};
+const tabLabels = (tree: TestRenderer.ReactTestRenderer) => [
+  ...new Set(
+    tree.root
+      .findAll(item => item.props?.accessibilityRole === 'tab')
+      .map(item => item.props.accessibilityLabel as string),
+  ),
+];
 
 const tap = async (
   tree: TestRenderer.ReactTestRenderer,
@@ -215,7 +239,6 @@ describe('Fokus', () => {
         tree = TestRenderer.create(<RunbackApp />);
       });
       try {
-        await tap(tree, 'Überspringen');
         // Heute zeigt die Empfehlung kompakt mit Zustand; der Coach trägt den Rest.
         expect(screenText(tree)).toContain(accepted.recommendation.action);
         expect(screenText(tree)).toContain(
@@ -291,7 +314,6 @@ describe('Fokus', () => {
       tree = TestRenderer.create(<RunbackApp />);
     });
     try {
-      await tap(tree, 'Überspringen');
       await tap(tree, 'Coach');
       await tapText(tree, 'Noch kein Fokus');
       await act(async () => {
@@ -371,6 +393,158 @@ describe('Fokus', () => {
     expect(text).not.toContain('Ergebnis bisher');
     expect(text).not.toContain('Empfehlung abschließen');
     expect(text).not.toContain('Eine Änderung. Eine nachvollziehbare Prüfung.');
+    await act(async () => {
+      tree.unmount();
+    });
+  });
+});
+
+describe('Funktionen', () => {
+  const settingsSaved = () =>
+    jest.mocked(native.saveSettings).mock.calls.at(-1)![0];
+  const withFeatures = (features: unknown, extra: object = {}) =>
+    jest.mocked(native.state).mockResolvedValueOnce({
+      runs: [],
+      recording: null,
+      settings: { onboardedAt: 1, features, ...extra } as any,
+      capabilities: {},
+    });
+
+  it('fragt nur nach Muskelkater, wenn die Einstellung es will', async () => {
+    // Standard: nach Krafttraining. Ohne Krafteinheit keine Abfrage.
+    const quiet = await render();
+    expect(screenText(quiet)).not.toContain('Überspringen');
+    expect(screenText(quiet)).toContain('Muskelkater melden');
+    await act(async () => {
+      quiet.unmount();
+    });
+
+    withFeatures({ soreness: { prompt: 'daily' } });
+    const daily = await render();
+    expect(screenText(daily)).toContain('Überspringen');
+    await tap(daily, 'Überspringen');
+    await act(async () => {
+      daily.unmount();
+    });
+  });
+
+  it('nimmt abgeschaltetem Muskelkater Zeile, Abfrage und Muskelkarte', async () => {
+    withFeatures({ soreness: { enabled: false, prompt: 'daily' } });
+    const tree = await render();
+    const text = screenText(tree);
+    expect(text).not.toContain('Überspringen');
+    expect(text).not.toContain('Muskelkater melden');
+    await tap(tree, 'Verlauf');
+    expect(screenText(tree)).not.toContain('Muskelkarte');
+    await act(async () => {
+      tree.unmount();
+    });
+  });
+
+  it('nimmt abgewähltem Krafttraining und abgewähltem Plan alle Einstiege', async () => {
+    withFeatures({
+      areas: { running: true, strength: false },
+      planning: { enabled: false },
+    });
+    const tree = await render();
+    const text = screenText(tree);
+    expect(text).toContain('Lauf starten');
+    expect(text).not.toContain('Krafttraining starten');
+    expect(text).not.toContain('Diese Woche im Plan ansehen');
+    expect(tabLabels(tree)).toEqual(['Heute', 'Verlauf', 'Coach']);
+    await tap(tree, 'Coach');
+    // Ohne Kraft kein Bereichswechsel und ohne Schlüssel kein Chat.
+    expect(screenText(tree)).not.toContain('Trainingschat');
+    expect(
+      tree.root.findAll(item => item.props?.accessibilityLabel === 'Bereich'),
+    ).toHaveLength(0);
+    await act(async () => {
+      tree.unmount();
+    });
+  });
+
+  it('zeigt ohne Laufen den Kraft-Coach und den Kraftstart allein', async () => {
+    withFeatures({ areas: { running: false, strength: true } });
+    const tree = await render();
+    const text = screenText(tree);
+    expect(text).toContain('Krafttraining starten');
+    expect(text).not.toContain('Lauf starten');
+    await tap(tree, 'Coach');
+    expect(screenText(tree)).toContain('Erstes Training starten');
+    expect(screenText(tree)).not.toContain('aufgezeichneter Lauf');
+    await act(async () => {
+      tree.unmount();
+    });
+  });
+
+  it('schaltet Funktionen sofort und speichert sie in den Einstellungen', async () => {
+    const tree = await render();
+    await tap(tree, 'Einstellungen');
+    await tapText(tree, 'Funktionen');
+    expect(screenText(tree)).toContain('Aus heißt weg');
+    await flip(tree, 'Planung als Tab');
+    expect(settingsSaved().features?.planning.enabled).toBe(false);
+    expect(tabLabels(tree)).not.toContain('Plan');
+    await flip(tree, 'Muskelkater melden');
+    expect(settingsSaved().features?.soreness.enabled).toBe(false);
+    // Der letzte Bereich lässt sich nicht abwählen.
+    await flip(tree, 'Krafttraining');
+    expect(settingsSaved().features?.areas.strength).toBe(false);
+    await flip(tree, 'Laufen');
+    expect(settingsSaved().features?.areas.running).toBe(true);
+    await tap(tree, 'Heute');
+    const text = screenText(tree);
+    expect(text).not.toContain('Diese Woche im Plan ansehen');
+    expect(text).not.toContain('Muskelkater melden');
+    expect(text).not.toContain('Krafttraining starten');
+    await act(async () => {
+      tree.unmount();
+    });
+  });
+
+  it('zeigt Empfehlungen auf Nachfrage nur im Coach', async () => {
+    const baseline = {
+      id: 'base',
+      startTime: 30 * DAY,
+      endTime: 30 * DAY + 1320000,
+      durationSeconds: 1320,
+      distanceMeters: 2000,
+      purpose: 'easy' as const,
+      source: 'test',
+      status: 'complete',
+      segments: [300, 300, 360, 360].map((durationSeconds, index) => ({
+        id: String(index),
+        durationSeconds,
+        distanceMeters: 500,
+        gradePercent: 0,
+      })),
+    };
+    jest.mocked(native.state).mockResolvedValueOnce({
+      runs: [baseline, ...previousRuns(baseline)],
+      recording: null,
+      settings: {
+        onboardedAt: 1,
+        features: { recommendations: { running: 'on_request' } },
+      } as any,
+      capabilities: {},
+    });
+    const tree = await render();
+    expect(screenText(tree)).not.toContain('Vorschlag');
+    await tap(tree, 'Coach');
+    expect(screenText(tree)).toContain('Empfehlung annehmen');
+    await act(async () => {
+      tree.unmount();
+    });
+  });
+
+  it('bietet bestehenden Nutzern die Funktionen einmalig auf Heute an', async () => {
+    const tree = await render();
+    expect(screenText(tree)).toContain('Neu: Wähle, was Runback zeigt');
+    await tapText(tree, 'Neu: Wähle, was Runback zeigt');
+    expect(screenText(tree)).toContain('Funktionen');
+    expect(settingsSaved().features?.version).toBe(1);
+    await tap(tree, 'Heute');
+    expect(screenText(tree)).not.toContain('Neu: Wähle, was Runback zeigt');
     await act(async () => {
       tree.unmount();
     });
