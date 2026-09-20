@@ -41,7 +41,7 @@ class WeatherIntegration(context: Context) {
         val point = closestGps(raw, runTime) ?: return missing("location")
         val date = Instant.ofEpochMilli(runTime).atZone(ZoneOffset.UTC).toLocalDate()
         val url = requestUrl(point.first, point.second, date)
-        val cacheKey = "${date}_" + digest("%.4f,%.4f".format(Locale.US, point.first, point.second))
+        val cacheKey = "v2_${date}_" + digest("%.4f,%.4f".format(Locale.US, point.first, point.second))
         val body = prefs.getString(cacheKey, null) ?: fetch(url).also {
             // Cache only the provider response; coordinates are never written to logs.
             prefs.edit().putString(cacheKey, it).apply()
@@ -60,6 +60,7 @@ class WeatherIntegration(context: Context) {
         if (best < 0) return missing("hourly_point")
         val temperature = hourly.optJSONArray("temperature_2m")?.optDouble(best, Double.NaN)
         val wind = hourly.optJSONArray("wind_speed_10m")?.optDouble(best, Double.NaN)
+        val windDirection = hourly.optJSONArray("wind_direction_10m")?.optDouble(best, Double.NaN)
         val missing = JSONArray()
         if (temperature == null || !temperature.isFinite()) missing.put("temperature")
         if (wind == null || !wind.isFinite()) missing.put("wind")
@@ -71,6 +72,8 @@ class WeatherIntegration(context: Context) {
             .put("time", times.optString(best))
             .put("temperatureC", temperature ?: JSONObject.NULL)
             .put("windMps", wind ?: JSONObject.NULL)
+            // Woher der Wind kommt (0 = Nord, 90 = Ost); Modellwind in 10 m Höhe, keine Messung am Körper.
+            .put("windDirectionDeg", windDirection?.takeIf { it.isFinite() } ?: JSONObject.NULL)
             .put("missing", missing)
     }
 
@@ -92,7 +95,7 @@ class WeatherIntegration(context: Context) {
 
     private fun requestUrl(lat: Double, lon: Double, date: LocalDate): String =
         "https://archive-api.open-meteo.com/v1/archive?latitude=${enc(lat)}&longitude=${enc(lon)}" +
-            "&start_date=$date&end_date=$date&hourly=temperature_2m,wind_speed_10m" +
+            "&start_date=$date&end_date=$date&hourly=temperature_2m,wind_speed_10m,wind_direction_10m" +
             "&wind_speed_unit=ms&timezone=UTC&models=best_match"
 
     private fun fetch(url: String): String {

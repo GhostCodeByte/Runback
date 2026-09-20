@@ -84,6 +84,15 @@ import {
   type WorkoutTemplate,
 } from '../domain/strength';
 import { RunIntegrations } from './RunIntegrations';
+import { KilometerTable, RunSeriesPanel } from './RunCharts';
+import {
+  compassLabel,
+  kilometerSplits,
+  nearestByPosition,
+  nearestIndex,
+  splitRange,
+  type RunSeries,
+} from '../domain/runSeries';
 import { ProseSettings, ProseExplanation } from './ProseSettings';
 import {
   acceptRecommendation,
@@ -551,6 +560,11 @@ export function RunbackApp({
   const [muscleMapMode, setMuscleMapMode] = useState<BodyMapMode>('freshness');
   // Nach dem Beenden nur das Gefühl abfragen statt der ganzen Detailseite.
   const [feelingOnly, setFeelingOnly] = useState(false);
+  // Detailseite: Darstellungsreihe für die Graphen, ein aktiver Moment für
+  // Karte, Graph und Kilometer, dazu der markierte Kilometer.
+  const [series, setSeries] = useState<RunSeries | null>(null);
+  const [seriesIndex, setSeriesIndex] = useState<number | null>(null);
+  const [splitIndex, setSplitIndex] = useState<number | null>(null);
   // Ob die Krafthistorie geladen (oder als nicht verfügbar erkannt) ist.
   const [strengthHistorySettled, setStrengthHistorySettled] = useState(false);
   // Trainingschat nur mit eingerichtetem OpenRouter-Zugang anbieten.
@@ -1068,6 +1082,26 @@ export function RunbackApp({
     },
     [action],
   );
+  // Die Reihe kommt getrennt vom Lauf, weil sie größer ist und nur die
+  // Detailseite sie braucht. Fehlt sie (Import ohne Spur, alter Build), gibt
+  // es keinen Verlauf — keine Ersatzdaten.
+  const selectedId = selected?.id;
+  useEffect(() => {
+    setSeries(null);
+    setSeriesIndex(null);
+    setSplitIndex(null);
+    if (!selectedId) return;
+    let cancelled = false;
+    native
+      .runSeries?.(selectedId)
+      .then(result => {
+        if (!cancelled) setSeries(result.rows.length >= 2 ? result : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
   const openUnit = useCallback(
     (unit: Unit) => {
       if (unit.kind === 'run') {
@@ -3063,6 +3097,48 @@ export function RunbackApp({
       return null;
     }
     const selectedWords = sportWords(selected.sport);
+    const rows = series?.rows ?? [];
+    const seriesRow = seriesIndex !== null ? rows[seriesIndex] : undefined;
+    const splits = kilometerSplits(selected.segments);
+    const highlightRange =
+      splitIndex !== null && splits[splitIndex] && series
+        ? splitRange(rows, splits[splitIndex])
+        : null;
+    const highlightPoints = highlightRange
+      ? rows
+          .slice(highlightRange[0], highlightRange[1] + 1)
+          .filter(
+            row => row.latitude !== undefined && row.longitude !== undefined,
+          )
+          .map(row => ({ latitude: row.latitude!, longitude: row.longitude! }))
+      : undefined;
+    // Kilometerpunkte auf der Karte: Zeile zur Endzeit des Abschnitts.
+    const kmMarkers = series
+      ? splits
+          .filter(split => /^\d+$/.test(split.label))
+          .map(split => {
+            if (split.endElapsedSeconds === undefined) return null;
+            const row =
+              rows[nearestIndex(rows, 'time', split.endElapsedSeconds)];
+            return row?.latitude !== undefined && row.longitude !== undefined
+              ? {
+                  point: { latitude: row.latitude, longitude: row.longitude },
+                  label: split.label,
+                }
+              : null;
+          })
+          .filter(
+            (marker): marker is NonNullable<typeof marker> => marker !== null,
+          )
+      : undefined;
+    const rpeSummary = selected.rpe
+      ? [
+          selected.rpe.legs ? `Beine ${selected.rpe.legs}` : null,
+          selected.rpe.breathing ? `Atmung ${selected.rpe.breathing}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : '';
     const purposeChips = (
       <Field label="Zweck">
         <ChipGroup
@@ -3113,7 +3189,36 @@ export function RunbackApp({
             ? ` · ${purposeLabel(selected.purpose)}`
             : ''}
         </Copy>
-        <Route points={selected.route || []} />
+        <Route
+          points={selected.route || []}
+          overlay={{
+            focus:
+              seriesRow?.latitude !== undefined &&
+              seriesRow?.longitude !== undefined
+                ? {
+                    latitude: seriesRow.latitude,
+                    longitude: seriesRow.longitude,
+                  }
+                : undefined,
+            highlight: highlightPoints,
+            markers: kmMarkers,
+            note: series?.wind
+              ? `Wind ${compassLabel(series.wind.fromDeg)} ${Math.round(
+                  series.wind.mps,
+                )} m/s`
+              : undefined,
+            onPick: series
+              ? point => {
+                  const index = nearestByPosition(
+                    series.rows,
+                    point.latitude,
+                    point.longitude,
+                  );
+                  if (index >= 0) setSeriesIndex(index);
+                }
+              : undefined,
+          }}
+        />
         <View style={styles.metrics}>
           <Stat value={distance(selected)} label="km" />
           <Stat
@@ -3130,6 +3235,33 @@ export function RunbackApp({
         </View>
         {selected.avgCadence && usesPace(selected.sport) ? (
           <Copy muted>Ø {Math.round(selected.avgCadence)} Schritte / min</Copy>
+        ) : null}
+        {series ? (
+          <Section title="Verlauf">
+            <RunSeriesPanel
+              run={selected}
+              series={series}
+              selected={seriesIndex}
+              onSelect={setSeriesIndex}
+              range={highlightRange}
+            />
+          </Section>
+        ) : null}
+        {splits.length ? (
+          <Section title="Kilometer">
+            <KilometerTable
+              splits={splits}
+              selected={splitIndex}
+              onSelect={index => {
+                setSplitIndex(index);
+                if (index !== null && series) {
+                  const range = splitRange(series.rows, splits[index]);
+                  if (range)
+                    setSeriesIndex(Math.round((range[0] + range[1]) / 2));
+                }
+              }}
+            />
+          </Section>
         ) : null}
         {snapshot ? (
           <Card style={styles.nextStepCard}>
@@ -3188,7 +3320,15 @@ export function RunbackApp({
             {purposeChips}
           </Section>
         ) : null}
-        <Section title={selectedWords.feelingLabel}>
+        <Disclosure
+          title={selectedWords.feelingLabel}
+          subtitle={
+            rpeSummary
+              ? `${rpeSummary}${selected.note ? ' · Notiz' : ''}`
+              : 'Noch nicht eingetragen'
+          }
+          defaultOpen={!rpeSummary}
+        >
           {renderRpe('legs', 'Beine')}
           {renderRpe('breathing', 'Atmung')}
           <Text style={styles.fieldLabel}>Notiz</Text>
@@ -3216,7 +3356,7 @@ export function RunbackApp({
               disabled={busy}
             />
           ) : null}
-        </Section>
+        </Disclosure>
         {snapshot?.quality.issues.length ? (
           <Section title="Auffälligkeiten">
             {snapshot.quality.issues.map((issue, i) => (
@@ -3224,25 +3364,6 @@ export function RunbackApp({
                 {issue.suspected ? 'Vermutet: ' : ''}
                 {issue.message}
               </Copy>
-            ))}
-          </Section>
-        ) : null}
-        {selected.segments?.length ? (
-          <Section title="Abschnitte">
-            {selected.segments.map((segment, i) => (
-              <Row
-                key={segment.id || i}
-                title={`Abschnitt ${i + 1}`}
-                subtitle={`${number(segment.distanceMeters / 1000, 2)} km`}
-                trailing={
-                  <Text style={styles.segmentValue}>
-                    {duration(segment.durationSeconds)}
-                    {segment.avgHeartRate
-                      ? `  ·  ${Math.round(segment.avgHeartRate)} bpm`
-                      : ''}
-                  </Text>
-                }
-              />
             ))}
           </Section>
         ) : null}
@@ -4665,11 +4786,6 @@ const styles = StyleSheet.create({
     paddingBottom: space.xxs,
   },
   weekHeaderTitle: { color: color.text, ...type.heading },
-  segmentValue: {
-    color: color.text,
-    ...type.label,
-    fontVariant: ['tabular-nums'],
-  },
   textButton: {
     minHeight: 48,
     alignItems: 'center',

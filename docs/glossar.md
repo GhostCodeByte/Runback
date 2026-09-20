@@ -52,6 +52,8 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Unbekannt (Phase) | `UNKNOWN` | Weder Bewegung noch Stillstand belegbar, z. B. GPS-Ausfall ohne ruhenden Beschleunigungssensor. |
 | Kilometer-Abschnitt | `SegmentAggregate` | Endet am vollen Kilometer oder an einer Pause; GPS-Lücken bleiben als `gapSeconds` darin. |
 | GPS-Lücke | `GpsGap` | Schritt, der nicht zählt: zu lange ohne Fix, zu ungenau oder unplausibel schnell. |
+| Verlauf | `RunSeries` | Darstellungsreihe eines Laufs (Tempo, Puls, Höhe, Kadenz, Wind je Fenster, höchstens 600 Zeilen) für die Graphen der Detailseite. Tempo nur in Bewegung. |
+| Gegenwind | `headwindMps` | Windanteil entlang der Laufrichtung aus Modellwind und GPS-Kurs; positiv = von vorn. Nur mit bekannter Windrichtung. |
 | Höhenmeter | `ElevationSummary` | Auf-/Abstieg aus Barometer, sonst aus GPS mit bekannter vertikaler Genauigkeit; sonst „nicht bestimmbar“. |
 | Fehlstart | `isAccidentalRun` | Unter 60 s und unter 100 m. Bleibt gespeichert, zählt aber nicht als Training. |
 | Analyse-Export | `buildRunAnalysisExport` | Drei Dateien zum Teilen: Bericht (Markdown), Analyse (JSON), Zeitreihe (CSV, 5 s). |

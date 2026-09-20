@@ -14,7 +14,9 @@ import {
   Text,
   TextInput,
   View,
+  type GestureResponderEvent,
   type ImageStyle,
+  type LayoutChangeEvent,
 } from 'react-native';
 import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
 import type { RoutePoint } from '../native';
@@ -37,6 +39,17 @@ export const color = {
   danger: '#E4796B',
   mapOverlay: '#101210D9',
   mapLine: '#F2F4EF3D',
+  /**
+   * Linien der Laufgraphen. Der Akzent bleibt Tempo; Puls, Kadenz und Wind
+   * brauchen eigene, gegen `surface` geprüfte Töne, weil sie nebeneinander
+   * lesbar sein müssen. Höhe ist Hintergrund und bleibt `muted`.
+   */
+  series: {
+    heart: '#E66767',
+    cadence: '#9085E9',
+    headwind: '#D95926',
+    tailwind: '#3987E5',
+  },
 };
 
 export const space = {
@@ -720,6 +733,13 @@ function mapProjection(points: MapPoint[]) {
     (ROUTE_VIEWBOX_WIDTH - ROUTE_PADDING * 2) / spanX,
     (ROUTE_VIEWBOX_HEIGHT - ROUTE_PADDING * 2) / spanY,
   );
+  const project = (point: MapPoint): Point => {
+    const world = worldPixel(point.latitude, point.longitude, zoom);
+    return [
+      ROUTE_PADDING + (world[0] - worldRange.minX) * scale,
+      ROUTE_PADDING + (world[1] - worldRange.minY) * scale,
+    ];
+  };
   return {
     xy: projected.map(
       point =>
@@ -729,7 +749,39 @@ function mapProjection(points: MapPoint[]) {
         ] as Point,
     ),
     tiles: mapTiles(worldRange, scale, zoom),
+    project,
   };
+}
+
+/** Berührung in Ansichts-Pixeln → viewBox-Koordinaten (Svg füllt zentriert, „meet“). */
+function svgPointFromTouch(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): Point {
+  const k = Math.min(
+    width / ROUTE_VIEWBOX_WIDTH,
+    height / ROUTE_VIEWBOX_HEIGHT,
+  );
+  if (!(k > 0)) return [x, y];
+  return [
+    (x - (width - ROUTE_VIEWBOX_WIDTH * k) / 2) / k,
+    (y - (height - ROUTE_VIEWBOX_HEIGHT * k) / 2) / k,
+  ];
+}
+
+/** Zusätzliche Kartenebenen der Detailseite: aktiver Moment, Kilometer, markierter Abschnitt. */
+export interface RouteOverlay {
+  /** Aktiver Moment; weißer Ring, damit er sich von Start/Ziel und Kilometern abhebt. */
+  focus?: MapPoint;
+  /** Abschnitt (z. B. ein Kilometer), der hervorgehoben wird. */
+  highlight?: MapPoint[];
+  markers?: { point: MapPoint; label: string }[];
+  /** Kurzer Hinweis oben rechts, z. B. Wind. */
+  note?: string;
+  /** Antippen oder Ziehen auf der Karte: nächster Streckenpunkt. */
+  onPick?: (point: RoutePoint) => void;
 }
 
 function mapTileStyle(tile: Tile): ImageStyle {
@@ -747,13 +799,18 @@ function RouteSurface({
   current,
   mode,
   accessibilityLabel,
+  overlay,
 }: {
   planned: MapPoint[];
   track: MapPoint[];
   current?: MapPoint;
   mode: 'planned' | 'live' | 'recorded';
   accessibilityLabel: string;
+  overlay?: RouteOverlay;
 }) {
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
   const validPlanned = planned.filter(validMapPoint).slice(0, MAX_ROUTE_POINTS);
   const validTrack = track.filter(validMapPoint).slice(0, MAX_ROUTE_POINTS);
   const validCurrent = validMapPoint(current) ? current : undefined;
@@ -786,11 +843,50 @@ function RouteSurface({
     );
   }
 
-  const { xy, tiles } = mapProjection(valid);
+  const { xy, tiles, project } = mapProjection(valid);
   const pointToSvg = (point: MapPoint) => {
     const index = valid.indexOf(point);
-    return xy[index];
+    return index >= 0 ? xy[index] : project(point);
   };
+  const onPick = overlay?.onPick;
+  // Antippen/Ziehen: nächster Streckenpunkt in Bildkoordinaten. Die Geste
+  // bleibt bei der Karte, damit die Liste darunter nicht scrollt.
+  const pick = (event: GestureResponderEvent) => {
+    if (!onPick || !size || validTrack.length < 2) return;
+    const { locationX, locationY } = event.nativeEvent;
+    const [x, y] = svgPointFromTouch(
+      locationX,
+      locationY,
+      size.width,
+      size.height,
+    );
+    let best = 0;
+    let bestDistance = Infinity;
+    validTrack.forEach((point, index) => {
+      const [px, py] = pointToSvg(point);
+      const d = (px - x) ** 2 + (py - y) ** 2;
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = index;
+      }
+    });
+    onPick(validTrack[best] as RoutePoint);
+  };
+  const responder = onPick
+    ? {
+        onLayout: (event: LayoutChangeEvent) =>
+          setSize({
+            width: event.nativeEvent.layout.width,
+            height: event.nativeEvent.layout.height,
+          }),
+        onStartShouldSetResponder: () => true,
+        onMoveShouldSetResponder: () => true,
+        onResponderTerminationRequest: () => false,
+        onResponderGrant: pick,
+        onResponderMove: pick,
+      }
+    : {};
+
   const pathFor = (points: MapPoint[]) => {
     const usable = points.filter(validMapPoint);
     return usable
@@ -812,13 +908,21 @@ function RouteSurface({
   const currentSvg = currentPoint ? pointToSvg(currentPoint) : undefined;
   const plannedPath = pathFor(validPlanned);
   const trackPath = pathFor(validTrack);
+  const highlightPath =
+    overlay?.highlight && overlay.highlight.length >= 2
+      ? pathFor(overlay.highlight)
+      : '';
+  const focus = validMapPoint(overlay?.focus)
+    ? pointToSvg(overlay.focus)
+    : undefined;
 
   return (
     <View
       accessible
-      accessibilityRole="image"
+      accessibilityRole={onPick ? 'adjustable' : 'image'}
       accessibilityLabel={accessibilityLabel}
       style={s.route}
+      {...responder}
     >
       <View pointerEvents="none" style={s.routeLayer}>
         <View style={s.mapTiles}>
@@ -843,6 +947,11 @@ function RouteSurface({
           {mode === 'live' ? 'Live-Route' : 'GPS-Route'}
         </Text>
       </View>
+      {overlay?.note ? (
+        <View pointerEvents="none" style={[s.routeBadge, s.routeNote]}>
+          <Text style={s.routeBadgeText}>{overlay.note}</Text>
+        </View>
+      ) : null}
       <Svg
         height="100%"
         pointerEvents="none"
@@ -914,6 +1023,16 @@ function RouteSurface({
             />
           </>
         ) : null}
+        {highlightPath ? (
+          <Path
+            d={highlightPath}
+            stroke={color.text}
+            strokeWidth={6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        ) : null}
         <Circle
           cx={start[0]}
           cy={start[1]}
@@ -930,8 +1049,60 @@ function RouteSurface({
           stroke={color.ink}
           strokeWidth={3}
         />
-        {markerLabel(start, 'Start', 48, 'above')}
-        {markerLabel(finish, 'Ziel', 42, 'below')}
+        {overlay?.markers
+          ?.filter(marker => validMapPoint(marker.point))
+          .map(marker => {
+            const [x, y] = pointToSvg(marker.point);
+            return (
+              <React.Fragment key={marker.label}>
+                <Circle
+                  cx={x}
+                  cy={y}
+                  r={8}
+                  fill={color.mapOverlay}
+                  stroke={color.green}
+                  strokeWidth={1.5}
+                />
+                <SvgText
+                  x={x}
+                  y={y + 3.5}
+                  fill={color.text}
+                  fontSize={9}
+                  fontWeight="700"
+                  textAnchor="middle"
+                >
+                  {marker.label}
+                </SvgText>
+              </React.Fragment>
+            );
+          })}
+        {overlay?.markers?.length
+          ? null
+          : markerLabel(start, 'Start', 48, 'above')}
+        {overlay?.markers?.length
+          ? null
+          : markerLabel(finish, 'Ziel', 42, 'below')}
+        {focus ? (
+          <>
+            <Circle
+              cx={focus[0]}
+              cy={focus[1]}
+              r={13}
+              fill="none"
+              stroke={color.text}
+              strokeWidth={2}
+              opacity={0.6}
+            />
+            <Circle
+              cx={focus[0]}
+              cy={focus[1]}
+              r={6}
+              fill={color.text}
+              stroke={color.ink}
+              strokeWidth={3}
+            />
+          </>
+        ) : null}
         {currentSvg ? (
           <Circle
             cx={currentSvg[0]}
@@ -950,16 +1121,25 @@ function RouteSurface({
   );
 }
 
-export const Route = memo(function Route({ points }: { points: RoutePoint[] }) {
+export const Route = memo(function Route({
+  points,
+  overlay,
+}: {
+  points: RoutePoint[];
+  overlay?: RouteOverlay;
+}) {
   const valid = sampleRoute(points);
   return (
     <RouteSurface
       planned={[]}
       track={valid}
       mode="recorded"
+      overlay={overlay}
       accessibilityLabel={
         valid.length >= 2
-          ? 'Aufgezeichnete GPS-Strecke mit OpenStreetMap-Karte. Start und Ziel sind markiert.'
+          ? overlay?.onPick
+            ? 'Aufgezeichnete GPS-Strecke mit OpenStreetMap-Karte. Antippen wählt einen Moment des Laufs.'
+            : 'Aufgezeichnete GPS-Strecke mit OpenStreetMap-Karte. Start und Ziel sind markiert.'
           : 'Keine GPS-Strecke aufgezeichnet'
       }
     />
@@ -1216,6 +1396,7 @@ export const s = StyleSheet.create({
     borderColor: color.mapLine,
   },
   routeBadgeText: { color: color.text, ...type.micro, fontWeight: '700' },
+  routeNote: { left: undefined, right: space.md },
   mapAttribution: {
     position: 'absolute',
     right: space.xs,

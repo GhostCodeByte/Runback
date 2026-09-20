@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runback – Mockup: Lauf-Detailseite mit Statistiken</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #5f6368; --line: #e3e5e8; --card: #f7f8fa; --accent: #1f5fbf;
+    /* App-Token (components.tsx) */
+    --a-bg: #101210; --a-surface: #1A1D1A; --a-raised: #242924; --a-line: #343B34;
+    --a-text: #F2F4EF; --a-muted: #ADB5AB; --a-green: #A5D879; --a-greensoft: #26331E; --a-ink: #14200E; --a-danger: #E4796B;
+    /* Chart-Serien, validiert gegen #1A1D1A (dunkel): alle Checks bestanden */
+    --s-pace: #5fa82a;      /* Tempo */
+    --s-hr: #e66767;        /* Puls */
+    --s-cad: #9085e9;       /* Kadenz */
+    --s-head: #d95926;      /* Gegenwind (warm) */
+    --s-tail: #3987e5;      /* Rückenwind (kalt) */
+    --s-elev: #ADB5AB;      /* Höhe als Hintergrund-Relief */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131416; --fg: #e8e9eb; --muted: #9aa0a6; --line: #2c2f33; --card: #1c1e21; --accent: #7fb0ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2.5rem 1.25rem 5rem; font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.3rem; margin: 2.2rem 0 .6rem; padding-bottom: .3rem; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 1.4rem 0 .4rem; }
+  p.sub { color: var(--muted); margin: 0 0 1.5rem; }
+  p, li { max-width: 70ch; }
+  ol, ul { padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+  .layout { display: grid; grid-template-columns: 352px 1fr; gap: 2.5rem; align-items: start; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+  .sticky { position: sticky; top: 1rem; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1.1rem; margin: .9rem 0; max-width: 70ch; }
+  .box.key { border-left: 4px solid var(--accent); }
+  kbd { font: .85em ui-monospace, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 0 .35em; }
+  .sw { display: inline-block; width: .9em; height: .9em; border-radius: 3px; vertical-align: -.1em; margin-right: .3em; }
+
+  /* ---------- Phone ---------- */
+  .phone { width: 340px; background: var(--a-bg); color: var(--a-text); border-radius: 28px; border: 6px solid #2a2d2a; overflow: hidden; font-size: 13px; line-height: 1.35; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  .phone.full .screen { height: auto; }
+  .phone .screen { height: 720px; overflow-y: auto; padding: 10px 14px 14px; scrollbar-width: thin; scrollbar-color: var(--a-line) transparent; }
+  .phone .hdr { display: flex; justify-content: space-between; align-items: center; color: var(--a-muted); font-size: 12px; padding: 4px 0 8px; }
+  .phone .hdr b { color: var(--a-text); font-weight: 700; }
+  .phone .ttl { font-size: 21px; font-weight: 600; margin: 4px 0 8px; line-height: 1.2; }
+  .phone .ttl small { display: block; font-size: 12px; color: var(--a-muted); font-weight: 400; margin-top: 2px; }
+  .phone .sec { font-size: 14px; font-weight: 600; margin: 16px 0 6px; display: flex; justify-content: space-between; align-items: baseline; }
+  .phone .sec span { font-size: 11px; color: var(--a-muted); font-weight: 400; }
+  .phone .card { background: var(--a-surface); border-radius: 12px; padding: 10px 12px; margin: 6px 0; }
+  .phone .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--a-line); min-height: 40px; }
+  .phone .row:last-child { border-bottom: 0; }
+  .phone .row .l { display: flex; flex-direction: column; }
+  .phone .row .l small { color: var(--a-muted); font-size: 11px; }
+  .phone .chev { color: var(--a-muted); }
+  .phone .muted { color: var(--a-muted); font-size: 11px; }
+  .phone .btn { display: inline-block; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--a-line); color: var(--a-text); font-size: 12px; background: var(--a-raised); }
+  .phone .btn.pri { background: var(--a-green); color: var(--a-ink); border-color: var(--a-green); font-weight: 600; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0 4px; }
+  .stat { background: var(--a-surface); border-radius: 10px; padding: 8px 6px; text-align: center; }
+  .stat b { display: block; font-size: 17px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .stat small { color: var(--a-muted); font-size: 10.5px; }
+
+  /* Karte */
+  .map { position: relative; border-radius: 12px; overflow: hidden; background: #1c221c; border: 1px solid var(--a-line); touch-action: none; }
+  .map svg { display: block; width: 100%; height: auto; }
+  .map .wind { position: absolute; right: 8px; top: 8px; background: rgba(16,18,16,.85); border-radius: 999px; padding: 3px 8px 3px 6px; font-size: 11px; display: flex; align-items: center; gap: 4px; }
+  .map .wind svg { width: 14px; height: 14px; }
+  .map .hint { position: absolute; left: 8px; bottom: 6px; font-size: 10px; color: var(--a-muted); }
+
+  /* Readout (die "Tooltip"-Zeile, feststehend über dem Chart – nicht unterm Finger) */
+  .readout { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 0 0 6px; }
+  .readout div { text-align: center; }
+  .readout b { display: block; font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .readout small { color: var(--a-muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .readout .pos { grid-column: 1 / -1; text-align: left; font-size: 11px; color: var(--a-muted); padding-bottom: 2px; border-bottom: 1px solid var(--a-line); margin-bottom: 4px; }
+  .readout .pos b { display: inline; color: var(--a-text); font-size: 11px; }
+
+  /* Metrik-Tabs */
+  .tabs { display: flex; gap: 3px; margin: 4px 0 8px; flex-wrap: nowrap; }
+  .tab { padding: 4px 6px; border-radius: 999px; font-size: 10.5px; gap: 4px; white-space: nowrap; color: var(--a-muted); background: var(--a-raised); cursor: pointer; border: 1px solid transparent; user-select: none; display: flex; align-items: center; gap: 5px; }
+  .tab i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .tab.on { color: var(--a-text); border-color: var(--a-line); background: var(--a-surface); }
+  .toggles { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--a-muted); margin-top: 6px; }
+  .toggles label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .seg { display: inline-flex; border: 1px solid var(--a-line); border-radius: 999px; overflow: hidden; }
+  .seg span { padding: 2px 8px; cursor: pointer; }
+  .seg span.on { background: var(--a-raised); color: var(--a-text); }
+
+  .chart { touch-action: none; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart text { font-size: 9px; fill: var(--a-muted); }
+  .legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--a-muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 4px; }
+  .legend i.area { height: 8px; opacity: .45; }
+
+  /* Splits */
+  .splits svg { display: block; width: 100%; height: auto; }
+  .splits text { font-size: 10px; fill: var(--a-text); font-variant-numeric: tabular-nums; }
+  .splits text.m { fill: var(--a-muted); font-size: 9.5px; }
+  .splits .bar { cursor: pointer; }
+
+  .rpe-line { display: flex; gap: 6px; align-items: center; }
+  .rpe-line .pill { white-space: nowrap; background: var(--a-raised); border-radius: 999px; padding: 2px 8px; font-size: 11.5px; }
+  details.native { margin: 6px 0; }
+  details.native summary { list-style: none; cursor: pointer; }
+  details.native summary::-webkit-details-marker { display: none; }
+  .gapnote { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--a-muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>Lauf-Detailseite: Vorschlag mit Statistiken</h1>
+<p class="sub">Interaktives Mockup mit Beispieldaten (8,4 km, 44 min). Wischen über Chart oder Karte, Kilometer antippen, Metrik wechseln – alles ist verbunden. Kein App-Code, nur HTML.</p>
+
+<div class="layout">
+<div class="sticky">
+<div class="phone"><div class="screen" id="screen">
+  <div class="hdr"><span>‹ Verlauf</span><b>RUNBACK</b><span>⋯</span></div>
+  <div class="ttl">Morgenrunde Stadtpark<small>Lauf · Sa, 19. Sept. 2026 · 07:12 · Grundlage</small></div>
+
+  <div class="map" id="map">
+    <svg viewBox="0 0 312 200" id="mapsvg"></svg>
+    <div class="wind" title="Wind während des Laufs"><svg viewBox="0 0 14 14" id="windrose"><g id="windarrow"><path d="M7 1 L10 8 L7 6.5 L4 8 Z" fill="#F2F4EF"/></g></svg>SW 4 m/s</div>
+    <div class="hint">Tippen oder ziehen → Punkt auf allen Graphen</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>8,42</b><small>km</small></div>
+    <div class="stat"><b>44:08</b><small>Zeit</small></div>
+    <div class="stat"><b>5:14</b><small>/km</small></div>
+    <div class="stat"><b>147</b><small>Ø bpm</small></div>
+  </div>
+
+  <div class="sec">Verlauf <span id="secHint">Wischen zum Nachsehen</span></div>
+  <div class="card">
+    <div class="readout" id="readout"></div>
+    <div class="tabs" id="tabs">
+      <div class="tab on" data-m="pace"><i style="background:var(--s-pace)"></i>Tempo</div>
+      <div class="tab" data-m="hr"><i style="background:var(--s-hr)"></i>Puls</div>
+      <div class="tab" data-m="elev"><i style="background:var(--s-elev)"></i>Höhe</div>
+      <div class="tab" data-m="cad"><i style="background:var(--s-cad)"></i>Kadenz</div>
+      <div class="tab" data-m="wind"><i style="background:linear-gradient(90deg,var(--s-head) 50%,var(--s-tail) 50%)"></i>Wind</div>
+    </div>
+    <div class="chart" id="chart"><svg viewBox="0 0 312 150" id="chartsvg"></svg></div>
+    <div class="legend" id="legend"></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="overlay" checked> Höhenprofil hinterlegen</label>
+      <span class="seg" id="xmode"><span class="on" data-x="dist">km</span><span data-x="time">min</span></span>
+    </div>
+  </div>
+
+  <div class="sec">Kilometer <span>Antippen → Abschnitt markieren</span></div>
+  <div class="card splits" id="splits"><svg id="splitsvg"></svg></div>
+
+  <div class="card" style="border:1px solid var(--a-line)">
+    <div class="muted" style="text-transform:uppercase;letter-spacing:.04em;font-size:10px">Nächster Schritt</div>
+    <div style="margin-top:3px">Ruhig weiter: der Puls lag in den Anstiegen 8 bpm über deiner Grundlage. Nächster Lauf gleich lang, flacher.</div>
+  </div>
+
+  <div class="sec">Laufgefühl</div>
+  <div class="card">
+    <details class="native">
+      <summary><div class="row" style="padding:2px 0;min-height:32px">
+        <div class="rpe-line"><span class="pill">Beine 5</span><span class="pill">Atmung 4</span><span class="muted" style="white-space:nowrap">07:58</span></div>
+        <span class="chev">Ändern ›</span>
+      </div></summary>
+      <div class="muted" style="padding:8px 0 2px">Hier erscheint die 1–10-Auswahl für Beine und Atmung (wie bisher), nur eben eingeklappt.</div>
+    </details>
+    <div class="row"><div class="l"><span>Notiz</span><small>„Erste Hälfte zu schnell, ab km 5 Wind von vorn.“</small></div><span class="chev">›</span></div>
+  </div>
+
+  <div class="sec">Auffälligkeiten</div>
+  <div class="card"><div class="gapnote">⚠︎ GPS-Lücke 14 s bei km 6,1 – im Graph schraffiert, Tempo dort unsicher.</div></div>
+
+  <div class="sec">Mehr</div>
+  <div class="card">
+    <div class="row"><div class="l"><span>Abschnitte</span><small>3 Abschnitte · Aufwärmen, Hauptteil, Auslaufen</small></div><span class="chev">›</span></div>
+    <div class="row"><div class="l"><span>Teilen</span><small>Lauf als Bericht</small></div><span class="chev">›</span></div>
+    <div class="row"><div class="l"><span>Daten &amp; Herkunft</span><small>Quelle, Samples, Modell, Wetter</small></div><span class="chev">›</span></div>
+    <div class="row"><div class="l"><span>Bearbeiten &amp; verwalten</span><small>Art und Zweck ändern, exportieren, löschen</small></div><span class="chev">›</span></div>
+  </div>
+</div></div>
+</div>
+
+<div>
+<h2>Aufbau der Seite</h2>
+<ol>
+  <li><b>Kopf:</b> Titel, Datum, Zweck als Untertitel. Kein Platz für Eingaben.</li>
+  <li><b>Karte</b> mit km-Markern, Start/Ziel, Windpfeil. Antippen/Ziehen setzt den <i>aktiven Moment</i>.</li>
+  <li><b>Vier Kennzahlen</b> wie bisher (km, Zeit, Tempo, Puls).</li>
+  <li><b>Verlauf</b>: <i>ein</i> Graph mit Metrik-Tabs (Tempo, Puls, Höhe, Kadenz, Wind). Das Höhenprofil kann als graues Relief hinter jede Metrik gelegt werden. Darüber die Ablese-Zeile mit allen Werten am aktiven Moment – feststehend, damit der Finger sie nicht verdeckt.</li>
+  <li><b>Kilometer-Splits</b> als Balken; Antippen markiert den km in Graph und Karte.</li>
+  <li><b>Nächster Schritt</b> (Coach) – bleibt, rückt aber hinter die Daten.</li>
+  <li><b>Laufgefühl</b> als Einzeiler „Beine 5 · Atmung 4 · Ändern“. Die 1–10-Auswahl klappt nur auf, wenn man tippt. Nach dem Lauf fragt die App sie ja ohnehin schon separat ab (<code>feelingOnly</code>).</li>
+  <li><b>Auffälligkeiten</b> (nur wenn vorhanden), dann <b>Mehr</b>: Abschnitte, Teilen, Daten &amp; Herkunft, Bearbeiten – alles eingeklappt.</li>
+</ol>
+
+<h2>Verknüpfte Interaktion</h2>
+<ul>
+  <li><b>Ein aktiver Moment</b> für alles: Wischen im Graph, Tippen/Ziehen auf der Karte oder Antippen eines Kilometers – Marker auf der Karte, Fadenkreuz im Graph, Ablese-Zeile und Split-Markierung folgen sofort.</li>
+  <li><b>Snap auf den nächsten Messpunkt</b>, kein Zielen auf eine 2-px-Linie nötig.</li>
+  <li><b>X-Achse umschaltbar</b> km / min – bei Pausen oder Gehphasen sieht die Zeitachse anders aus als die Distanzachse.</li>
+  <li><b>GPS-Lücken</b> aus <code>gaps</code> werden schraffiert; Tempo dort nicht interpoliert.</li>
+</ul>
+
+<h2>Warum nicht zwei Y-Achsen übereinander</h2>
+<div class="box key">Du hattest „Höhe und Geschwindigkeit auf eins legen“ gewünscht. Das ist im Mockup drin – aber als <b>Relief statt zweiter Achse</b>: die Höhe liegt als graue Fläche hinten, nur mit Min/Max beschriftet; die Metrik liegt als farbige Linie mit ihrer einzigen Achse davor. So sieht man den Zusammenhang (Anstieg → Tempo bricht ein), ohne dass zwei willkürlich skalierte Achsen einen Zusammenhang <i>erfinden</i>. Das ist auch, was Strava/Garmin de facto machen.</div>
+
+<h2>Farben</h2>
+<p>Serien gegen die dunkle App-Oberfläche validiert (Farbfehlsicht, Kontrast, Abstand):
+<span class="sw" style="background:var(--s-pace)"></span>Tempo ·
+<span class="sw" style="background:var(--s-hr)"></span>Puls ·
+<span class="sw" style="background:var(--s-cad)"></span>Kadenz ·
+<span class="sw" style="background:var(--s-head)"></span>Gegenwind ·
+<span class="sw" style="background:var(--s-tail)"></span>Rückenwind ·
+<span class="sw" style="background:var(--s-elev)"></span>Höhe (neutral, weil Hintergrund).
+Das App-Grün <span class="sw" style="background:var(--a-green)"></span> bleibt für Buttons/Akzente, ist als Linie auf dunklem Grund aber zu hell und würde die Karte übertönen.</p>
+
+<h2>Was die App dafür braucht</h2>
+<ul>
+  <li>Die Rohsamples liegen nativ (<code>RunStore</code>, „Raw samples stay in native storage“). Für die Graphen braucht JS eine <b>abgespeckte Zeitreihe</b> (z.&nbsp;B. alle 5 s oder alle 25 m: t, Distanz, Höhe geglättet, Puls, Kadenz, lat/lon) über eine neue Native-Methode. Nicht die vollen Samples.</li>
+  <li>Wind pro Punkt = Windvektor aus <code>context.windMps</code> + Richtung (aus <code>WeatherIntegration</code>) gegen die Laufrichtung aus dem GPS-Kurs. Nur bei aufgezeichneten Läufen mit Wetter.</li>
+  <li>km-Splits sind aus <code>segments</code> bzw. der Zeitreihe ableitbar (Grade, Auf/Ab sind schon da).</li>
+</ul>
+
+<h2>Zum Abnicken</h2>
+<div class="box">
+<ol>
+  <li>Reihenfolge Karte → Kennzahlen → Verlauf → Kilometer → Nächster Schritt → Laufgefühl: passt?</li>
+  <li>Reicht <b>ein</b> Graph mit Tabs, oder willst du mehrere Graphen untereinander (mehr Scrollen, aber alles auf einen Blick)?</li>
+  <li>Karte: Strecke nach Tempo einfärben (Gradient) statt einfarbig?</li>
+  <li>Laufgefühl: reicht der Einzeiler, oder soll das ganz raus aus der Detailseite (nur im Nachtrag-Dialog)?</li>
+  <li>Splits: pro km oder auch pro 500 m umschaltbar?</li>
+</ol>
+</div>
+</div>
+</div>
+</main>
+
+<script>
+(function () {
+  // ---------- Beispieldaten: 5-s-Raster, alles aus einer Route abgeleitet ----------
+  const N = 530;                       // 44:10 min
+  const DT = 5;
+  const rnd = (() => { let s = 7; return () => { s = (s * 16807) % 2147483647; return s / 2147483647 - 0.5; }; })();
+  const smooth = (a, w) => a.map((_, i) => { let s = 0, n = 0; for (let k = -w; k <= w; k++) { const j = i + k; if (j >= 0 && j < a.length) { s += a[j]; n++; } } return s / n; });
+
+  // Route: geschlossene Schleife im 312×200-Kasten
+  const routeXY = u => { const t = u * Math.PI * 2; return [156 + 118 * Math.cos(t) + 18 * Math.sin(3 * t) + 8 * Math.sin(7 * t), 100 + 68 * Math.sin(t) + 14 * Math.cos(5 * t) + 5 * Math.cos(9 * t)]; };
+  const elevAt = u => 112 + 17 * Math.sin(u * 2 * Math.PI * 1.15 + 0.6) + 8 * Math.sin(u * 2 * Math.PI * 3.6 + 1.3) + 4 * Math.sin(u * 2 * Math.PI * 7.2);
+
+  const pts = [];
+  // 1. Durchgang: Steigung aus Höhe nach Fortschritt, Tempo aus Steigung + Ermüdung + Zufall
+  let rawPace = [];
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1);
+    const grade = (elevAt(Math.min(1, u + 0.004)) - elevAt(Math.max(0, u - 0.004))) / (0.008 * 8420) * 100;
+    let pace = 306 + grade * 10 + (u < 0.06 ? 30 * (1 - u / 0.06) : 0) + (u > 0.55 ? 8 : 0) + (u > 0.92 ? 14 : 0) + rnd() * 14;
+    rawPace.push(pace);
+  }
+  rawPace = smooth(rawPace, 7);
+  let dist = 0;
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1);
+    const [x, y] = routeXY(u);
+    const pace = rawPace[i];
+    const speed = 1000 / pace;
+    if (i > 0) dist += speed * DT;
+    pts.push({ i, t: i * DT, u, x, y, dist, pace, speed, elev: elevAt(u) });
+  }
+  // Distanz auf genau 8420 m normieren
+  const scale = 8420 / dist;
+  pts.forEach(p => { p.dist *= scale; });
+  // Kurs, Wind, Puls, Kadenz
+  const WIND_FROM = 230, WIND = 4.2;                   // aus SW
+  const flow = (WIND_FROM + 180) * Math.PI / 180;      // Richtung, in die der Wind weht
+  const fx = Math.sin(flow), fy = -Math.cos(flow);     // Bildschirm-Koordinaten (y nach unten)
+  let hr = [], cad = [];
+  for (let i = 0; i < N; i++) {
+    const p = pts[i], q = pts[Math.min(N - 1, i + 1)], r = pts[Math.max(0, i - 1)];
+    const dx = q.x - r.x, dy = q.y - r.y, len = Math.hypot(dx, dy) || 1;
+    const hx = dx / len, hy = dy / len;
+    p.heading = (Math.atan2(hx, -hy) * 180 / Math.PI + 360) % 360;
+    p.headwind = -(hx * fx + hy * fy) * WIND;          // + = Gegenwind
+    const grade = i > 0 ? (p.elev - r.elev) / Math.max(1, p.dist - r.dist) * 100 : 0;
+    p.grade = grade;
+    hr.push(116 + 36 * (1 - Math.exp(-i / 45)) + (315 - p.pace) * 0.22 + grade * 1.1 + p.headwind * 0.8 + rnd() * 4);
+    cad.push(176 + (315 - p.pace) * 0.06 - grade * 0.35 + rnd() * 3);
+  }
+  hr = smooth(hr, 4); cad = smooth(cad, 2);
+  pts.forEach((p, i) => { p.hr = hr[i]; p.cad = cad[i]; });
+  // GPS-Lücke bei km 6,1 (14 s)
+  const gapStart = pts.findIndex(p => p.dist >= 6100);
+  const GAP = [gapStart, gapStart + 3];
+  for (let i = GAP[0]; i <= GAP[1]; i++) pts[i].gap = true;
+
+  // Kilometer-Splits
+  const splits = [];
+  for (let km = 0; km * 1000 < 8420; km++) {
+    const a = pts.filter(p => p.dist >= km * 1000 && p.dist < Math.min((km + 1) * 1000, 8420.01));
+    if (!a.length) continue;
+    const d = a[a.length - 1].dist - a[0].dist, tt = a[a.length - 1].t - a[0].t;
+    let up = 0, dn = 0; for (let i = 1; i < a.length; i++) { const e = a[i].elev - a[i - 1].elev; if (e > 0) up += e; else dn -= e; }
+    splits.push({ km, from: a[0].i, to: a[a.length - 1].i, pace: d > 0 ? tt / d * 1000 : 0, hr: a.reduce((s, p) => s + p.hr, 0) / a.length, up, dn, partial: d < 900 ? d / 1000 : null });
+  }
+  const totalPace = pts[N - 1].t / 8.42;
+
+  // ---------- Helfer ----------
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, parent) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+  const txt = (parent, x, y, s, attrs) => { const t = el('text', Object.assign({ x, y }, attrs || {}), parent); t.textContent = s; return t; };
+  const fmtPace = s => { const r = Math.round(s); return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; };
+  const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const fmtKm = m => (m / 1000).toFixed(2).replace('.', ',');
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+  const METRICS = {
+    pace: { label: 'Tempo', unit: '/km', color: '--s-pace', get: p => p.pace, fmt: fmtPace, invert: true, pad: 20 },
+    hr:   { label: 'Puls', unit: 'bpm', color: '--s-hr', get: p => p.hr, fmt: v => Math.round(v), pad: 6 },
+    elev: { label: 'Höhe', unit: 'm', color: '--s-elev', get: p => p.elev, fmt: v => Math.round(v), pad: 4, area: true },
+    cad:  { label: 'Kadenz', unit: 'spm', color: '--s-cad', get: p => p.cad, fmt: v => Math.round(v), pad: 4 },
+    wind: { label: 'Wind', unit: 'm/s', get: p => p.headwind, fmt: v => (v > 0 ? '+' : '') + v.toFixed(1).replace('.', ','), diverging: true, pad: 0.5 },
+  };
+
+  // ---------- Zustand ----------
+  let sel = null;              // aktiver Punktindex
+  let metric = 'pace';
+  let overlay = true;
+  let xmode = 'dist';
+  let splitSel = null;
+
+  // ---------- Karte ----------
+  const mapsvg = document.getElementById('mapsvg');
+  let mapMarker, mapSplitPath;
+  function drawMap() {
+    mapsvg.innerHTML = '';
+    // dezentes Raster als Karten-Platzhalter
+    const g = el('g', { stroke: '#2a332a', 'stroke-width': 1 }, mapsvg);
+    for (let x = 0; x <= 312; x += 26) el('line', { x1: x, y1: 0, x2: x, y2: 200 }, g);
+    for (let y = 0; y <= 200; y += 26) el('line', { x1: 0, y1: y, x2: 312, y2: y }, g);
+    // „Wasser“ und „Wege“ als Andeutung
+    el('path', { d: 'M0 150 C 60 120, 120 175, 200 150 S 300 140, 312 165 L312 200 L0 200Z', fill: '#1f2a2f', opacity: .7 }, mapsvg);
+    el('path', { d: 'M20 20 L120 60 L200 40 L290 90', stroke: '#2f3a2f', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round' }, mapsvg);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+    el('path', { d, fill: 'none', stroke: '#0b0d0b', 'stroke-width': 5, 'stroke-linejoin': 'round', opacity: .6 }, mapsvg);
+    el('path', { d, fill: 'none', stroke: css('--a-green'), 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, mapsvg);
+    mapSplitPath = el('path', { d: '', fill: 'none', stroke: '#ffffff', 'stroke-width': 4, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', opacity: 0 }, mapsvg);
+    // km-Marker
+    splits.forEach(s => { if (s.km === 0) return; const p = pts[s.from]; el('circle', { cx: p.x, cy: p.y, r: 6.5, fill: '#101210', stroke: css('--a-green'), 'stroke-width': 1 }, mapsvg); txt(mapsvg, p.x, p.y + 2.6, s.km, { 'text-anchor': 'middle', style: 'font-size:7.5px;fill:#F2F4EF;font-weight:600' }); });
+    // Start / Ziel
+    el('circle', { cx: pts[0].x, cy: pts[0].y, r: 4, fill: '#F2F4EF', stroke: '#101210', 'stroke-width': 1.5 }, mapsvg);
+    el('rect', { x: pts[N - 1].x - 4, y: pts[N - 1].y - 4, width: 8, height: 8, fill: '#F2F4EF', stroke: '#101210', 'stroke-width': 1.5 }, mapsvg);
+    // aktiver Punkt
+    mapMarker = el('g', { opacity: 0 }, mapsvg);
+    el('circle', { cx: 0, cy: 0, r: 9, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5, opacity: .5 }, mapMarker);
+    el('circle', { cx: 0, cy: 0, r: 4.5, fill: '#ffffff', stroke: '#101210', 'stroke-width': 2 }, mapMarker);
+    // Windrose
+    document.getElementById('windarrow').setAttribute('transform', `rotate(${(WIND_FROM + 180) % 360} 7 7)`);
+  }
+  function mapPointer(ev) {
+    const r = mapsvg.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * 312, y = (ev.clientY - r.top) / r.height * 200;
+    let best = 0, bd = 1e9;
+    for (const p of pts) { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = p.i; } }
+    setSel(best);
+  }
+  mapsvg.addEventListener('pointerdown', ev => { mapsvg.setPointerCapture(ev.pointerId); mapPointer(ev); });
+  mapsvg.addEventListener('pointermove', ev => { if (ev.buttons) mapPointer(ev); });
+
+  // ---------- Verlauf-Chart ----------
+  const chartsvg = document.getElementById('chartsvg');
+  const W = 312, H = 150, ML = 30, MR = 24, MT = 8, MB = 18;
+  const PW = W - ML - MR, PH = H - MT - MB;
+  const xOf = p => ML + (xmode === 'dist' ? p.dist / 8420 : p.t / pts[N - 1].t) * PW;
+  let cross, crossDot;
+  function drawChart() {
+    chartsvg.innerHTML = '';
+    const m = METRICS[metric];
+    const showElev = overlay && metric !== 'elev';
+    // Y-Skala der Metrik
+    const vals = pts.filter(p => !p.gap || metric === 'elev').map(m.get);
+    let lo = Math.min(...vals) - m.pad, hi = Math.max(...vals) + m.pad;
+    if (m.diverging) { const a = Math.max(Math.abs(lo), Math.abs(hi)); lo = -a; hi = a; }
+    const yOf = v => { const f = (v - lo) / (hi - lo); return MT + (m.invert ? f : 1 - f) * PH; };
+    // Höhenrelief hinten (eigene Skala, nur Min/Max-Beschriftung rechts)
+    if (showElev) {
+      const es = pts.map(p => p.elev), elo = Math.min(...es) - 3, ehi = Math.max(...es) + 3;
+      const ey = v => MT + (1 - (v - elo) / (ehi - elo)) * PH;
+      const d = pts.map((p, i) => (i ? 'L' : 'M') + xOf(p).toFixed(1) + ' ' + ey(p.elev).toFixed(1)).join(' ') + ` L${(ML + PW).toFixed(1)} ${MT + PH} L${ML} ${MT + PH} Z`;
+      el('path', { d, fill: css('--s-elev'), opacity: .18 }, chartsvg);
+      txt(chartsvg, W - MR + 3, MT + 8, Math.round(ehi - 3) + ' m', { style: 'font-size:8px;fill:#7e877e' });
+      txt(chartsvg, W - MR + 3, MT + PH - 1, Math.round(elo + 3) + ' m', { style: 'font-size:8px;fill:#7e877e' });
+    }
+    // Gitter + Y-Achse (3 Ticks)
+    for (let k = 0; k <= 2; k++) {
+      const v = lo + (hi - lo) * k / 2, y = yOf(v);
+      el('line', { x1: ML, x2: ML + PW, y1: y, y2: y, stroke: css('--a-line'), 'stroke-width': 1 }, chartsvg);
+      txt(chartsvg, ML - 4, y + 3, m.fmt(v), { 'text-anchor': 'end' });
+    }
+    // X-Ticks
+    const xt = xmode === 'dist' ? [0, 2, 4, 6, 8].map(k => ({ x: ML + k * 1000 / 8420 * PW, l: k + ' km' })) : [0, 10, 20, 30, 40].map(k => ({ x: ML + k * 60 / pts[N - 1].t * PW, l: k + ' min' }));
+    xt.forEach(t => txt(chartsvg, t.x, H - 4, t.l, { 'text-anchor': t.x > ML + 4 ? 'middle' : 'start' }));
+    // Split-Markierung
+    if (splitSel != null) { const s = splits[splitSel]; el('rect', { x: xOf(pts[s.from]), y: MT, width: xOf(pts[s.to]) - xOf(pts[s.from]), height: PH, fill: '#ffffff', opacity: .07 }, chartsvg); }
+    // GPS-Lücke schraffiert
+    const defs = el('defs', {}, chartsvg);
+    const pat = el('pattern', { id: 'hatch', width: 4, height: 4, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+    el('line', { x1: 0, y1: 0, x2: 0, y2: 4, stroke: css('--a-muted'), 'stroke-width': 1.2 }, pat);
+    el('rect', { x: xOf(pts[GAP[0]]), y: MT, width: Math.max(3, xOf(pts[GAP[1]]) - xOf(pts[GAP[0]])), height: PH, fill: 'url(#hatch)', opacity: .5 }, chartsvg);
+    // Serie
+    if (m.diverging) {
+      const y0 = yOf(0);
+      el('line', { x1: ML, x2: ML + PW, y1: y0, y2: y0, stroke: css('--a-muted'), 'stroke-width': 1 }, chartsvg);
+      ['head', 'tail'].forEach(side => {
+        const d = pts.map((p, i) => { const v = side === 'head' ? Math.max(0, p.headwind) : Math.min(0, p.headwind); return (i ? 'L' : 'M') + xOf(p).toFixed(1) + ' ' + yOf(v).toFixed(1); }).join(' ') + ` L${ML + PW} ${y0} L${ML} ${y0} Z`;
+        el('path', { d, fill: css(side === 'head' ? '--s-head' : '--s-tail'), opacity: .8 }, chartsvg);
+      });
+      txt(chartsvg, ML + 4, MT + 9, 'Gegenwind', { style: 'font-size:8.5px;fill:#F2F4EF' });
+      txt(chartsvg, ML + 4, MT + PH - 3, 'Rückenwind', { style: 'font-size:8.5px;fill:#F2F4EF' });
+    } else {
+      // Linie mit Unterbrechung an der GPS-Lücke (Höhe läuft durch – Barometer)
+      let d = '', pen = false;
+      pts.forEach(p => { if (p.gap && metric !== 'elev') { pen = false; return; } d += (pen ? 'L' : 'M') + xOf(p).toFixed(1) + ' ' + yOf(m.get(p)).toFixed(1) + ' '; pen = true; });
+      if (m.area) el('path', { d: pts.map((p, i) => (i ? 'L' : 'M') + xOf(p).toFixed(1) + ' ' + yOf(p.elev).toFixed(1)).join(' ') + ` L${ML + PW} ${MT + PH} L${ML} ${MT + PH} Z`, fill: css(m.color), opacity: .25 }, chartsvg);
+      el('path', { d, fill: 'none', stroke: css(m.color), 'stroke-width': 2, 'stroke-linejoin': 'round' }, chartsvg);
+      // Durchschnittslinie
+      if (metric === 'pace') { const y = yOf(totalPace); el('line', { x1: ML, x2: ML + PW, y1: y, y2: y, stroke: css(m.color), 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: .7 }, chartsvg); txt(chartsvg, ML + PW - 2, y - 3, 'Ø ' + fmtPace(totalPace), { 'text-anchor': 'end', style: 'font-size:8.5px' }); }
+    }
+    // Fadenkreuz
+    cross = el('line', { x1: 0, x2: 0, y1: MT, y2: MT + PH, stroke: '#ffffff', 'stroke-width': 1, opacity: 0 }, chartsvg);
+    crossDot = el('circle', { r: 4, fill: '#ffffff', stroke: '#101210', 'stroke-width': 1.5, opacity: 0 }, chartsvg);
+    chartsvg._yOf = yOf;
+    // Legende
+    const lg = document.getElementById('legend'); lg.innerHTML = '';
+    const item = (color, label, area) => { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = css(color); if (area) i.className = 'area'; s.appendChild(i); s.appendChild(document.createTextNode(label)); lg.appendChild(s); };
+    if (m.diverging) { item('--s-head', 'Gegenwind'); item('--s-tail', 'Rückenwind'); } else item(m.color, m.label + (metric === 'pace' ? ' (oben = schneller)' : ''));
+    if (showElev) item('--s-elev', 'Höhe', true);
+    updateSel();
+  }
+  function chartPointer(ev) {
+    const r = chartsvg.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * W;
+    let best = 0, bd = 1e9;
+    for (const p of pts) { const d = Math.abs(xOf(p) - x); if (d < bd) { bd = d; best = p.i; } }
+    setSel(best);
+  }
+  chartsvg.addEventListener('pointerdown', ev => { chartsvg.setPointerCapture(ev.pointerId); chartPointer(ev); });
+  chartsvg.addEventListener('pointermove', ev => { if (ev.buttons || ev.pointerType === 'mouse') chartPointer(ev); });
+
+  // ---------- Splits ----------
+  const splitsvg = document.getElementById('splitsvg');
+  function drawSplits() {
+    const RH = 20, top = 14, h = top + splits.length * RH + 4;
+    splitsvg.setAttribute('viewBox', `0 0 288 ${h}`); splitsvg.innerHTML = '';
+    const maxPace = Math.max(...splits.map(s => s.pace)), x0 = 34, bw = 150;
+    txt(splitsvg, x0, 9, 'Tempo /km', { class: 'm' }); txt(splitsvg, 236, 9, 'Ø bpm', { class: 'm', 'text-anchor': 'end' }); txt(splitsvg, 284, 9, 'Höhe', { class: 'm', 'text-anchor': 'end' });
+    splits.forEach((s, k) => {
+      const y = top + k * RH, w = s.pace / maxPace * bw, on = splitSel === k;
+      const g = el('g', { class: 'bar' }, splitsvg);
+      el('rect', { x: 0, y, width: 288, height: RH, fill: on ? '#ffffff' : 'transparent', opacity: on ? .08 : 0 }, g);
+      txt(g, 4, y + 14, s.partial ? `${s.km}–${fmtKm((s.km + s.partial) * 1000).slice(0, -1)}` : s.km + 1, { class: 'm' });
+      el('rect', { x: x0, y: y + 4, width: w, height: RH - 8, rx: 3, fill: css('--s-pace'), opacity: s.pace > totalPace ? .55 : 1 }, g);
+      txt(g, x0 + w + 4, y + 14, fmtPace(s.pace), {});
+      txt(g, 236, y + 14, Math.round(s.hr), { class: 'm', 'text-anchor': 'end' });
+      txt(g, 284, y + 14, `${s.up >= 1 ? '↗' + Math.round(s.up) : ''}${s.dn >= 1 ? ' ↘' + Math.round(s.dn) : ''}`, { class: 'm', 'text-anchor': 'end' });
+      g.addEventListener('click', () => { splitSel = splitSel === k ? null : k; drawChart(); drawSplits(); if (splitSel != null) setSel(Math.round((s.from + s.to) / 2)); else updateSel(); });
+    });
+  }
+
+  // ---------- Auswahl ----------
+  function setSel(i) { sel = i; updateSel(); }
+  function updateSel() {
+    const ro = document.getElementById('readout');
+    const p = sel != null ? pts[sel] : null;
+    ro.innerHTML = '';
+    const pos = document.createElement('div'); pos.className = 'pos';
+    if (p) { pos.innerHTML = `bei <b>km ${fmtKm(p.dist)}</b> · <b>${fmtTime(p.t)}</b> min` + (p.gap ? ' · <span style="color:var(--a-danger)">GPS-Lücke</span>' : '') + (p.grade > 3 ? ' · Anstieg' : p.grade < -3 ? ' · Gefälle' : ''); }
+    else pos.textContent = 'Gesamt (wischen für einen Moment)';
+    ro.appendChild(pos);
+    const cells = p ? [
+      [p.gap ? '–' : fmtPace(p.pace), 'Tempo'], [Math.round(p.hr), 'Puls'], [Math.round(p.elev) + ' m', 'Höhe'], [Math.round(p.cad), 'Kadenz'], [METRICS.wind.fmt(p.headwind), 'Wind'],
+    ] : [[fmtPace(totalPace), 'Tempo'], ['147', 'Puls'], ['↗ 96 m', 'Höhe'], ['177', 'Kadenz'], ['+0,8', 'Wind']];
+    cells.forEach(([v, l]) => { const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = v; const s = document.createElement('small'); s.textContent = l; d.append(b, s); ro.appendChild(d); });
+    // Karte
+    if (p) { mapMarker.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`); mapMarker.setAttribute('opacity', 1); } else mapMarker.setAttribute('opacity', 0);
+    if (splitSel != null) { const s = splits[splitSel]; mapSplitPath.setAttribute('d', pts.slice(s.from, s.to + 1).map((q, i) => (i ? 'L' : 'M') + q.x.toFixed(1) + ' ' + q.y.toFixed(1)).join(' ')); mapSplitPath.setAttribute('opacity', .9); } else mapSplitPath.setAttribute('opacity', 0);
+    // Chart
+    if (p && cross) {
+      const x = xOf(p), m = METRICS[metric];
+      cross.setAttribute('x1', x); cross.setAttribute('x2', x); cross.setAttribute('opacity', .6);
+      crossDot.setAttribute('cx', x); crossDot.setAttribute('cy', chartsvg._yOf(m.get(p))); crossDot.setAttribute('opacity', (p.gap && !m.area && metric !== 'wind') ? 0 : 1);
+    } else if (cross) { cross.setAttribute('opacity', 0); crossDot.setAttribute('opacity', 0); }
+    document.getElementById('secHint').textContent = p ? 'Loslassen behält den Punkt' : 'Wischen zum Nachsehen';
+  }
+
+  // ---------- Steuerung ----------
+  document.getElementById('tabs').addEventListener('click', ev => { const t = ev.target.closest('.tab'); if (!t) return; metric = t.dataset.m; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t)); document.getElementById('overlay').parentElement.style.visibility = metric === 'elev' ? 'hidden' : 'visible'; drawChart(); });
+  document.getElementById('overlay').addEventListener('change', ev => { overlay = ev.target.checked; drawChart(); });
+  document.getElementById('xmode').addEventListener('click', ev => { const s = ev.target.closest('span[data-x]'); if (!s) return; xmode = s.dataset.x; document.querySelectorAll('#xmode span').forEach(x => x.classList.toggle('on', x === s)); drawChart(); });
+
+  if (location.hash === '#full') document.querySelector('.phone').classList.add('full');
+  drawMap(); drawChart(); drawSplits();
+  setSel(pts.findIndex(p => p.dist >= 4320));  // Startzustand: ein Beispielmoment ist ausgewählt
+})();
+</script>
+</body>
+</html>
