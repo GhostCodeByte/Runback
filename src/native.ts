@@ -9,6 +9,7 @@ import type {
 } from './domain/types';
 import type { RouteCoordinate, RoutePlan } from './domain/routes';
 import type { RunTimeline } from './domain/runReport';
+import type { RunSeries } from './domain/runSeries';
 import { normalizeSport } from './domain/sport';
 import type {
   StrengthSession,
@@ -189,6 +190,21 @@ export const native = {
       rows: Array.isArray(raw?.rows) ? raw.rows : [],
     };
   },
+  /** Darstellungsreihe für die Graphen der Detailseite (RunSeries, ≤ maxRows Zeilen). */
+  async runSeries(id: string, maxRows = 600): Promise<RunSeries> {
+    const raw = await nativeCall<any>('getRunSeries', id, maxRows);
+    return {
+      version: raw?.version,
+      stepSeconds: Number(raw?.stepSeconds) || 5,
+      wind:
+        raw?.wind &&
+        Number.isFinite(raw.wind.mps) &&
+        Number.isFinite(raw.wind.fromDeg)
+          ? { mps: raw.wind.mps, fromDeg: raw.wind.fromDeg }
+          : undefined,
+      rows: Array.isArray(raw?.rows) ? raw.rows : [],
+    };
+  },
   /**
    * Schreibt die 5-s-Zeitreihe nativ als CSV in den Export-Cache. Die Zeilen
    * bleiben in Kotlin; zurück kommt nur der Dateiname.
@@ -198,7 +214,10 @@ export const native = {
     fileName: string,
   ): Promise<{ fileName: string; rows: number }> {
     const raw = await nativeCall<any>('writeRunTimeseries', id, fileName);
-    return { fileName: String(raw?.fileName || fileName), rows: Number(raw?.rows) || 0 };
+    return {
+      fileName: String(raw?.fileName || fileName),
+      rows: Number(raw?.rows) || 0,
+    };
   },
   /**
    * Teilt mehrere Dateien auf einmal. Einträge ohne `content` müssen bereits

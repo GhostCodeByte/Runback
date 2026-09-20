@@ -376,7 +376,8 @@ class RunStore(context: Context) : DocumentStore {
      * bleiben hier; nach außen gehen Aggregate, Phasen und die CSV-Zeitreihe.
      */
     private class DerivedSeries(val start: Long, val end: Long, val timeline: RunTimeline.Result,
-                                val elevation: RunElevation.Outcome, val phases: RunPhases.Result)
+                                val elevation: RunElevation.Outcome, val phases: RunPhases.Result,
+                                val gps: List<RunTimeline.GpsPoint>)
     private fun deriveSeries(id: String, run: JSONObject): DerivedSeries {
         val start = run.optLong("startTime"); val recordedEnd = run.optLong("endTime", start)
         val gps = ArrayList<RunTimeline.GpsPoint>(); val gpsAltitude = ArrayList<RunElevation.GpsAltitude>()
@@ -410,7 +411,7 @@ class RunStore(context: Context) : DocumentStore {
         val elevation = RunElevation.build(start, end, pressure, gpsAltitude)
         val grid = (elevation as? RunElevation.Outcome.Available)?.result?.grid
         val phases = RunPhases.build(start, end, timeline.rows, pauseIntervals(id, end), still, grid)
-        return DerivedSeries(start, end, timeline, elevation, phases)
+        return DerivedSeries(start, end, timeline, elevation, phases, gps)
     }
 
     /**
@@ -557,6 +558,18 @@ class RunStore(context: Context) : DocumentStore {
     }
     /** Zeitreihe im 5-s-Raster als CSV; wird nativ in eine Datei geschrieben, nie über die Brücke gereicht. */
     fun timeseriesCsv(id: String): String = locked { RunPhases.csv(deriveSeries(id, read(id)).phases.rows) }
+    /**
+     * Darstellungsreihe für die Graphen der Detailseite (RunSeries): begrenzte
+     * Zeilenzahl, Position je Fenster, Gegenwind nur mit bekannter Windrichtung
+     * aus dem gespeicherten Wetter (`weather_<id>`).
+     */
+    fun series(id: String, maxRows: Int = RunSeries.DEFAULT_MAX_ROWS): JSONObject = locked {
+        val derived = deriveSeries(id, read(id))
+        val weather = getDocument("weather_$id")
+        val mps = weather?.optDouble("windMps", Double.NaN); val fromDeg = weather?.optDouble("windDirectionDeg", Double.NaN)
+        val wind = if (mps != null && mps.isFinite() && fromDeg != null && fromDeg.isFinite()) RunSeries.Wind(mps, fromDeg) else null
+        RunSeries.json(RunSeries.build(derived.start, derived.phases.rows, derived.gps, wind, maxRows = maxRows.coerceIn(60, 2000)), wind)
+    }
     fun detail(id: String): JSONObject = locked {
         val derived = derive(id)
         present(read(id)).put("geometry",derived.getJSONArray("geometry")).put("series",derived.getJSONArray("series")).put("events",events(id))

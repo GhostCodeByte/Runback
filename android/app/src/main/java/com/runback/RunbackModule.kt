@@ -112,6 +112,7 @@ class RunbackModule(private val context: ReactApplicationContext) : ReactContext
         }
     }
     @ReactMethod fun getRunTimeline(id: String, maxRows: Int, promise: Promise) = task(promise) { store.timeline(id, maxRows) }
+    @ReactMethod fun getRunSeries(id: String, maxRows: Int, promise: Promise) = task(promise) { store.series(id, maxRows) }
     @ReactMethod fun updateRunFeedback(id: String, json: String, promise: Promise) = task(promise) { store.saveFeedback(id, JSONObject(json)); store.detail(id) }
     @ReactMethod fun saveRunContext(id: String, json: String, promise: Promise) = updateRunFeedback(id, json, promise)
     @ReactMethod fun deleteRun(id: String, promise: Promise) = task(promise) { store.deleteRun(id); state() }
