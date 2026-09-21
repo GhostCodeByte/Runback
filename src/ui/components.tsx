@@ -37,6 +37,8 @@ export const color = {
   greenSoft: '#26331E',
   ink: '#14200E',
   danger: '#E4796B',
+  /** Etwas schlechter als sonst: nur für Text, nie als Fläche. */
+  caution: '#E8B04B',
   mapOverlay: '#101210D9',
   mapLine: '#F2F4EF3D',
   /**
@@ -325,25 +327,116 @@ export function EmptyState({
   );
 }
 
+/** Wie eine Zahl gegenüber den letzten Läufen steht. Farbe nie allein: der Pfeil trägt dieselbe Aussage. */
+export type StatTone = 'better' | 'same' | 'slightly_worse' | 'worse';
+const TONE_MARK: Record<StatTone, string> = {
+  better: '▲',
+  same: '',
+  slightly_worse: '▽',
+  worse: '▼',
+};
+const TONE_WORD: Record<StatTone, string> = {
+  better: 'besser als zuletzt',
+  same: 'wie zuletzt',
+  slightly_worse: 'etwas schlechter als zuletzt',
+  worse: 'schlechter als zuletzt',
+};
+export function toneColor(tone: StatTone | undefined): string {
+  return tone === 'better'
+    ? color.green
+    : tone === 'slightly_worse'
+    ? color.caution
+    : tone === 'worse'
+    ? color.danger
+    : color.text;
+}
+
 export function Stat({
   value,
   label,
   large = false,
+  tone,
+  delta,
 }: {
   value: string;
   label: string;
   large?: boolean;
+  /** Vergleich zu den letzten Läufen; färbt den Wert und setzt einen Pfeil. */
+  tone?: StatTone;
+  /** Kurzer Vergleichstext unter dem Label, z. B. „−0:08 /km“. */
+  delta?: string;
 }) {
+  const mark = tone ? TONE_MARK[tone] : '';
   return (
-    <View style={s.stat}>
+    <View
+      style={s.stat}
+      accessibilityLabel={
+        tone ? `${value} ${label}, ${TONE_WORD[tone]}` : undefined
+      }
+    >
       <Text
         adjustsFontSizeToFit
         numberOfLines={1}
-        style={[s.statValue, large && s.statLarge]}
+        style={[
+          s.statValue,
+          large && s.statLarge,
+          tone ? { color: toneColor(tone) } : null,
+        ]}
       >
         {value}
+        {mark ? <Text style={s.statMark}> {mark}</Text> : null}
       </Text>
       <Text style={s.statLabel}>{label}</Text>
+      {delta ? <Text style={s.statDelta}>{delta}</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * Ein Balken aus mehreren Anteilen, z. B. das Zeitbudget eines Laufs. Jeder
+ * Anteil hat Farbe und Beschriftung; die Legende darunter nennt die Werte,
+ * damit die Farbe nicht die einzige Information ist.
+ */
+export function StackedBar({
+  label,
+  parts,
+}: {
+  label: string;
+  parts: { value: number; color: string; label: string; text: string }[];
+}) {
+  const total = parts.reduce((sum, part) => sum + Math.max(part.value, 0), 0);
+  if (total <= 0) return null;
+  return (
+    <View style={s.stacked}>
+      <View
+        accessibilityRole="image"
+        accessibilityLabel={`${label}: ${parts
+          .map(part => `${part.label} ${part.text}`)
+          .join(', ')}`}
+        style={s.stackedBar}
+      >
+        {parts.map(part =>
+          part.value > 0 ? (
+            <View
+              key={part.label}
+              style={{
+                flex: part.value / total,
+                backgroundColor: part.color,
+              }}
+            />
+          ) : null,
+        )}
+      </View>
+      <View style={s.stackedLegend}>
+        {parts.map(part => (
+          <View key={part.label} style={s.stackedItem}>
+            <View style={[s.swatch, { backgroundColor: part.color }]} />
+            <Text style={s.stackedText}>
+              {part.label} <Text style={s.stackedValue}>{part.text}</Text>
+            </Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -1359,6 +1452,30 @@ export const s = StyleSheet.create({
   },
   statLarge: { ...type.display },
   statLabel: { color: color.muted, ...type.label, fontWeight: '400' },
+  statMark: { ...type.label, fontWeight: '600' },
+  statDelta: {
+    color: color.muted,
+    ...type.label,
+    fontWeight: '400',
+    fontVariant: ['tabular-nums'],
+  },
+  stacked: { gap: space.xs },
+  stackedBar: {
+    flexDirection: 'row',
+    height: 12,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    backgroundColor: color.raised,
+  },
+  stackedLegend: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  stackedItem: { flexDirection: 'row', alignItems: 'center', gap: space.xxs },
+  swatch: { width: 10, height: 10, borderRadius: 3 },
+  stackedText: { color: color.muted, ...type.label, fontWeight: '400' },
+  stackedValue: {
+    color: color.text,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
   route: {
     height: ROUTE_VIEWBOX_HEIGHT,
     backgroundColor: color.surface,

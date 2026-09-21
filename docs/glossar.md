@@ -56,6 +56,17 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Gegenwind | `headwindMps` | Windanteil entlang der Laufrichtung aus Modellwind und GPS-Kurs; positiv = von vorn. Nur mit bekannter Windrichtung. |
 | Höhenmeter | `ElevationSummary` | Auf-/Abstieg aus Barometer, sonst aus GPS mit bekannter vertikaler Genauigkeit; sonst „nicht bestimmbar“. |
 | Fehlstart | `isAccidentalRun` | Unter 60 s und unter 100 m. Bleibt gespeichert, zählt aber nicht als Training. |
+| Einblicke | `insights.ts` | Tiefere Auswertung eines Laufs auf der Detailseite: Bewegung, Pacing, Puls, Ermüdung, Bedingungen, Vergleich. Beobachtung, keine Empfehlung. |
+| Zeitbudget | `timeBudgetShares` | Ein Balken aus gelaufen, gegangen, gestanden; Pausen daneben. |
+| Puls-Drift | `heartRateDrift` | Puls je Geschwindigkeit in der zweiten Hälfte gegenüber der ersten, ohne den ersten Kilometer. Unter 5 % „aerob solide“. |
+| Meter je Herzschlag | `metersPerBeat` | Strecke geteilt durch alle Herzschläge in Bewegung. Vergleichbar über Läufe. |
+| Flach-Äquivalent | `gradeAdjustedPace` | Geschätztes Tempo in der Ebene bei gleichem Aufwand (Minetti 2002, Nettosteigung je Kilometer). Immer als Schätzung ausgewiesen. |
+| Maxpuls | `maxHeartRate` | Eingestellt gewinnt; sonst zweithöchster Spitzenwert der letzten Läufe, ab drei Läufen mit Puls. |
+| Pulszonen | `heartRateZones` | Zeit in fünf Zonen als Anteil vom Maxpuls (60/70/80/90 %). |
+| Ermüdungsmuster | `fatiguePattern` | Letztes gegen erstes Drittel: Tempo, Puls, Kadenz, Schrittlänge. Antwort in Worten: eher Beine, eher Kreislauf, bewusst, stabil. |
+| Wind am Tempo / Wärme am Tempo | `environmentCost` | Grobe Schätzung in s/km aus Gegenwind je Fenster bzw. Temperatur über 15 °C. |
+| Deine letzten Läufe | `recentRuns` | Bis zu acht Läufe derselben Art aus 120 Tagen davor, bevorzugt gleicher Zweck; ab drei gibt es einen Vergleich gegen den Median. |
+| Besser · wie zuletzt · etwas schlechter · schlechter | `Rating`, `StatTone` | Farbe und Pfeil einer Zahl gegenüber dem Median der letzten Läufe. Nie Farbe allein. |
 | Analyse-Export | `buildRunAnalysisExport` | Drei Dateien zum Teilen: Bericht (Markdown), Analyse (JSON), Zeitreihe (CSV, 5 s). |
 | Grundregel | — | Regel, die für alles gilt und nicht gegen eine UI-Abkürzung getauscht wird. |
 

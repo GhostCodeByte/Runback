@@ -85,6 +85,8 @@ import {
 } from '../domain/strength';
 import { RunIntegrations } from './RunIntegrations';
 import { KilometerTable, RunSeriesPanel } from './RunCharts';
+import { RunInsights, toneFor } from './RunInsights';
+import { recentComparison } from '../domain/insights';
 import {
   compassLabel,
   kilometerSplits,
@@ -1607,6 +1609,12 @@ export function RunbackApp({
     selected && isRun(selected)
       ? analyzeRun(selected, experiment, runningRuns)
       : null;
+  // Vergleich mit den letzten Läufen färbt die Kacheln oben; er gilt wie die
+  // Auswertung nur für Läufe.
+  const comparison =
+    selected && isRun(selected)
+      ? recentComparison(selected, runningRuns, snapshot?.pacing)
+      : undefined;
   // Full hold-out/stability validation currently takes seconds to minutes.
   // Keep predictions locked until a validated result can be produced off the
   // UI thread and bound to the exact data/model version (model spec §11).
@@ -3225,11 +3233,16 @@ export function RunbackApp({
             value={duration(selected.durationSeconds)}
             label={selectedWords.durationLabel}
           />
-          <Stat value={tempoValue(selected)} label={tempoLabel(selected)} />
+          <Stat
+            value={tempoValue(selected)}
+            label={tempoLabel(selected)}
+            {...toneFor(comparison, 'pace')}
+          />
           {selected.avgHeartRate ? (
             <Stat
               value={`${Math.round(selected.avgHeartRate)}`}
               label="Ø bpm"
+              {...toneFor(comparison, 'heartRate')}
             />
           ) : null}
         </View>
@@ -3262,6 +3275,16 @@ export function RunbackApp({
               }}
             />
           </Section>
+        ) : null}
+        {isRun(selected) ? (
+          <RunInsights
+            run={selected}
+            series={series}
+            history={runningRuns}
+            pacing={snapshot?.pacing}
+            maxHeartRateSetting={settings.maxHeartRate}
+            onMaxHeartRate={value => save({ maxHeartRate: value })}
+          />
         ) : null}
         {snapshot ? (
           <Card style={styles.nextStepCard}>
