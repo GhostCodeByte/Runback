@@ -550,3 +550,89 @@ describe('Funktionen', () => {
     });
   });
 });
+
+describe('Lauf-Detail', () => {
+  it('zeigt Einblicke und färbt das Tempo gegenüber den letzten Läufen', async () => {
+    const base: RunSummary = {
+      id: 'now',
+      startTime: 60 * DAY,
+      endTime: 60 * DAY + 1200_000,
+      durationSeconds: 1200,
+      distanceMeters: 4000,
+      purpose: 'easy',
+      source: 'phone',
+      status: 'completed',
+      avgHeartRate: 150,
+      time: {
+        model_version: 't',
+        elapsedSeconds: 1200,
+        pausedSeconds: 0,
+        activeSeconds: 1200,
+        movingSeconds: 1200,
+        runningSeconds: 1100,
+        walkingSeconds: 60,
+        stoppedSeconds: 40,
+        unknownSeconds: 0,
+      },
+      phaseMetrics: {
+        model_version: 'p',
+        longestRunMeters: 2500,
+        longestRunSeconds: 750,
+        runWalkTransitions: 2,
+        trailingIdleSeconds: 0,
+        running: { seconds: 1100, meters: 3900, avgHeartRate: 152 },
+        walking: { seconds: 60, meters: 100, avgHeartRate: 120 },
+        stopped: { seconds: 40, meters: 0 },
+      },
+      segments: [300, 300, 300, 300].map((durationSeconds, index) => ({
+        id: String(index),
+        durationSeconds,
+        movingSeconds: durationSeconds,
+        distanceMeters: 1000,
+        avgHeartRate: 150,
+        gradePercent: 0,
+      })),
+    };
+    // Drei langsamere Vorläufe: das heutige Tempo ist deutlich besser.
+    const slower = [1, 2, 3].map(index => ({
+      ...base,
+      id: `prev-${index}`,
+      startTime: base.startTime - index * 5 * DAY,
+      endTime: base.startTime - index * 5 * DAY + 1320_000,
+      durationSeconds: 1320,
+      time: { ...base.time!, movingSeconds: 1320 },
+    }));
+    jest.mocked(native.state).mockResolvedValueOnce({
+      runs: [base, ...slower],
+      recording: null,
+      settings: { onboardedAt: 1, minutes: 30 },
+      capabilities: {},
+    });
+    jest.mocked(native.run).mockResolvedValue(base as never);
+    const tree = await render();
+    try {
+      await tap(tree, 'Verlauf');
+      await tapText(tree, 'Locker');
+      const text = screenText(tree);
+      expect(text).toContain('Bewegung');
+      expect(text).toContain('2,50 km · 12:30 ohne Gehpause');
+      expect(text).toContain('Im Vergleich zu dir');
+      expect(text).toContain(
+        'Gegenüber dem Median deiner letzten 3 gleichartigen Läufe.',
+      );
+      // Die Tempo-Kachel trägt den Vergleich als Pfeil und Text, nicht nur als Farbe.
+      expect(
+        tree.root.findAll(
+          item =>
+            typeof item.props?.accessibilityLabel === 'string' &&
+            item.props.accessibilityLabel.endsWith(', besser als zuletzt'),
+        ).length,
+      ).toBeGreaterThan(0);
+      expect(text).toContain('−30 s/km');
+    } finally {
+      await act(async () => {
+        tree.unmount();
+      });
+    }
+  });
+});

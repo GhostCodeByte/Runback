@@ -608,7 +608,16 @@ export function KilometerTable({
         const isSelected = selected === split.index;
         const share =
           split.secondsPerKm !== undefined ? split.secondsPerKm / slowest : 0;
+        // Steigung vor den Höhenmetern: sie erklärt ein langsames Tempo
+        // schneller als „↗ 12“. Unter ±1 % ist der Kilometer flach.
+        const grade =
+          split.gradePercent !== undefined && Math.abs(split.gradePercent) >= 1
+            ? `${split.gradePercent > 0 ? '+' : '−'}${Math.round(
+                Math.abs(split.gradePercent),
+              )} %`
+            : '';
         const climb = [
+          grade,
           split.ascentMeters !== undefined && split.ascentMeters >= 1
             ? `↗ ${Math.round(split.ascentMeters)}`
             : '',

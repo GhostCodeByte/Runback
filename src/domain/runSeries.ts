@@ -205,6 +205,8 @@ export interface KilometerSplit {
   avgHeartRate?: number;
   ascentMeters?: number;
   descentMeters?: number;
+  /** Nettosteigung des Abschnitts in %, nur ab 50 m aus geglätteter Höhe. */
+  gradePercent?: number;
   startElapsedSeconds?: number;
   endElapsedSeconds?: number;
   /** Ab 5 s ohne GPS im Abschnitt ist das Tempo nicht belastbar. */
@@ -243,6 +245,7 @@ export function kilometerSplits(
         avgHeartRate: segment.avgHeartRate,
         ascentMeters: segment.ascentMeters,
         descentMeters: segment.descentMeters,
+        gradePercent: segment.gradePercent,
         startElapsedSeconds: segment.startElapsedSeconds,
         endElapsedSeconds: segment.endElapsedSeconds,
         uncertain: (segment.gapSeconds ?? 0) >= 5,

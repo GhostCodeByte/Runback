@@ -2,8 +2,8 @@
 
 Gestaltungsregeln für alle Runback-Oberflächen. Token (`color`, `space`,
 `radius`, `type`) und Bausteine (`Button`, `Card`, `Section`, `Row`,
-`ChipGroup`, `Segmented`, `Stat`, `Field`, `Notice`, `EmptyState`, `Badge`,
-`Progress`, `Disclosure`, `Sheet`) leben ausschließlich in
+`ChipGroup`, `Segmented`, `Stat`, `StackedBar`, `Field`, `Notice`,
+`EmptyState`, `Badge`, `Progress`, `Disclosure`, `Sheet`) leben ausschließlich in
 `src/ui/components.tsx`. Kein Bildschirm erfindet eigene Farben, Größen oder
 Varianten — wer etwas Neues braucht, ergänzt es dort.
 
@@ -23,7 +23,10 @@ Varianten — wer etwas Neues braucht, ergänzt es dort.
   höchstens eine vollflächig grüne Fläche: die primäre Aktion.
 - Genau zwei Textstufen (`text`, `muted`). Wer eine dritte braucht, hat zu viel
   Text.
-- `danger` färbt nur Text und Rahmen, nie eine Fläche.
+- `danger` färbt nur Text und Rahmen, nie eine Fläche. `caution` ebenso.
+- Ein Wert gegenüber den letzten Läufen: `green` besser, keine Farbe wie
+  zuletzt, `caution` etwas schlechter, `danger` schlechter — immer mit Pfeil
+  (`▲`, `▽`, `▼`) und Vergleichstext, nie Farbe allein.
 - Farbe ist nie die einzige Information (zusätzlich Rahmen, Häkchen,
   `accessibilityState`).
 - Systemschrift. Genau ein `title` je Bildschirm. Fließtext nie kleiner als

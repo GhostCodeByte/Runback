@@ -51,6 +51,8 @@ export interface Settings {
   /** Explizit gewählte Begleitung für den nächsten Lauf. */
   runTarget?: RunTarget;
   weather?: boolean;
+  /** Maxpuls in bpm für die Pulszonen; fehlt er, schätzt Runback aus den Läufen. */
+  maxHeartRate?: number;
   /** Älterer Einzelschalter; gilt nur, solange `features` fehlt. */
   showHeartRate?: boolean;
   /** Was der Nutzer sehen will und wann Runback fragt (`domain/features`). */
