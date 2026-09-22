@@ -33,6 +33,10 @@ export interface ScheduleGoal {
   startDate: ScheduleDate;
   targetDate?: ScheduleDate;
   phase?: string;
+  /** Zielstrecke in km; ohne Angabe liest `raceGoal` sie aus dem Namen. */
+  distanceKm?: number;
+  /** Zielzeit in Sekunden, freiwillig. */
+  targetSeconds?: number;
 }
 
 export interface ScheduledSession {
@@ -367,6 +371,14 @@ export function normalizeSchedule(
     if (nonEmptyString(phase)) {
       goal.phase = phase.trim();
     }
+    const distanceKm = rawGoal?.distanceKm ?? fallbackGoal?.distanceKm;
+    if (finiteNumber(distanceKm) && distanceKm > 0) {
+      goal.distanceKm = distanceKm;
+    }
+    const targetSeconds = rawGoal?.targetSeconds ?? fallbackGoal?.targetSeconds;
+    if (finiteNumber(targetSeconds) && targetSeconds > 0) {
+      goal.targetSeconds = Math.round(targetSeconds);
+    }
   }
 
   return { version: SCHEDULE_VERSION, sessions, availability, routine, goal };
@@ -427,12 +439,18 @@ const usableAvailability = (
   date: ScheduleDate,
   minutes: number,
   exceptId?: string,
+  stretch = false,
 ): boolean => {
   if (!localDateFromKey(date) || !finiteNumber(minutes) || minutes < 0) {
     return false;
   }
-  const budget = Object.prototype.hasOwnProperty.call(state.availability, date)
+  const explicit = Object.prototype.hasOwnProperty.call(state.availability, date);
+  // Ein langer Lauf aus dem Aufbau darf das übliche Tagesbudget überschreiten;
+  // eine ausdrücklich für den Tag eingetragene Zeit bleibt eine Grenze.
+  const budget = explicit
     ? state.availability[date]
+    : stretch
+    ? Math.max(state.routine.minutes, minutes)
     : state.routine.minutes;
   // A missing date-specific override means the normal daily budget applies.
   // `routine.days` controls which recurring slots are proposed; it does not
@@ -534,6 +552,8 @@ const stateSignature = (state: ScheduleState): string =>
           startDate: state.goal.startDate,
           targetDate: state.goal.targetDate,
           phase: state.goal.phase,
+          distanceKm: state.goal.distanceKm,
+          targetSeconds: state.goal.targetSeconds,
         }
       : undefined,
     sessions: [...state.sessions]
@@ -984,8 +1004,26 @@ export function setRoutine(
   };
 }
 
+/**
+ * Ein geplanter Lauf-Slot je Routinetag, z. B. aus dem Aufbau zum Wettkampf.
+ * Ersetzt die gleichförmige Routine, behält aber deren Tage und IDs.
+ */
+export interface RunSlotPlan {
+  routineDay: number;
+  minutes: number;
+  purpose: RunPurpose;
+  title: string;
+  effort: ScheduleEffort;
+  /** Geplante Strecke; nur informativ, der Termin trägt Minuten. */
+  distanceKm?: number;
+  /** Darf das übliche Tagesbudget überschreiten (langer Lauf, Wettkampf). */
+  stretch?: boolean;
+}
+
 export interface SuggestWeekOptions {
   kind?: ScheduleKind;
+  /** Lauf-Slots je Routinetag; ohne Angabe gilt die gleichförmige Routine. */
+  runSlots?: RunSlotPlan[];
   title?: string;
   purpose?: RunPurpose;
   effort?: ScheduleEffort;
@@ -1054,6 +1092,7 @@ interface SlotRequest {
   purpose?: RunPurpose;
   templateId?: string;
   effort: ScheduleEffort;
+  stretch?: boolean;
 }
 
 const routineSessionId = (
@@ -1170,8 +1209,9 @@ const usableAvailabilityFor = (
   date: ScheduleDate,
   minutes: number,
   exceptId?: string,
+  stretch = false,
 ): boolean => {
-  return usableAvailability(state, date, minutes, exceptId);
+  return usableAvailability(state, date, minutes, exceptId, stretch);
 };
 
 const uniqueDays = (days: number[]): number[] => sortDays(days);
@@ -1184,6 +1224,21 @@ const makeRunRequests = (
 ): SlotRequest[] => {
   if (options.includeRoutine === false || options.kind === 'strength') {
     return [];
+  }
+  if (options.runSlots) {
+    return options.runSlots
+      .filter(slot => isDay(slot.routineDay))
+      .map(slot => ({
+        id: routineSessionId(weekStart, slot.routineDay),
+        kind: 'run' as const,
+        routineDay: slot.routineDay,
+        baseDate: addCalendarDays(weekStart, slot.routineDay),
+        title: slot.title.trim() || defaultTitle('run'),
+        minutes: normalizeDuration(slot.minutes, state.routine.minutes),
+        purpose: slot.purpose,
+        effort: slot.effort,
+        stretch: slot.stretch === true,
+      }));
   }
   const minutes = normalizeDuration(options.minutes, state.routine.minutes);
   return runDays.map(routineDay => ({
@@ -1294,11 +1349,12 @@ const canPlaceInWeek = (
   session: ScheduledSession,
   date: ScheduleDate,
   today: ScheduleDate,
+  stretch = false,
 ): ScheduleConflictCode | null => {
   if (isBefore(date, today)) {
     return 'past_target';
   }
-  if (!usableAvailabilityFor(state, date, session.minutes, session.id)) {
+  if (!usableAvailabilityFor(state, date, session.minutes, session.id, stretch)) {
     return 'unavailable';
   }
   if (hasPlannedGroupOn(state.sessions, date, session.kind, session.id)) {
@@ -1480,6 +1536,7 @@ export function suggestWeek(
       proposed,
       request.baseDate,
       today,
+      request.stretch,
     );
     if (!baseCode) {
       addedSessions.push(proposed);
@@ -1507,6 +1564,7 @@ export function suggestWeek(
           candidate,
           candidateDate,
           today,
+          request.stretch,
         )
       ) {
         selectedDate = candidateDate;

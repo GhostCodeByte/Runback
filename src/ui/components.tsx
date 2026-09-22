@@ -516,6 +516,76 @@ export function Progress({ value, label }: { value: number; label: string }) {
 }
 
 /**
+ * Zielnähe als Ring, der sich füllt. `value` zwischen 0 und 1; in der Mitte
+ * die Zahl als Text, damit die Farbe nicht die einzige Information ist. Ohne
+ * Wert bleibt der Ring leer und zeigt „–“.
+ */
+export function Ring({
+  value,
+  label,
+  caption,
+  size = 96,
+}: {
+  value: number | null;
+  label: string;
+  /** Kurzer Text unter der Zahl, z. B. „Zielnähe“. */
+  caption?: string;
+  size?: number;
+}) {
+  const clamped =
+    value === null || !Number.isFinite(value)
+      ? null
+      : Math.max(0, Math.min(1, value));
+  const stroke = 8;
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  const percent = clamped === null ? null : Math.round(clamped * 100);
+  return (
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel={label}
+      accessibilityValue={
+        percent === null
+          ? undefined
+          : { min: 0, max: 100, now: percent, text: `${percent} %` }
+      }
+      style={[s.ring, { width: size, height: size }]}
+    >
+      <Svg width={size} height={size}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={color.line}
+          strokeWidth={stroke}
+          fill="none"
+        />
+        {clamped !== null && clamped > 0 ? (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            stroke={color.green}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            fill="none"
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={circumference * (1 - clamped)}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        ) : null}
+      </Svg>
+      <View style={s.ringCenter} pointerEvents="none">
+        <Text style={s.ringValue}>
+          {percent === null ? '–' : `${percent} %`}
+        </Text>
+        {caption ? <Text style={s.ringCaption}>{caption}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+/**
  * Klappt Inhalt an Ort und Stelle auf (Symbol `⌄`). Für Nebenwege, die auf der
  * Seite bleiben sollen: Details, Verwalten, weitere Kennzahlen.
  */
@@ -1419,6 +1489,18 @@ export const s = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: { height: '100%', backgroundColor: color.green },
+  ring: { alignItems: 'center', justifyContent: 'center' },
+  ringCenter: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringValue: {
+    color: color.text,
+    ...type.heading,
+    fontVariant: ['tabular-nums'],
+  },
+  ringCaption: { color: color.muted, ...type.micro },
   chevronOpen: { transform: [{ rotate: '180deg' }] },
   disclosureBody: { paddingTop: space.sm, gap: space.sm },
   sheetBackdrop: { flex: 1, justifyContent: 'flex-end' },

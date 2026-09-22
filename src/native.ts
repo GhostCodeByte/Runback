@@ -36,6 +36,9 @@ export interface Settings {
   schedule?: ScheduleState;
   goal?: string;
   goalTargetDate?: string;
+  /** Zielstrecke in km und Zielzeit in Sekunden fürs Laufziel (`domain/raceGoal`). */
+  goalDistanceKm?: number;
+  goalTargetSeconds?: number;
   trainingFocus?: TrainingFocus | null;
   /** Bereich Krafttraining: eigenes Ziel und eigener Fokus. */
   strengthGoal?: string;

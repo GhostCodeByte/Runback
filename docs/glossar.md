@@ -7,6 +7,9 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | --- | --- | --- |
 | Bereich | `Area` | Laufen oder Krafttraining. Jeder Bereich hat eigenes Ziel, eigenen Fokus, eigene Empfehlung. |
 | Ziel | `goal`, `targetDate` | Freiwilliges Vorhaben je Bereich, ggf. mit Datum. Darf enden. |
+| Zielstrecke / Zielzeit | `distanceKm`, `targetSeconds` | Wettkampfstrecke und Wunschzeit zum Laufziel. Die Strecke darf aus dem Zieltext kommen („Halbmarathon“). |
+| Zielnähe | `RacePrediction.progress` | Ring 0–100 %: das kleinere von „längster Lauf gegen Aufbaustrecke“ und „Zielzeit gegen geschätzte Zeit“. Schätzung nach Riegel aus einem tatsächlichen Lauf, nie eine Messung. |
+| Aufbau | `buildUpWeek` | Wochenvorschlag mit Wettkampfziel: ein langer Lauf je Woche, höchstens 10 % mehr, Erholungswoche, Entlastung, Wettkampf am Zieldatum. |
 | Fokus-Art | `FocusKind` | Kurze, versionierte Auswahl je Bereich (Laufen: Ausdauer, schneller, verletzungsfrei, Gewohnheit, Fitness · Kraft: stärker, Muskeln, verletzungsfrei, Gewohnheit, Fitness). |
 | Eigene Bezeichnung | `TrainingFocus.label` | Freitext des Nutzers zum Fokus. Wird angezeigt, nicht ausgewertet. |
 | Fokus | `TrainingFocus` | Dauerhaftes Thema ohne Enddatum, höchstens einer je Bereich, wird nie bewertet. |

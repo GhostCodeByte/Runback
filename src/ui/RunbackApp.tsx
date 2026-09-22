@@ -36,6 +36,13 @@ import { Onboarding } from './Onboarding';
 import { Statistics, readStatisticsView } from './Statistics';
 import { PlanningScreen } from './PlanningScreen';
 import { DevelopmentScreen } from './DevelopmentScreen';
+import { GoalProgress } from './GoalProgress';
+import {
+  formatGoalTime,
+  parseGoalDistanceKm,
+  parseGoalTime,
+  predictRace,
+} from '../domain/raceGoal';
 import {
   addCalendarDays,
   localDateKey,
@@ -541,6 +548,8 @@ export function RunbackApp({
   const [goalStartInput, setGoalStartInput] = useState('');
   const [goalTargetInput, setGoalTargetInput] = useState('');
   const [goalPhaseInput, setGoalPhaseInput] = useState('');
+  const [goalDistanceInput, setGoalDistanceInput] = useState('');
+  const [goalTimeInput, setGoalTimeInput] = useState('');
   const [presetName, setPresetName] = useState('');
   const [strength, setStrength] = useState<StrengthState>(emptyStrengthState());
   const [workoutOpen, setWorkoutOpen] = useState(false);
@@ -603,6 +612,28 @@ export function RunbackApp({
   const runs = state.runs;
   // Nur Läufe tragen diese Tempoauswertung und Kilometer; Radfahrten stehen daneben.
   const runningRuns = useMemo(() => runs.filter(isRun), [runs]);
+  // Zielnähe: Schätzung aus tatsächlichen Läufen, getrennt von jeder Empfehlung.
+  const racePrediction = useMemo(
+    () =>
+      predictRace({
+        goal: settings.goal || schedule.goal?.name || '',
+        distanceKm: settings.goalDistanceKm ?? schedule.goal?.distanceKm,
+        targetDate: settings.goalTargetDate || schedule.goal?.targetDate,
+        targetSeconds:
+          settings.goalTargetSeconds ?? schedule.goal?.targetSeconds,
+        runs: runningRuns,
+        now,
+      }),
+    [
+      settings.goal,
+      settings.goalDistanceKm,
+      settings.goalTargetDate,
+      settings.goalTargetSeconds,
+      schedule.goal,
+      runningRuns,
+      now,
+    ],
+  );
   const statisticsView = useMemo(
     () => readStatisticsView(settings.statisticsView),
     [settings.statisticsView],
@@ -1130,11 +1161,27 @@ export function RunbackApp({
     }
     if (next === 'goal') {
       setGoalInput(schedule.goal?.name || settings.goal || '');
-      setGoalStartInput(schedule.goal?.startDate || '');
+      // Ohne Beginn kein Planstand und kein Aufbau: heute vorschlagen, der
+      // Nutzer sieht und ändert es im Feld.
+      setGoalStartInput(schedule.goal?.startDate || localDateKey(now));
       setGoalTargetInput(
         settings.goalTargetDate || schedule.goal?.targetDate || '',
       );
       setGoalPhaseInput(schedule.goal?.phase || '');
+      const distanceKm = settings.goalDistanceKm ?? schedule.goal?.distanceKm;
+      setGoalDistanceInput(
+        distanceKm === undefined ? '' : String(distanceKm).replace('.', ','),
+      );
+      const targetSeconds =
+        settings.goalTargetSeconds ?? schedule.goal?.targetSeconds;
+      // Immer h:mm:ss, damit „59:30“ beim Speichern nicht als Stunden gilt.
+      setGoalTimeInput(
+        targetSeconds === undefined
+          ? ''
+          : `${Math.floor(targetSeconds / 3600)}:${String(
+              Math.floor((targetSeconds % 3600) / 60),
+            ).padStart(2, '0')}:${String(targetSeconds % 60).padStart(2, '0')}`,
+      );
     }
   };
   const switchTab = (next: Tab) => {
@@ -2012,6 +2059,15 @@ export function RunbackApp({
         ? recommendationCard(heroArea) ??
           recommendationCard(heroArea === 'running' ? 'strength' : 'running')
         : null}
+      {homeSections.includes('goal') &&
+      showRunning &&
+      racePrediction.status !== 'no_goal' ? (
+        <GoalProgress
+          prediction={racePrediction}
+          compact
+          onEdit={() => openPage('goal')}
+        />
+      ) : null}
       {homeSections.includes('body') &&
       sorenessStorageAvailable &&
       !reportedToday ? (
@@ -2787,7 +2843,12 @@ export function RunbackApp({
           <Row
             title="Ziel"
             subtitle={
-              settings.goal || schedule.goal?.name || 'Kein Ziel gesetzt'
+              racePrediction.status === 'estimated' &&
+              racePrediction.predictedSeconds !== undefined
+                ? `${racePrediction.goal} · etwa ${formatGoalTime(
+                    racePrediction.predictedSeconds,
+                  )} geschätzt`
+                : settings.goal || schedule.goal?.name || 'Kein Ziel gesetzt'
             }
             onPress={() => openPage('goal')}
           />
@@ -3570,6 +3631,9 @@ export function RunbackApp({
     <>
       <Title>Dein Ziel</Title>
       <Copy muted>Laufen · optional, darf ein Datum haben</Copy>
+      {racePrediction.status !== 'no_goal' ? (
+        <GoalProgress prediction={racePrediction} />
+      ) : null}
       <Section title="Was möchtest du erreichen?">
         <TextInput
           accessibilityLabel="Dein Ziel"
@@ -3580,6 +3644,43 @@ export function RunbackApp({
           style={styles.input}
           selectionColor={color.green}
         />
+      </Section>
+      <Section title="Wettkampf">
+        <Field
+          label="Strecke in km (optional)"
+          hint={
+            goalDistanceInput.trim()
+              ? undefined
+              : parseGoalDistanceKm(goalInput) !== undefined
+              ? `Aus dem Ziel gelesen: ${String(
+                  Math.round(parseGoalDistanceKm(goalInput)! * 10) / 10,
+                ).replace('.', ',')} km`
+              : 'Zum Beispiel 21,1 — oder „Halbmarathon“ im Ziel'
+          }
+        >
+          <TextInput
+            accessibilityLabel="Zielstrecke"
+            value={goalDistanceInput}
+            onChangeText={setGoalDistanceInput}
+            placeholder="21,1"
+            placeholderTextColor={color.muted}
+            keyboardType="decimal-pad"
+            style={styles.input}
+          />
+        </Field>
+        <Field
+          label="Zielzeit (optional, h:mm:ss)"
+          hint="Mit Zielzeit zeigt der Ring, wie nah du dran bist."
+        >
+          <TextInput
+            accessibilityLabel="Zielzeit"
+            value={goalTimeInput}
+            onChangeText={setGoalTimeInput}
+            placeholder="1:59:00"
+            placeholderTextColor={color.muted}
+            style={styles.input}
+          />
+        </Field>
       </Section>
       <Section title="Zeitraum">
         <Field label="Beginn (optional, JJJJ-MM-TT)">
@@ -3646,9 +3747,28 @@ export function RunbackApp({
                   'Trage für deinen Schwerpunkt auch den Planbeginn ein.',
                 );
               }
+              let distanceKm: number | undefined;
+              if (goalDistanceInput.trim()) {
+                distanceKm = Number(goalDistanceInput.trim().replace(',', '.'));
+                if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+                  throw new Error('Trage die Strecke als Zahl in km ein.');
+                }
+              }
+              let targetSeconds: number | undefined;
+              if (goalTimeInput.trim()) {
+                targetSeconds = parseGoalTime(
+                  goalTimeInput,
+                  distanceKm ?? parseGoalDistanceKm(goalInput),
+                );
+                if (targetSeconds === undefined) {
+                  throw new Error('Trage die Zielzeit als h:mm:ss ein.');
+                }
+              }
               await persist({
                 goal: goalInput.trim(),
                 goalTargetDate: targetDate,
+                goalDistanceKm: distanceKm,
+                goalTargetSeconds: targetSeconds,
                 schedule: {
                   ...schedule,
                   goal:
@@ -3658,6 +3778,8 @@ export function RunbackApp({
                           startDate,
                           targetDate: targetDate || undefined,
                           phase: goalPhaseInput.trim() || undefined,
+                          distanceKm,
+                          targetSeconds,
                         }
                       : undefined,
                 },
@@ -3678,12 +3800,16 @@ export function RunbackApp({
                 await persist({
                   goal: '',
                   goalTargetDate: '',
+                  goalDistanceKm: undefined,
+                  goalTargetSeconds: undefined,
                   schedule: { ...schedule, goal: undefined },
                 });
                 setGoalInput('');
                 setGoalStartInput('');
                 setGoalTargetInput('');
                 setGoalPhaseInput('');
+                setGoalDistanceInput('');
+                setGoalTimeInput('');
                 setMessage('Ziel entfernt. Dein Fokus bleibt bestehen.');
               });
             }}
@@ -4137,6 +4263,7 @@ export function RunbackApp({
       strengthHistoryAvailable={strengthHistoryAvailable}
       now={now}
       schedule={schedule}
+      prediction={racePrediction}
       onEditGoal={() => openPage('goal')}
     />
   ) : page === 'session' ? (
@@ -4223,6 +4350,11 @@ export function RunbackApp({
         setTemplatesView(showStrength ? 'strength' : 'run');
         openPage('templates');
       }}
+      onOpenRoutePlanner={
+        onOpenRoutePlanner && features.recording.routes && showRunning
+          ? onOpenRoutePlanner
+          : undefined
+      }
       busy={busy}
       showSuggest={features.planning.suggest}
       showMonth={features.planning.month}
@@ -4641,21 +4773,6 @@ export function RunbackApp({
           {content}
         </ScrollView>
       )}
-      {onOpenRoutePlanner &&
-      features.recording.routes &&
-      showRunning &&
-      !selected &&
-      page === 'main' &&
-      !recording ? (
-        <View pointerEvents="box-none" style={styles.routeLauncher}>
-          <Button
-            small
-            title="Route planen"
-            onPress={onOpenRoutePlanner}
-            label="Routenplaner öffnen"
-          />
-        </View>
-      ) : null}
       <View
         style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}
       >
@@ -4684,11 +4801,6 @@ export function RunbackApp({
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: color.bg },
-  routeLauncher: {
-    position: 'absolute',
-    right: space.md,
-    bottom: 86,
-  },
   header: {
     height: 64,
     paddingHorizontal: space.lg,
