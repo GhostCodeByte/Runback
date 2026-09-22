@@ -24,7 +24,12 @@ export type SorenessPrompt =
   | 'training_days'
   | 'weekly';
 export type RecommendationMode = 'suggest' | 'on_request' | 'off';
-export type HomeSection = 'week' | 'recommendation' | 'body' | 'recent';
+export type HomeSection =
+  | 'week'
+  | 'recommendation'
+  | 'goal'
+  | 'body'
+  | 'recent';
 export type RecordingMetric = 'distance' | 'pace' | 'heartRate' | 'target';
 export type RecordingPrimary = 'duration' | 'distance' | 'heartRate';
 export type AfterRun = 'detail' | 'feeling' | 'home';
@@ -68,6 +73,7 @@ export interface FeatureSettings {
 export const HOME_SECTIONS: HomeSection[] = [
   'week',
   'recommendation',
+  'goal',
   'body',
   'recent',
 ];
@@ -330,6 +336,8 @@ export function availableHomeSections(
         return features.planning.enabled;
       case 'body':
         return features.soreness.enabled;
+      case 'goal':
+        return features.areas.running;
       case 'recommendation':
         return (
           recommendationsSuggested(features, 'running') ||
@@ -439,6 +447,7 @@ export const AFTER_RUN_LABELS: Record<AfterRun, string> = {
 export const HOME_SECTION_LABELS: Record<HomeSection, string> = {
   week: 'Wochenleiste',
   recommendation: 'Empfehlung',
+  goal: 'Zielnähe',
   body: 'Muskelkater melden',
   recent: 'Zuletzt',
 };

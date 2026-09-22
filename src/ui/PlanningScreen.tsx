@@ -19,6 +19,8 @@ import type { Run } from '../native';
 import type { StrengthSession, WorkoutTemplate } from '../domain/strength';
 import type { RunPurpose } from '../domain/types';
 import { runTitle } from '../domain/runTitle';
+import { buildUpWeek } from '../domain/buildUp';
+import { effectiveGoalDistanceKm } from '../domain/raceGoal';
 import {
   addCalendarDays,
   addScheduledSession,
@@ -69,6 +71,8 @@ export interface PlanningScreenProps {
   onStartStrength: (session: ScheduledSession) => Promise<void>;
   onDevelopment?: () => void;
   onManageTemplates?: () => void;
+  /** Öffnet den Routenplaner. Fehlt er, gibt es keinen Einstieg. */
+  onOpenRoutePlanner?: () => void;
   busy?: boolean;
   /** „Woche vorschlagen lassen“ anbieten. Wer selbst plant, blendet es aus. */
   showSuggest?: boolean;
@@ -234,6 +238,8 @@ function scheduleSignature(state: ScheduleState): string {
           startDate: state.goal.startDate,
           targetDate: state.goal.targetDate,
           phase: state.goal.phase,
+          distanceKm: state.goal.distanceKm,
+          targetSeconds: state.goal.targetSeconds,
         }
       : undefined,
     sessions: [...state.sessions]
@@ -363,16 +369,46 @@ function actualIsFinishedRun(run: Run): boolean {
   );
 }
 
+/**
+ * Mit Wettkampfziel und Datum ersetzt der Aufbau die gleichförmige Routine:
+ * ein langer Lauf je Woche, Entlastung vor dem Ziel, der Wettkampf am
+ * Zieldatum. Fehlt ihm die Grundlage, sagt der Vorschlag, was fehlt, und
+ * schlägt die Routine wie gewohnt vor.
+ */
 function suggestTrainingWeek(
   state: ScheduleState,
   weekStart: Date,
   templates: WorkoutTemplate[],
   today: string,
+  runs: Run[],
+  now: number,
 ): WeekSuggestion {
-  return suggestWeek(state, weekStart, {
+  const goal = state.goal;
+  const distanceKm = goal ? effectiveGoalDistanceKm(goal) : undefined;
+  const buildUp =
+    goal?.targetDate && distanceKm !== undefined
+      ? buildUpWeek({
+          goal: { name: goal.name, distanceKm, targetDate: goal.targetDate },
+          runs,
+          routine: state.routine,
+          weekStart: localDateKey(weekStart),
+          today,
+          now,
+        })
+      : undefined;
+  const suggestion = suggestWeek(state, weekStart, {
     today,
     strengthTemplates: templates,
+    runSlots: buildUp?.status === 'ready' ? buildUp.slots : undefined,
   });
+  if (!buildUp) {
+    return suggestion;
+  }
+  return {
+    ...suggestion,
+    warnings: [...buildUp.limits, ...suggestion.warnings],
+    rationale: [...buildUp.rationale, ...suggestion.rationale],
+  };
 }
 
 export function PlanningScreen({
@@ -386,6 +422,7 @@ export function PlanningScreen({
   onStartStrength,
   onDevelopment,
   onManageTemplates,
+  onOpenRoutePlanner,
   busy = false,
   showSuggest = true,
   showMonth = true,
@@ -648,8 +685,10 @@ export function PlanningScreen({
     setError('');
     setMessage('');
     setValidation('');
-    setProposal(suggestTrainingWeek(displayState, weekStart, templates, today));
-  }, [displayState, templates, today, weekStart]);
+    setProposal(
+      suggestTrainingWeek(displayState, weekStart, templates, today, runs, now),
+    );
+  }, [displayState, now, runs, templates, today, weekStart]);
 
   const applyProposal = useCallback(async () => {
     if (
@@ -1297,6 +1336,13 @@ export function PlanningScreen({
             title="Vorlagen"
             subtitle={`${templates.length} Kraftvorlagen · Laufvorlagen`}
             onPress={onManageTemplates}
+          />
+        ) : null}
+        {onOpenRoutePlanner ? (
+          <Row
+            title="Route planen"
+            subtitle="Strecke vorab festlegen und beim Lauf folgen"
+            onPress={onOpenRoutePlanner}
           />
         ) : null}
         {onDevelopment ? (

@@ -23,6 +23,8 @@ import {
   space,
   type,
 } from './components';
+import type { RacePrediction } from '../domain/raceGoal';
+import { GoalProgress } from './GoalProgress';
 
 const numberFormatter = new Intl.NumberFormat('de-DE', {
   minimumFractionDigits: 0,
@@ -297,6 +299,8 @@ export interface DevelopmentScreenProps {
   now: number;
   schedule?: ScheduleState | null;
   onEditGoal: () => void;
+  /** Zielnähe aus `predictRace`; ohne sie zeigt die Seite nur den Zielabgleich. */
+  prediction?: RacePrediction;
   /** False when the native history query failed, rather than returned no rows. */
   strengthHistoryAvailable?: boolean;
 }
@@ -309,6 +313,7 @@ export function DevelopmentScreen({
   now,
   schedule = null,
   onEditGoal,
+  prediction,
   strengthHistoryAvailable = true,
 }: DevelopmentScreenProps) {
   const facts = useMemo(
@@ -321,7 +326,11 @@ export function DevelopmentScreen({
       <Title>Entwicklung</Title>
 
       <Section title="Ziel">
-        <GoalCard facts={facts} goal={goal} onEditGoal={onEditGoal} />
+        {prediction ? (
+          <GoalProgress prediction={prediction} onEdit={onEditGoal} />
+        ) : (
+          <GoalCard facts={facts} goal={goal} onEditGoal={onEditGoal} />
+        )}
       </Section>
 
       <Section title="Im Trainingsplan">

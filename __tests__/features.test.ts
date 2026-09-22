@@ -87,10 +87,16 @@ describe('Ableitungen', () => {
       recommendations: { running: 'off', strength: 'suggest' },
     });
     expect(visibleTabs(f)).toEqual(['Heute', 'Verlauf', 'Coach']);
-    expect(availableHomeSections(f)).toEqual(['recent']);
+    expect(availableHomeSections(f)).toEqual(['goal', 'recent']);
     expect(visibleHomeSections(f)).toEqual(availableHomeSections(f));
     expect(recommendationsShown(f, 'running')).toBe(false);
     expect(recommendationsShown(f, 'strength')).toBe(false);
+    // Die Zielnähe gehört zum Laufen: ohne den Bereich verschwindet der Block.
+    expect(
+      availableHomeSections(
+        normalizeFeatures({ areas: { running: false, strength: true } }),
+      ),
+    ).not.toContain('goal');
   });
 
   it('unterscheidet Vorschlagen von Nur auf Nachfrage', () => {

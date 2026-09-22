@@ -356,4 +356,72 @@ describe('PlanningScreen', () => {
     expect(textContent(dateOnly)).toContain('Lauf · 30 min · Geplant');
     unmount(tree);
   });
+
+  it('plant mit Wettkampfziel den Aufbau statt der gleichförmigen Routine', async () => {
+    const onSave = jest.fn<Promise<void>, [ScheduleState]>();
+    onSave.mockResolvedValue(undefined);
+    const longRun = (id: string, date: string, km: number): Run => ({
+      ...completedRun(id, date),
+      distanceMeters: km * 1000,
+      durationSeconds: km * 360,
+      endTime: localAt(date, 8) + km * 360 * 1000,
+    });
+    const state = emptySchedule({
+      routine: { days: [1, 5], minutes: 30 },
+      goal: {
+        name: 'Halbmarathon',
+        startDate: '2025-03-03',
+        targetDate: '2025-05-04',
+      },
+    });
+    const tree = renderPlanning(state, {
+      now: localAt('2025-03-10', 12),
+      runs: [longRun('a', '2025-03-01', 9), longRun('b', '2025-03-08', 10)],
+      onSave,
+    });
+
+    await press(
+      tree,
+      'Trainingswoche aus Rhythmus und Kraftvorlagen vorschlagen',
+    );
+    expect(screenText(tree)).toContain('Aufbau zu Halbmarathon');
+    expect(screenText(tree)).toContain('Langer Lauf');
+
+    await press(tree, 'Vorschlag übernehmen');
+    const saved = onSave.mock.calls[0][0].sessions;
+    expect(saved.map(session => session.purpose)).toEqual(['easy', 'long']);
+    // 9,5 km × 1,1 = 10,5 km bei 6:00 /km ≈ 63 min → 65 min, über dem üblichen Budget.
+    expect(saved[1].minutes).toBe(65);
+    unmount(tree);
+  });
+
+  it('bietet den Routenplaner als Zeile an, nicht als Schwebeknopf', () => {
+    const onOpenRoutePlanner = jest.fn();
+    const props: PlanningScreenProps = {
+      state: emptySchedule(),
+      onSave: jest.fn<Promise<void>, [ScheduleState]>().mockResolvedValue(undefined),
+      templates: [],
+      runs: [],
+      strengthSessions: [],
+      now: localAt('2025-03-12', 12),
+      onStartRun: jest.fn<Promise<void>, [ScheduledSession]>(),
+      onStartStrength: jest.fn<Promise<void>, [ScheduledSession]>(),
+      onOpenRoutePlanner,
+    };
+    let tree!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(<PlanningScreen {...props} />);
+    });
+    const row = tree.root.find(
+      node =>
+        typeof node.props.onPress === 'function' &&
+        node.props.accessibilityRole === 'button' &&
+        textContent(node).startsWith('Route planen'),
+    );
+    act(() => {
+      row.props.onPress();
+    });
+    expect(onOpenRoutePlanner).toHaveBeenCalledTimes(1);
+    unmount(tree);
+  });
 });
