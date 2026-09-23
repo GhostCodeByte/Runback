@@ -26,6 +26,8 @@ object RunSeries {
     data class Position(val latitude: Double, val longitude: Double)
     /** Windrichtung meteorologisch: `fromDeg` ist, woher er kommt (0 = Nord, 90 = Ost). */
     data class Wind(val mps: Double, val fromDeg: Double)
+    /** Wert über einen Zeitraum (Laufstil-Fenster), in Unix-ms. */
+    data class Span(val start: Long, val end: Long, val value: Double)
     data class Row(
         val elapsedSeconds: Int,
         val distanceMeters: Double,
@@ -38,6 +40,8 @@ object RunSeries {
         val position: Position?,
         /** Positiv = Gegenwind, negativ = Rückenwind, in m/s. */
         val headwindMps: Double?,
+        /** Armschwung aus dem Laufstil-Fenster, das diese Zeile überdeckt (Grad). */
+        val armSwingDeg: Double? = null,
     )
     data class Result(val stepSeconds: Int, val rows: List<Row>)
 
@@ -61,9 +65,16 @@ object RunSeries {
         wind: Wind?,
         gridSeconds: Int = RunPhases.GRID_SECONDS,
         maxRows: Int = DEFAULT_MAX_ROWS,
+        armSwing: List<Span> = emptyList(),
     ): Result {
         val n = phaseRows.size
         val gridMs = gridSeconds * 1000L
+        val swingSum = DoubleArray(n); val swingCount = IntArray(n)
+        for (span in armSwing) {
+            val from = ((span.start - startTime) / gridMs).toInt().coerceAtLeast(0)
+            val to = ((span.end - startTime - 1) / gridMs).toInt().coerceAtMost(n - 1)
+            for (bin in from..to) { swingSum[bin] += span.value; swingCount[bin]++ }
+        }
         val last = arrayOfNulls<Position>(n)
         for (point in gps) {
             val bin = ((point.time - startTime) / gridMs).toInt()
@@ -96,6 +107,7 @@ object RunSeries {
                 gradePercent = row.gradePercent,
                 position = last[i],
                 headwindMps = headwind[i],
+                armSwingDeg = if (swingCount[i] > 0) swingSum[i] / swingCount[i] else null,
             )
         }
         val factor = if (maxRows <= 0) 1 else ((n + maxRows - 1) / maxRows).coerceAtLeast(1)
@@ -117,6 +129,7 @@ object RunSeries {
             gradePercent = mean(group.map { it.gradePercent }),
             position = group.lastOrNull { it.position != null }?.position,
             headwindMps = mean(group.map { it.headwindMps }),
+            armSwingDeg = mean(group.map { it.armSwingDeg }),
         )
     }
 
@@ -134,6 +147,7 @@ object RunSeries {
                     row.gradePercent?.let { put("gradePercent", it) }
                     row.position?.let { put("latitude", it.latitude).put("longitude", it.longitude) }
                     row.headwindMps?.let { put("headwindMps", it) }
+                    row.armSwingDeg?.let { put("armSwingDeg", it) }
                 })
             }
         })

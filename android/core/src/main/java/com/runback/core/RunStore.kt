@@ -511,6 +511,7 @@ class RunStore(context: Context) : DocumentStore {
                 values.minOrNull()?.let { run.put("${output}Min", it) }
             }
         }
+        gaitSummary(id, derived)?.let { run.put("gait", it) } ?: run.remove("gait")
         run.put("segments", segments).put("gapCount", gaps).put("gaps", gapList).put("model_version", RunMath.MODEL_VERSION)
             .put("sensorSources", sensorSources(id))
         run.put("dataRetention", JSONObject().put("originals", "retained").put("recomputable", true))
@@ -556,6 +557,40 @@ class RunStore(context: Context) : DocumentStore {
         write(run)
         return JSONObject().put("geometry", geometry).put("series", series)
     }
+    /** Laufstil-Fenster ohne Pausen; beide Geräte, anders als bei Puls oder GPS gewinnt keins. */
+    private fun gaitSamples(id: String): List<RawSample> {
+        val boundaries = events(id)
+        val result = ArrayList<RawSample>()
+        db.rawQuery("SELECT time,json FROM samples WHERE run_id=? AND kind='gait' ORDER BY time,seq", arrayOf(id)).use { rows ->
+            while (rows.moveToNext()) {
+                val sample = RawSample(rows.getLong(0), "gait", JSONObject(rows.getString(1)))
+                if (!isPausedAt(sample.time, boundaries)) result.add(sample)
+            }
+        }
+        return result
+    }
+    /** Ein Fenster gilt als gelaufen, wenn mindestens die Hälfte seiner Phasenzeilen RUN ist; ohne Phasen weiß das niemand. */
+    private fun gaitSummary(id: String, derived: DerivedSeries): JSONObject? {
+        val samples = gaitSamples(id)
+        if (samples.isEmpty()) return null
+        val rows = derived.phases.rows
+        val gridMs = RunPhases.GRID_SECONDS * 1000L
+        return GaitSummary.build(samples) { from, to ->
+            val slice = (((from - derived.start) / gridMs).toInt() until ((to - derived.start) / gridMs).toInt().coerceAtLeast(1))
+                .mapNotNull { rows.getOrNull(it) }
+            val known = slice.filter { it.state != RunPhases.State.UNKNOWN }
+            if (known.isEmpty()) null else known.count { it.state == RunPhases.State.RUN } * 2 >= known.size
+        }
+    }
+    /** Armschwung je Fenster für den Verlauf: die Uhr, wenn sie einen hat, sonst das Handy. */
+    private fun armSwingSpans(id: String): List<RunSeries.Span> {
+        val samples = gaitSamples(id).filter { it.values.optDouble("armSwingDeg", Double.NaN).isFinite() }
+        val watch = samples.filter { it.values.optString("source") == WearProtocol.WATCH_SOURCE }
+        return (watch.ifEmpty { samples }).map {
+            RunSeries.Span(it.values.optLong("startTime", it.time), it.values.optLong("endTime", it.time + Gait.WINDOW_MS),
+                it.values.getDouble("armSwingDeg"))
+        }
+    }
     /** Zeitreihe im 5-s-Raster als CSV; wird nativ in eine Datei geschrieben, nie über die Brücke gereicht. */
     fun timeseriesCsv(id: String): String = locked { RunPhases.csv(deriveSeries(id, read(id)).phases.rows) }
     /**
@@ -568,7 +603,7 @@ class RunStore(context: Context) : DocumentStore {
         val weather = getDocument("weather_$id")
         val mps = weather?.optDouble("windMps", Double.NaN); val fromDeg = weather?.optDouble("windDirectionDeg", Double.NaN)
         val wind = if (mps != null && mps.isFinite() && fromDeg != null && fromDeg.isFinite()) RunSeries.Wind(mps, fromDeg) else null
-        RunSeries.json(RunSeries.build(derived.start, derived.phases.rows, derived.gps, wind, maxRows = maxRows.coerceIn(60, 2000)), wind)
+        RunSeries.json(RunSeries.build(derived.start, derived.phases.rows, derived.gps, wind, maxRows = maxRows.coerceIn(60, 2000), armSwing = armSwingSpans(id)), wind)
     }
     fun detail(id: String): JSONObject = locked {
         val derived = derive(id)

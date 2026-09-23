@@ -149,6 +149,7 @@ import {
   type Settings,
 } from '../native';
 import { FeatureSettings } from './FeatureSettings';
+import { PHONE_PLACEMENTS, normalizePlacement } from '../domain/gait';
 import {
   enabledSports,
   normalizeFeatures,
@@ -2242,6 +2243,17 @@ export function RunbackApp({
               disabled={busy}
             />
           </Field>
+          {sport === 'running' ? (
+            <Field label="Handy trägst du">
+              <ChipGroup
+                label="Wo das Handy beim Laufen steckt"
+                options={PHONE_PLACEMENTS}
+                value={normalizePlacement(settings.gaitPlacement)}
+                onChange={value => save({ gaitPlacement: value })}
+                disabled={busy}
+              />
+            </Field>
+          ) : null}
           {sport === 'running' ? targetRow(purpose) : null}
         </>
       )}

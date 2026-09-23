@@ -49,6 +49,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
     private var lastCheckpoint = 0L
     private var lastWakeRenewal = 0L
     private var lastAcceleration = 0L
+    private var gait: GaitRecorder? = null
     private var nextSampleSequence = 0L
     private var recordingSource = WearProtocol.PHONE_SOURCE
     private var allowLocation = true
@@ -217,7 +218,12 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
             runCatching { BleSensors.get(this).startRecording(runId) }
                 .onFailure { warn("ble_unavailable", "Bluetooth-Sensoren konnten nicht starten: ${it.message.orEmpty()}") }
         }
-        registerSensor(Sensor.TYPE_ACCELEROMETER, "Beschleunigungssensor")
+        // Laufstil braucht Beschleunigung und Drehung in hoher Rate; gespeichert
+        // werden weiterhin nur 10 Hz Beschleunigung und je 10 s ein Laufstil-Fenster.
+        gait = gaitRecorder()
+        val periodUs = if (gait != null) (1_000_000 / gaitRateHz()).toInt() else 100_000
+        registerSensor(Sensor.TYPE_ACCELEROMETER, "Beschleunigungssensor", periodUs)
+        if (gait != null) registerSensor(Sensor.TYPE_GYROSCOPE, "Gyroskop", periodUs)
         registerSensor(Sensor.TYPE_PRESSURE, "Barometer")
         if (hasHeartPermission()) {
             registerSensor(Sensor.TYPE_HEART_RATE, "Pulssensor")
@@ -249,14 +255,38 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         return providerCount
     }
 
-    private fun registerSensor(type: Int, label: String) {
+    /** Nur Läufe bekommen einen Laufstil; die Uhr sitzt immer am Handgelenk. */
+    private fun gaitRecorder(): GaitRecorder? {
+        val session = store.active() ?: return null
+        if (session.optString("sport", "running") != "running") return null
+        val placement = if (recordingSource == WearProtocol.WATCH_SOURCE) Gait.Placement.WRIST
+            else Gait.Placement.parse(store.settings().optString("gaitPlacement"))
+        return GaitRecorder(placement, gaitRateHz())
+    }
+
+    /** Uhr 50 Hz schont den Akku und reicht für den Armschwung; Handy 100 Hz für den Rumpf. */
+    private fun gaitRateHz(): Double = if (recordingSource == WearProtocol.WATCH_SOURCE) 50.0 else 100.0
+
+    private fun storeGait(window: Gait.Window) {
+        val start = wallTime(window.startNs); val end = wallTime(window.endNs)
+        pending.add(RawSample(start, "gait", Gait.json(window, start, end).put("source", recordingSource)))
+        val cadence = window.metrics.cadence ?: return
+        pending.add(RawSample(start + (end - start) / 2, "cadence", JSONObject().put("rpm", cadence)
+            .put("method", Gait.VERSION).put("placement", window.placement.code).put("source", recordingSource)))
+    }
+
+    // Sensor timestamps are monotonic nanoseconds, not Unix timestamps.
+    private fun wallTime(sensorNs: Long): Long =
+        System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - sensorNs) / 1_000_000L
+
+    private fun registerSensor(type: Int, label: String, periodUs: Int = 100_000) {
         val sensor = sensors.getDefaultSensor(type)
         if (sensor == null) {
             if (type != Sensor.TYPE_HEART_RATE) warn("sensor_$type", "$label ist auf diesem Gerät nicht verfügbar.")
             return
         }
         try {
-            if (!sensors.registerListener(this, sensor, 100_000, worker)) {
+            if (!sensors.registerListener(this, sensor, periodUs, worker)) {
                 warn("sensor_$type", "$label konnte nicht gestartet werden.")
             }
         } catch (error: RuntimeException) {
@@ -299,7 +329,13 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
         val kind: String
         val values = JSONObject()
         when (event.sensor.type) {
+            Sensor.TYPE_GYROSCOPE -> {
+                gait?.addRotation(event.timestamp, event.values[0].toDouble(), event.values[1].toDouble(), event.values[2].toDouble())
+                return
+            }
             Sensor.TYPE_ACCELEROMETER -> {
+                gait?.addAcceleration(event.timestamp, event.values[0].toDouble(), event.values[1].toDouble(), event.values[2].toDouble())
+                    ?.let(::storeGait)
                 // Small scheduling jitter must not halve the requested 10 Hz sample rate.
                 if (event.timestamp - lastAcceleration < 95_000_000L) return
                 lastAcceleration = event.timestamp
@@ -319,9 +355,7 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
             else -> return
         }
         values.put("accuracy", event.accuracy).put("source", recordingSource)
-        // Sensor timestamps are monotonic nanoseconds, not Unix timestamps.
-        val sampleTime = System.currentTimeMillis() - (SystemClock.elapsedRealtimeNanos() - event.timestamp) / 1_000_000L
-        pending.add(RawSample(sampleTime, kind, values))
+        pending.add(RawSample(wallTime(event.timestamp), kind, values))
         if (pending.size >= 128) {
             try { flush() } catch (error: Exception) { failRecording(error) }
         }
@@ -706,6 +740,8 @@ class RecordingService : Service(), SensorEventListener, LocationListener, TextT
 
     private fun endListening() {
         listening = false
+        gait?.reset()
+        gait = null
         worker.removeCallbacks(tick)
         runCatching { BleSensors.get(this).stopRecording() }
         sensors.unregisterListener(this)

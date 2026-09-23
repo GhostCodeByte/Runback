@@ -45,6 +45,14 @@ class RunSeriesTest {
         assertTrue(result.rows.all { it.headwindMps == null })
     }
 
+    @Test fun armSwingFillsEveryRowItsWindowCovers() {
+        val rows = (0 until 6).map { row(it, RunPhases.State.RUN) }
+        val spans = listOf(RunSeries.Span(start, start + 10_000, 70.0), RunSeries.Span(start + 10_000, start + 20_000, 60.0))
+        val result = RunSeries.build(start, rows, emptyList(), wind = null, armSwing = spans)
+        assertEquals(listOf(70.0, 70.0, 60.0, 60.0, null, null), result.rows.map { it.armSwingDeg })
+        assertEquals(60.0, RunSeries.json(result, null).getJSONArray("rows").getJSONObject(2).getDouble("armSwingDeg"), 0.001)
+    }
+
     @Test fun longRunsAreMergedToTheRowLimitWithoutInventingValues() {
         val rows = (0 until 100).map { row(it, if (it % 2 == 0) RunPhases.State.RUN else RunPhases.State.STOPPED, if (it % 2 == 0) 3.0 else null, heart = if (it < 50) 140.0 else null) }
         val result = RunSeries.build(start, rows, emptyList(), wind = null, maxRows = 25)

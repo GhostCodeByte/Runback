@@ -20,6 +20,8 @@ export interface SeriesRow {
   longitude?: number;
   /** Positiv = Gegenwind, negativ = Rückenwind (m/s). */
   headwindMps?: number;
+  /** Armschwung aus dem Laufstil (Uhr, sonst Handy in der Hand), Grad. */
+  armSwingDeg?: number;
 }
 export interface RunSeries {
   version?: string;
@@ -33,12 +35,14 @@ export type SeriesMetric =
   | 'heartRate'
   | 'elevation'
   | 'cadence'
+  | 'armSwing'
   | 'wind';
 export const SERIES_METRICS: SeriesMetric[] = [
   'pace',
   'heartRate',
   'elevation',
   'cadence',
+  'armSwing',
   'wind',
 ];
 export function metricLabel(metric: SeriesMetric): string {
@@ -47,6 +51,7 @@ export function metricLabel(metric: SeriesMetric): string {
     heartRate: 'Puls',
     elevation: 'Höhe',
     cadence: 'Kadenz',
+    armSwing: 'Armschwung',
     wind: 'Wind',
   }[metric];
 }
@@ -67,6 +72,8 @@ export function metricValue(
       return row.elevationM;
     case 'cadence':
       return row.cadence;
+    case 'armSwing':
+      return row.armSwingDeg;
     case 'wind':
       return row.headwindMps;
   }
@@ -129,6 +136,7 @@ export function metricUnit(metric: SeriesMetric): string {
     heartRate: 'bpm',
     elevation: 'm',
     cadence: 'spm',
+    armSwing: '°',
     wind: 'm/s',
   }[metric];
 }

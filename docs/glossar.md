@@ -70,6 +70,14 @@ rechts wozu es dient. Nur Begriffe, die im Produkt wirklich vorkommen.
 | Wind am Tempo / Wärme am Tempo | `environmentCost` | Grobe Schätzung in s/km aus Gegenwind je Fenster bzw. Temperatur über 15 °C. |
 | Deine letzten Läufe | `recentRuns` | Bis zu acht Läufe derselben Art aus 120 Tagen davor, bevorzugt gleicher Zweck; ab drei gibt es einen Vergleich gegen den Median. |
 | Besser · wie zuletzt · etwas schlechter · schlechter | `Rating`, `StatTone` | Farbe und Pfeil einer Zahl gegenüber dem Median der letzten Läufe. Nie Farbe allein. |
+| Laufstil | `gait.ts`, Kotlin `Gait` | Beobachtungen aus Beschleunigungssensor und Gyroskop je Gerät (Handy, Uhr), je 10-s-Abschnitt gerechnet, Rohwerte in hoher Rate werden nicht gespeichert. Keine Effizienzzahl, keine Empfehlung. |
+| Trageort | `gaitPlacement`, `GaitPlacement` | Wo das Handy beim Laufen steckt (Hand, Gürtel, Tasche, Oberarm, Oberkörper, weiß nicht); die Uhr sitzt am Handgelenk. Bestimmt, welche Laufstil-Werte es gibt. Passt das Signal nicht dazu, fehlen die Werte dieses Geräts. |
+| Armschwung | `armSwingDeg` | Winkel von ganz vorn bis ganz hinten je Doppelschritt, aus Hand oder Handgelenk. Wird nicht bewertet, nur verglichen. |
+| Schwungrichtung | `crossShare` | Anteil der Armdrehung um die Hochachse: eher nach vorn, etwas quer, deutlich quer vor dem Körper. |
+| Schrittrhythmus | `regularity` | Wie ähnlich ein Doppelschritt dem nächsten ist (0–1): sehr gleichmäßig, gleichmäßig, unruhig. |
+| Auf und Ab | `oscillationCm`, `verticalRatio` | Vertikale Bewegung des Rumpfs je Schritt, auch im Verhältnis zur Schrittlänge. Nur Handy am Gürtel oder Oberkörper. |
+| Bodenkontakt · Aufkommen · Abbremsen | `contactMs`, `impactG`, `brakingMps` | Grobe Rumpfwerte je Schritt: Kontaktzeit, Beschleunigungsspitze in g, Tempo-Schwankung vor–zurück. Nur Gürtel oder Oberkörper, nur zum Vergleich mit dir selbst. |
+| Vorlage | `leanDeg` | Neigung des Oberkörpers beim Laufen gegenüber dem Stehen am Start. Nur Handy am Oberkörper. |
 | Analyse-Export | `buildRunAnalysisExport` | Drei Dateien zum Teilen: Bericht (Markdown), Analyse (JSON), Zeitreihe (CSV, 5 s). |
 | Grundregel | — | Regel, die für alles gilt und nicht gegen eine UI-Abkürzung getauscht wird. |
 
