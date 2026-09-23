@@ -109,7 +109,7 @@ object WearSync {
     }
 
     fun publishSamples(context: Context, runId: String, sequence: Long, samples: List<RawSample>) {
-        val relevant = samples.filter { it.kind in setOf("gps", "heartRate", "cadence", "pressure") }
+        val relevant = samples.filter { it.kind in setOf("gps", "heartRate", "cadence", "pressure", "gait") }
         if (relevant.isEmpty()) return
         controlExecutor.execute {
             runCatching {

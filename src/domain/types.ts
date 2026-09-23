@@ -103,6 +103,52 @@ export interface GpsGap {
   toElapsedSeconds: number;
   reason: 'timeout' | 'accuracy' | 'speed' | 'invalid' | string;
 }
+/** Trageort eines Geräts beim Laufen; die Uhr ist immer `wrist`. */
+export type GaitPlacement =
+  | 'hand'
+  | 'upper_arm'
+  | 'waist'
+  | 'pocket'
+  | 'chest'
+  | 'wrist'
+  | 'unknown';
+/** Laufstil-Werte, jeweils Median der gelaufenen 10-s-Fenster (Kotlin `Gait`). */
+export interface GaitValues {
+  /** Schritte je Minute. */
+  cadence?: number;
+  /** Ähnlichkeit eines Doppelschritts mit dem nächsten, 0–1. */
+  regularity?: number;
+  /** Winkel von ganz vorn bis ganz hinten. */
+  armSwingDeg?: number;
+  /** Anteil der Armdrehung um die Hochachse, 0–1. */
+  crossShare?: number;
+  oscillationCm?: number;
+  contactMs?: number;
+  /** Spitze der Vertikalbeschleunigung je Schritt in g. */
+  impactG?: number;
+  /** Tempo-Schwankung vor–zurück je Schritt. */
+  brakingMps?: number;
+  leanDeg?: number;
+}
+export interface GaitDevice extends GaitValues {
+  source: string;
+  placement: GaitPlacement;
+  /** Gelaufene Fenster. */
+  windows: number;
+  /** Davon mit erkanntem Schritt. */
+  usable: number;
+  /** Fenster, deren Signal zum Trageort geprüft werden konnte, und davon unpassende. */
+  checked: number;
+  mismatch: number;
+  early?: GaitValues;
+  late?: GaitValues;
+}
+/** Laufstil eines Laufs je Gerät; fehlt, wenn keins Fenster aufgezeichnet hat. */
+export interface RunGait {
+  model_version: string;
+  phone?: GaitDevice;
+  watch?: GaitDevice;
+}
 export interface RunSummary {
   id: string;
   /** Name aus der Quelle. Für die Anzeige immer runTitle() benutzen. */
@@ -137,6 +183,7 @@ export interface RunSummary {
   /** Version des nativen Distanzmodells, mit dem Abschnitte und Distanz abgeleitet wurden. */
   model_version?: string;
   sensorSources?: { gps?: string; heartRate?: string };
+  gait?: RunGait;
   sourceActivityId?: string;
   sourceActivityType?: string;
   importVersion?: string;

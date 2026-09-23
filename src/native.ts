@@ -1,6 +1,7 @@
 import { NativeModules } from 'react-native';
 import type { TrainingFocus } from './domain/focus';
 import type {
+  GaitPlacement,
   RunSummary,
   RunPurpose,
   Sport,
@@ -49,6 +50,8 @@ export interface Settings {
   purpose?: RunPurpose;
   /** Zuletzt gewählte Sportart für die freie Aufzeichnung. */
   sport?: Sport;
+  /** Wo das Handy beim Laufen steckt; Kotlin liest es beim Start für den Laufstil. */
+  gaitPlacement?: GaitPlacement;
   trainingDays?: number[];
   cues?: boolean;
   /** Explizit gewählte Begleitung für den nächsten Lauf. */

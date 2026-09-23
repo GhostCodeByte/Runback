@@ -58,6 +58,7 @@ const LINE_COLOR: Record<SeriesMetric, string> = {
   heartRate: color.series.heart,
   elevation: color.muted,
   cadence: color.series.cadence,
+  armSwing: color.series.tailwind,
   wind: color.series.headwind,
 };
 

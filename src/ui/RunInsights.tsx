@@ -32,10 +32,12 @@ import {
   type MetricComparison,
   type RecentComparison,
 } from '../domain/insights';
+import { gaitInsight, type GaitLine } from '../domain/gait';
 import {
   Copy,
   Disclosure,
   Input,
+  Notice,
   Row,
   Section,
   StackedBar,
@@ -156,6 +158,7 @@ export function RunInsights({
     [run, history],
   );
   const curve = useMemo(() => heartRatePaceCurve(run, history), [run, history]);
+  const gait = useMemo(() => gaitInsight(run, history), [run, history]);
   const hasHeartRate = run.avgHeartRate !== undefined;
   const heartRateSpan =
     run.avgHeartRateMin !== undefined && run.avgHeartRateMax !== undefined
@@ -375,6 +378,26 @@ export function RunInsights({
         </Section>
       ) : null}
 
+      {gait ? (
+        <Section title="Laufstil">
+          {gait.notice ? <Notice>{gait.notice}</Notice> : null}
+          {gait.headline ? <Copy>{gait.headline}</Copy> : null}
+          {gait.lines.map(item => (
+            <GaitRow key={`${item.device}-${item.metric}`} item={item} />
+          ))}
+          {gait.late ? (
+            <Row title="Letztes gegen erstes Drittel" subtitle={gait.late} />
+          ) : null}
+          <Disclosure title="Details" subtitle="Trageort, Datenbasis, Modell">
+            {gait.details.map(text => (
+              <Copy muted key={text}>
+                {text}
+              </Copy>
+            ))}
+          </Disclosure>
+        </Section>
+      ) : null}
+
       {weather ? (
         <Section title="Bedingungen">
           <Copy>
@@ -500,6 +523,36 @@ function CompareRow({ item }: { item: MetricComparison }) {
           {'\n'}
           <Text style={styles.compareDelta}>{deltaText(item)}</Text>
         </Text>
+      }
+    />
+  );
+}
+
+/** Laufstil-Zeile; der Vergleich steht rechts, bei neutralen Werten ohne Farbe. */
+function GaitRow({ item }: { item: GaitLine }) {
+  const comparison = item.comparison;
+  const mark = comparison ? TONE_MARK[comparison.rating] : '';
+  return (
+    <Row
+      title={item.title}
+      subtitle={item.subtitle}
+      trailing={
+        comparison ? (
+          <Text
+            style={[
+              styles.compareValue,
+              { color: toneColor(comparison.rating) },
+            ]}
+            accessibilityLabel={`${item.title}: ${comparison.delta} gegenüber deinen letzten ${comparison.count} Läufen`}
+          >
+            {comparison.delta}
+            {mark ? ` ${mark}` : ''}
+            {'\n'}
+            <Text style={styles.compareDelta}>
+              zu {comparison.count} Läufen
+            </Text>
+          </Text>
+        ) : undefined
       }
     />
   );
